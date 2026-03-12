@@ -6,6 +6,11 @@ from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import AsyncOpenAI
+import dotenv
+import sys
+
+dotenv.load_dotenv()
+API_KEY = os.getenv("API_KEY")
 
 class FastMCPClient:
     """与 FastMCP Server 通信的客户端"""
@@ -18,9 +23,10 @@ class FastMCPClient:
     async def connect(self, server_script: str):
         """连接到 FastMCP Server"""
         server_params = StdioServerParameters(
-            command="python",
-            args=[server_script],
-            env={**os.environ, "PYTHONPATH": "."}
+            command=sys.executable,
+            args=[os.path.abspath(server_script)],
+            env={**os.environ, "PYTHONPATH": "."},
+            stderr=sys.stderr
         )
         
         stdio_transport = await self.exit_stack.enter_async_context(
@@ -74,12 +80,18 @@ class FastMCPClient:
 async def main():
     client = FastMCPClient()
     kimi = AsyncOpenAI(
-        api_key=os.getenv("API_KEY"),
-        base_url="https://api.moonshot.cn/v1"
+        api_key=API_KEY,
+        base_url="https://api.kimi.com/coding/v1",  # Kimi Code API endpoint
+        default_headers={
+            "User-Agent": "claude-cli/1.0",
+            "X-Client-Name": "claude-code"
+        }
     )
     
     try:
-        await client.connect("mcp_server/server.py")
+        # 使用相对于当前文件的路径，提高可移植性
+        server_script = os.path.join(os.path.dirname(__file__), "..", "mcp_server", "server.py")
+        await client.connect(os.path.abspath(server_script))
         
         # 对话循环
         messages = [{"role": "system", "content": "使用可用工具帮助用户"}]
@@ -103,7 +115,8 @@ async def main():
             
             # 处理工具调用（FastMCP 会自动处理参数验证）
             if msg.tool_calls:
-                messages.append({
+                # Kimi Code 需要保留 reasoning_content
+                assistant_msg = {
                     "role": "assistant",
                     "content": msg.content or "",
                     "tool_calls": [
@@ -117,7 +130,11 @@ async def main():
                         }
                         for tc in msg.tool_calls
                     ]
-                })
+                }
+                # 如果存在 reasoning_content，必须保留
+                if hasattr(msg, 'reasoning_content') and msg.reasoning_content:
+                    assistant_msg["reasoning_content"] = msg.reasoning_content
+                messages.append(assistant_msg)
                 
                 for tc in msg.tool_calls:
                     args = json.loads(tc.function.arguments)
@@ -145,7 +162,11 @@ async def main():
                 })
             else:
                 print(f"\n🤖 Kimi: {msg.content}")
-                messages.append({"role": "assistant", "content": msg.content})
+                assistant_msg = {"role": "assistant", "content": msg.content}
+                # 如果存在 reasoning_content，必须保留（Kimi Code 需要）
+                if hasattr(msg, 'reasoning_content') and msg.reasoning_content:
+                    assistant_msg["reasoning_content"] = msg.reasoning_content
+                messages.append(assistant_msg)
                 
     finally:
         await client.close()

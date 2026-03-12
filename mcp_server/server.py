@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 try:
     from fastmcp import FastMCP, Context
 except ImportError:
-    print("❌ 请先安装 fastmcp: pip install fastmcp")
+    print("❌ 请先安装 fastmcp: pip install fastmcp", file=sys.stderr)
     sys.exit(1)
 
 mcp = FastMCP("KimiSmartTools")
@@ -29,6 +29,9 @@ class CodeInput(BaseModel):
     code: str = Field(...)
     language: Literal["python", "javascript", "java", "cpp"] = Field(default="python")
     analyze_complexity: bool = Field(default=True)
+
+class SearchInput(BaseModel):
+    query: str = Field(..., description="搜索关键词")
 
 @mcp.tool()
 async def calculate(params: CalcInput, ctx: Context) -> str:
@@ -58,10 +61,10 @@ async def analyze_code(params: CodeInput, ctx: Context) -> str:
     return f"{params.language}代码: {len(lines)}行, 非空: {sum(1 for l in lines if l.strip())}行"
 
 @mcp.tool()
-async def smart_search(params: CodeInput, ctx: Context) -> str:  # 修正：应该是 SearchInput
+async def smart_search(params: SearchInput, ctx: Context) -> str:
     """搜索知识"""
     kb = {"mcp": "MCP是开放协议", "kimi": "Kimi是月之暗面模型", "fastmcp": "FastMCP是Python框架"}
-    results = [v for k,v in kb.items() if params.code.lower() in k]  # 修正：这里应该是 query
+    results = [v for k,v in kb.items() if params.query.lower() in k]
     return "\n".join(results) if results else "未找到"
 
 @mcp.resource("config://app")
@@ -75,18 +78,19 @@ def main():
     parser.add_argument('--port', type=int, default=8000)
     args = parser.parse_args()
     
-    print(f"🚀 启动 {mcp.name} ({args.transport}模式)")
-    print("🔧 工具: calculate, get_weather, analyze_code, smart_search")
+    # stdio 模式下所有输出必须用 stderr，stdout 用于 MCP 通信
+    print(f"🚀 启动 {mcp.name} ({args.transport}模式)", file=sys.stderr)
+    print("🔧 工具: calculate, get_weather, analyze_code, smart_search", file=sys.stderr)
     
     try:
         if args.transport == 'stdio':
             print("⏳ 等待连接...", file=sys.stderr)
             mcp.run(transport='stdio')
         else:
-            print(f"🌐 http://localhost:{args.port}/sse")
+            print(f"🌐 http://localhost:{args.port}/sse", file=sys.stderr)
             mcp.run(transport='sse', port=args.port)
     except KeyboardInterrupt:
-        print("\n🛑 已停止")
+        print("\n🛑 已停止", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
