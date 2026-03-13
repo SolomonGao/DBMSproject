@@ -1,153 +1,245 @@
-# Spatio-Temporal Narrative AI Agent
+# GDELT Narrative API
 
-基于 MCP (Model Context Protocol) 架构的北美事件时空叙事分析系统，使用 GDELT 2.0 数据集（2024年北美事件）实现自主因果推理与事件链重构。
+A production-ready **Spatio-Temporal Narrative AI Agent** for North America Event Analysis via MCP Architecture.
 
-## 项目简介
+[![CI](https://github.com/your-org/gdelt-narrative-api/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/gdelt-narrative-api/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-本系统通过 MCP 协议桥接关系型 MySQL 数据库与大语言模型 (LLM)，支持：
-- **Text2SQL** 自然语言查询转 SQL
-- **RAG** 检索增强生成
-- **时空事件分析** 基于地理坐标和时间序列的事件关联
-- **因果叙事生成** 自动发现目标事件的前因后果链
+## 🎯 Overview
 
-## 技术栈
+This system uses the **Model Context Protocol (MCP)** to bridge relational MySQL databases with Large Language Models (LLMs). It enables autonomous discovery and synthesis of antecedent events leading up to user-defined target events using the **GDELT 2.0 dataset** (2024 North American events).
 
-| 组件 | 技术 |
-|------|------|
-| 编程语言 | Python 3.10+ |
-| 数据库 | MySQL 8.0+ (支持空间扩展) |
-| MCP 框架 | FastMCP |
-| LLM API | Kimi Code API |
-| 数据处理 | pandas, numpy |
-| 可视化 | matplotlib |
+### Key Features
 
-## 项目结构
+- 🔗 **MCP Architecture**: Seamless integration between SQL databases and LLMs
+- 🤖 **AI-Powered Analysis**: Uses Moonshot AI (Kimi) for narrative generation
+- 🗄️ **GDELT Integration**: Full support for GDELT 2.0 event data
+- 🌐 **REST API**: FastAPI-based with OpenAPI documentation
+- 📊 **Spatio-Temporal Queries**: Geographic and temporal event filtering
+- 🐳 **Docker Ready**: Complete containerization support
+- ✅ **Production Quality**: Type hints, testing, linting, CI/CD
+
+## 🏗️ Architecture
 
 ```
-project/
-├── data/                       # GDELT CSV 数据文件 (93 chunks)
-│   └── gdelt_2024_na_*.csv
-├── db_scripts/                 # 数据库脚本
-│   ├── gdelt_db_v1.sql         # MySQL 建表脚本
-│   ├── import_event.py         # 数据导入脚本
-│   └── data_view.py            # 数据预览工具
-├── mcp_server/                 # MCP 服务器
-│   └── server.py               # FastMCP 服务端
-├── mcp_client/                 # MCP 客户端
-│   └── client.py               # LLM 交互客户端
-├── index.html                  # 项目展示页面
-├── sample.csv                  # 数据样本
-└── .env                        # 环境变量配置
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   Frontend      │────▶│   FastAPI        │────▶│   MCP Client    │
+│   (index.html)  │◄────│   (backend)      │◄────│   (mcp/)        │
+└─────────────────┘     └──────────────────┘     └────────┬────────┘
+                                                          │
+                                    ┌─────────────────────┘
+                                    │
+                           ┌────────▼────────┐
+                           │   MCP Server    │
+                           │   (mcp_server/) │
+                           └────────┬────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    ▼                               ▼
+           ┌─────────────────┐           ┌─────────────────┐
+           │   MySQL DB      │           │   LLM (Kimi)    │
+           │   (gdelt_db)    │           │   (via API)     │
+           └─────────────────┘           └─────────────────┘
 ```
 
-## 快速开始
+### Project Structure
 
-### 1. 环境准备
+```
+.
+├── backend/
+│   ├── src/gdelt_api/          # Main application package
+│   │   ├── config/             # Configuration management
+│   │   ├── core/               # Core utilities (logging, exceptions)
+│   │   ├── api/                # API layer (routes, dependencies)
+│   │   ├── services/           # Business logic
+│   │   ├── models/             # Pydantic models
+│   │   ├── db/                 # Database layer
+│   │   ├── mcp/                # MCP client
+│   │   └── utils/              # Utilities
+│   ├── tests/                  # Test suite
+│   ├── alembic/                # Database migrations
+│   └── Dockerfile              # Container image
+├── mcp_server/                 # MCP Server implementation
+├── db_scripts/                 # Database setup scripts
+├── docker-compose.yml          # Orchestration
+├── pyproject.toml             # Python dependencies
+└── Makefile                   # Development commands
+```
 
-创建 `.env` 文件：
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- MySQL 8.0+
+- Moonshot AI API Key
+
+### Installation
+
+1. **Clone and setup environment:**
 
 ```bash
-# MySQL 密码
-DB_PASSWORD=your_mysql_password
-
-# Kimi Code API Key (从 https://www.kimi.com/code/console 获取)
-API_KEY=sk-kimi-xxxxx
+# Copy environment template
+cp .env.example .env
+# Edit .env with your credentials
 ```
 
-### 2. 安装依赖
+2. **Install dependencies:**
 
 ```bash
-pip install mcp fastmcp mysql-connector-python pandas numpy openai python-dotenv pydantic
+make dev-install
+# or
+pip install -e ".[dev,lint]"
 ```
 
-### 3. 数据库设置
+3. **Setup database:**
 
 ```bash
-# 创建数据库
+# Create database
 mysql -u root -p < db_scripts/gdelt_db_v1.sql
 
-# 导入数据 (约 4.5GB，需要较长时间)
+# Import data (optional)
 python db_scripts/import_event.py
+
+# Run migrations
+make migrate
 ```
 
-### 4. 运行系统
+4. **Start the server:**
 
-启动 MCP 服务器（终端 1）：
 ```bash
-python mcp_server/server.py
+# Development with auto-reload
+make run-dev
+
+# Production
+make run
 ```
 
-启动 MCP 客户端（终端 2）：
+The API will be available at `http://localhost:8000`
+
+### Docker Deployment
+
 ```bash
-python mcp_client/client.py
+# Build and run all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api
 ```
 
-## 使用示例
+## 📖 API Documentation
 
-客户端启动后，输入自然语言查询：
+Once running, access:
 
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+- **Health Check**: http://localhost:8000/api/v1/health
+
+### Example Usage
+
+```bash
+# Health check
+curl http://localhost:8000/api/v1/health
+
+# Chat with AI
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "What happened in Washington DC last week?"}]
+  }'
+
+# Search events
+curl "http://localhost:8000/api/v1/events?country_code=US&start_date=2024-01-01"
 ```
-👤 用户: 计算 2+3*4
-🔧 调用 FastMCP 工具: calculate
-📊 结果: 结果: 14.0...
-🤖 Kimi: 计算结果是 14
 
-👤 用户: 北京的天气怎么样
-🔧 调用 FastMCP 工具: get_weather
-📊 结果: 北京 2025-03-12: 晴, 22°C...
-🤖 Kimi: 北京今天天气晴朗，22°C
+## 🧪 Development
 
-👤 用户: quit
+### Running Tests
+
+```bash
+# All tests
+make test
+
+# With coverage
+make test-coverage
+
+# Specific markers
+pytest -m unit        # Unit tests only
+pytest -m integration # Integration tests
 ```
 
-## 数据库架构
+### Code Quality
 
-**主表**: `events_table`
+```bash
+# Run all linters
+make lint
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| GlobalEventID | BIGINT | 事件唯一标识 |
-| SQLDATE | DATE | 事件日期 |
-| Actor1Name | VARCHAR | 主要参与者 |
-| Actor2Name | VARCHAR | 次要参与者 |
-| EventCode | VARCHAR | CAMEO 事件代码 |
-| GoldsteinScale | FLOAT | 冲突/合作评分 |
-| ActionGeo_Lat/Long | DECIMAL | 地理坐标 |
-| ActionGeo_Point | POINT | 空间几何点 (SRID 4326) |
-| SOURCEURL | TEXT | 新闻来源 URL |
+# Format code
+make format
 
-## MCP 工具
+# Pre-commit hooks
+pre-commit run --all-files
+```
 
-| 工具名 | 功能 |
-|--------|------|
-| `calculate` | 数学计算 (sqrt, pow, abs 等) |
-| `get_weather` | 天气查询 (演示数据) |
-| `analyze_code` | 代码统计分析 |
-| `smart_search` | 知识库搜索 |
+### Project Commands
 
-## 数据来源
+```bash
+make help          # Show all available commands
+make migrate       # Run database migrations
+make seed-db       # Import sample data
+make docker-build  # Build Docker images
+make clean         # Clean cache files
+```
 
-**GDELT 2.0 Dataset** - [Global Database of Events, Language, and Tone](https://www.gdeltproject.org/)
-- 时间范围：2024年全年
-- 地理范围：北美（美国、加拿大、墨西哥）
-- 数据量：约 450 万条事件记录
+## 🔧 Configuration
 
-## 团队成员
+Configuration is managed via environment variables (see `.env.example`):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ENV` | Environment (development/testing/production) | `development` |
+| `DEBUG` | Debug mode | `false` |
+| `DB_PASSWORD` | MySQL password | - |
+| `API_KEY` | Moonshot AI API key | - |
+| `LOG_LEVEL` | Logging level | `INFO` |
+| `LOG_FORMAT` | Log format (json/console) | `json` |
+
+## 📚 Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Web Framework | FastAPI |
+| Database | MySQL 8.0 + SQLAlchemy 2.0 |
+| LLM | Moonshot AI (Kimi) |
+| MCP | Model Context Protocol |
+| Testing | pytest + pytest-asyncio |
+| Linting | ruff + mypy + bandit |
+| CI/CD | GitHub Actions |
+| Container | Docker + Docker Compose |
+
+## 📝 License
+
+MIT License - See [LICENSE](LICENSE) for details.
+
+## 👥 Research Team
+
+Virginia Tech - "Ut Prosim" (That I May Serve)
 
 - Xing Gao
 - Xiangxin Tang
 - Yuxin Miao
 - Ziliang Chen
 
-**Virginia Tech** - "Ut Prosim" (That I May Serve)
+## 📄 Citation
 
-## 许可证
+If you use this project in your research, please cite:
 
-本项目为学术研究用途。
-
-## 致谢
-
-- [GDELT Project](https://www.gdeltproject.org/)
-- [MCP Protocol](https://modelcontextprotocol.io/)
-- [FastMCP](https://github.com/jlowin/fastmcp)
-- [Moonshot AI](https://www.moonshot.cn/)
+```bibtex
+@article{gdelt_narrative_api,
+  title={Spatio-Temporal Narrative AI Agent for North America Event Analysis via MCP Architecture},
+  author={Tang, Xiangxin and Gao, Xing and Miao, Yuxin and Chen, Ziliang},
+  institution={Virginia Tech},
+  year={2024}
+}
+```
