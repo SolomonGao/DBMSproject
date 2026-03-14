@@ -1,245 +1,180 @@
-# GDELT Narrative API
+# GDELT MCP Client App
 
-A production-ready **Spatio-Temporal Narrative AI Agent** for North America Event Analysis via MCP Architecture.
+一个类似 OpenClaw 的独立 MCP 客户端应用，集成了 Kimi AI 和工具调用功能。
 
-[![CI](https://github.com/your-org/gdelt-narrative-api/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/gdelt-narrative-api/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+## 功能特点
 
-## 🎯 Overview
+- 🤖 **Kimi AI 集成**: 使用 Moonshot AI (Kimi) 作为对话模型
+- 🔧 **MCP 工具调用**: 自动发现并调用 MCP Server 提供的工具
+- 💬 **交互式 CLI**: 简洁的命令行聊天界面
+- 📊 **完善的日志**: 支持控制台和文件日志，带颜色输出
+- ⚙️ **灵活配置**: 通过 `.env` 文件自定义所有参数
 
-This system uses the **Model Context Protocol (MCP)** to bridge relational MySQL databases with Large Language Models (LLMs). It enables autonomous discovery and synthesis of antecedent events leading up to user-defined target events using the **GDELT 2.0 dataset** (2024 North American events).
+## 快速开始
 
-### Key Features
-
-- 🔗 **MCP Architecture**: Seamless integration between SQL databases and LLMs
-- 🤖 **AI-Powered Analysis**: Uses Moonshot AI (Kimi) for narrative generation
-- 🗄️ **GDELT Integration**: Full support for GDELT 2.0 event data
-- 🌐 **REST API**: FastAPI-based with OpenAPI documentation
-- 📊 **Spatio-Temporal Queries**: Geographic and temporal event filtering
-- 🐳 **Docker Ready**: Complete containerization support
-- ✅ **Production Quality**: Type hints, testing, linting, CI/CD
-
-## 🏗️ Architecture
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Frontend      │────▶│   FastAPI        │────▶│   MCP Client    │
-│   (index.html)  │◄────│   (backend)      │◄────│   (mcp/)        │
-└─────────────────┘     └──────────────────┘     └────────┬────────┘
-                                                          │
-                                    ┌─────────────────────┘
-                                    │
-                           ┌────────▼────────┐
-                           │   MCP Server    │
-                           │   (mcp_server/) │
-                           └────────┬────────┘
-                                    │
-                    ┌───────────────┴───────────────┐
-                    ▼                               ▼
-           ┌─────────────────┐           ┌─────────────────┐
-           │   MySQL DB      │           │   LLM (Kimi)    │
-           │   (gdelt_db)    │           │   (via API)     │
-           └─────────────────┘           └─────────────────┘
-```
-
-### Project Structure
-
-```
-.
-├── backend/
-│   ├── src/gdelt_api/          # Main application package
-│   │   ├── config/             # Configuration management
-│   │   ├── core/               # Core utilities (logging, exceptions)
-│   │   ├── api/                # API layer (routes, dependencies)
-│   │   ├── services/           # Business logic
-│   │   ├── models/             # Pydantic models
-│   │   ├── db/                 # Database layer
-│   │   ├── mcp/                # MCP client
-│   │   └── utils/              # Utilities
-│   ├── tests/                  # Test suite
-│   ├── alembic/                # Database migrations
-│   └── Dockerfile              # Container image
-├── mcp_server/                 # MCP Server implementation
-├── db_scripts/                 # Database setup scripts
-├── docker-compose.yml          # Orchestration
-├── pyproject.toml             # Python dependencies
-└── Makefile                   # Development commands
-```
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- MySQL 8.0+
-- Moonshot AI API Key
-
-### Installation
-
-1. **Clone and setup environment:**
+### 1. 安装依赖
 
 ```bash
-# Copy environment template
-cp .env.example .env
-# Edit .env with your credentials
+pip install mcp fastmcp openai python-dotenv
 ```
 
-2. **Install dependencies:**
+### 2. 配置 API Key
 
 ```bash
-make dev-install
-# or
-pip install -e ".[dev,lint]"
+# 复制配置模板
+copy .env_example .env
+
+# 编辑 .env 文件，填入你的 Moonshot API Key
 ```
 
-3. **Setup database:**
+最少配置：
+```
+MOONSHOT_API_KEY=your_moonshot_api_key_here
+```
+
+### 3. 运行应用
 
 ```bash
-# Create database
-mysql -u root -p < db_scripts/gdelt_db_v1.sql
-
-# Import data (optional)
-python db_scripts/import_event.py
-
-# Run migrations
-make migrate
+python run.py
 ```
 
-4. **Start the server:**
+或使用调试模式：
+```bash
+python run.py --log-level DEBUG
+```
+
+## 使用方法
+
+启动后会进入交互式聊天界面：
+
+```
+============================================================
+⚙️ 欢迎使用 GDELT MCP Client
+============================================================
+
+📋 配置摘要:
+   🌙 Moonshot API: sk-abc1...xyz9
+   🤖 LLM 模型: kimi-k2-0905-preview
+   🔧 MCP Server: stdio模式
+
+💡 可用命令:
+   /help    - 显示帮助信息
+   /clear   - 清空对话历史
+   /tools   - 显示可用工具列表
+   /status  - 显示状态信息
+   /quit    - 退出程序
+
+📝 直接输入消息开始对话...
+------------------------------------------------------------
+
+👤 你: 北京今天天气怎么样？
+🤖 AI: 
+🛠️  调用工具: get_weather
+✅ 工具返回: 北京 2026-03-14: 晴, 22°C
+北京今天是晴天，温度 22°C，天气不错！
+```
+
+## 可用命令
+
+| 命令 | 说明 |
+|------|------|
+| `/help` | 显示帮助信息 |
+| `/clear` | 清空对话历史 |
+| `/tools` | 列出所有可用工具 |
+| `/status` | 显示当前状态 |
+| `/quit` | 退出应用 |
+
+## 项目结构
+
+```
+project/
+├── mcp_app/              # 应用主包
+│   ├── __init__.py
+│   ├── logger.py         # 日志模块（支持彩色输出和文件）
+│   ├── config.py         # 配置管理
+│   ├── client.py         # MCP 客户端
+│   ├── llm.py            # LLM 接口
+│   └── cli.py            # CLI 界面
+├── mcp_server/           # MCP 服务器
+│   └── server.py
+├── logs/                 # 日志文件目录（运行时创建）
+├── run.py                # 启动脚本
+├── .env                  # 用户配置（需创建）
+└── .env_example          # 配置模板
+```
+
+## 配置说明
+
+通过 `.env` 文件配置：
+
+| 变量名 | 必填 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `MOONSHOT_API_KEY` | ✅ | - | Kimi API Key |
+| `MCP_SERVER_PATH` | ❌ | 自动检测 | MCP Server 路径 |
+| `MCP_TRANSPORT` | ❌ | stdio | 传输模式 (stdio/sse) |
+| `LLM_MODEL` | ❌ | kimi-k2-0905-preview | 模型名称 |
+| `LLM_TEMPERATURE` | ❌ | 0.7 | 温度参数 |
+| `LOG_LEVEL` | ❌ | INFO | 日志级别 |
+| `LOG_TO_FILE` | ❌ | true | 是否写入文件日志 |
+
+## 日志系统
+
+日志支持：
+- **控制台输出**: 带颜色（INFO=绿色, WARNING=黄色, ERROR=红色）
+- **文件日志**: 自动按日期分割，保留 5 个备份
+- **日志级别**: DEBUG/INFO/WARNING/ERROR 可调
+
+日志文件位置：`logs/mcp_app_YYYYMMDD.log`
+
+## 命令行参数
 
 ```bash
-# Development with auto-reload
-make run-dev
-
-# Production
-make run
+python run.py --help
 ```
 
-The API will be available at `http://localhost:8000`
+| 参数 | 说明 |
+|------|------|
+| `--log-level {DEBUG,INFO,WARNING,ERROR}` | 设置日志级别 |
+| `--no-file-log` | 禁用文件日志 |
 
-### Docker Deployment
+## 架构设计
 
-```bash
-# Build and run all services
-docker-compose up -d
+### 模块化设计
 
-# View logs
-docker-compose logs -f api
+```
+┌─────────────┐
+│   run.py    │  启动入口
+└──────┬──────┘
+       │
+┌──────▼──────┐
+│  mcp_app    │
+├─────────────┤
+│  config.py  │  配置加载和验证
+│  logger.py  │  统一日志管理
+│  client.py  │  MCP 客户端封装
+│  llm.py     │  LLM API 封装
+│  cli.py     │  交互界面
+└─────────────┘
 ```
 
-## 📖 API Documentation
+### 日志使用示例
 
-Once running, access:
+```python
+from mcp_app.logger import get_logger
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/api/v1/health
-
-### Example Usage
-
-```bash
-# Health check
-curl http://localhost:8000/api/v1/health
-
-# Chat with AI
-curl -X POST http://localhost:8000/api/v1/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [{"role": "user", "content": "What happened in Washington DC last week?"}]
-  }'
-
-# Search events
-curl "http://localhost:8000/api/v1/events?country_code=US&start_date=2024-01-01"
+logger = get_logger("module_name")
+logger.info("信息日志")
+logger.error("错误日志")
 ```
 
-## 🧪 Development
+## 技术栈
 
-### Running Tests
+- Python 3.10+
+- MCP (Model Context Protocol)
+- FastMCP
+- OpenAI SDK
+- Moonshot AI (Kimi)
 
-```bash
-# All tests
-make test
+## 许可证
 
-# With coverage
-make test-coverage
-
-# Specific markers
-pytest -m unit        # Unit tests only
-pytest -m integration # Integration tests
-```
-
-### Code Quality
-
-```bash
-# Run all linters
-make lint
-
-# Format code
-make format
-
-# Pre-commit hooks
-pre-commit run --all-files
-```
-
-### Project Commands
-
-```bash
-make help          # Show all available commands
-make migrate       # Run database migrations
-make seed-db       # Import sample data
-make docker-build  # Build Docker images
-make clean         # Clean cache files
-```
-
-## 🔧 Configuration
-
-Configuration is managed via environment variables (see `.env.example`):
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ENV` | Environment (development/testing/production) | `development` |
-| `DEBUG` | Debug mode | `false` |
-| `DB_PASSWORD` | MySQL password | - |
-| `API_KEY` | Moonshot AI API key | - |
-| `LOG_LEVEL` | Logging level | `INFO` |
-| `LOG_FORMAT` | Log format (json/console) | `json` |
-
-## 📚 Tech Stack
-
-| Component | Technology |
-|-----------|------------|
-| Web Framework | FastAPI |
-| Database | MySQL 8.0 + SQLAlchemy 2.0 |
-| LLM | Moonshot AI (Kimi) |
-| MCP | Model Context Protocol |
-| Testing | pytest + pytest-asyncio |
-| Linting | ruff + mypy + bandit |
-| CI/CD | GitHub Actions |
-| Container | Docker + Docker Compose |
-
-## 📝 License
-
-MIT License - See [LICENSE](LICENSE) for details.
-
-## 👥 Research Team
-
-Virginia Tech - "Ut Prosim" (That I May Serve)
-
-- Xing Gao
-- Xiangxin Tang
-- Yuxin Miao
-- Ziliang Chen
-
-## 📄 Citation
-
-If you use this project in your research, please cite:
-
-```bibtex
-@article{gdelt_narrative_api,
-  title={Spatio-Temporal Narrative AI Agent for North America Event Analysis via MCP Architecture},
-  author={Tang, Xiangxin and Gao, Xing and Miao, Yuxin and Chen, Ziliang},
-  institution={Virginia Tech},
-  year={2024}
-}
-```
+Virginia Tech Research Project

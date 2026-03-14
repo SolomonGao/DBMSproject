@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+# run.py - 应用启动脚本
+"""
+GDELT MCP Client App 启动入口
+
+使用方法:
+    python run.py [选项]
+
+选项:
+    --log-level {DEBUG,INFO,WARNING,ERROR}  设置日志级别
+    --no-file-log                           禁用文件日志
+    -h, --help                              显示帮助
+"""
+
+import argparse
+import asyncio
+import sys
+import signal
+from pathlib import Path
+
+# 确保可以导入 mcp_app
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+from mcp_app.config import load_config, print_config
+from mcp_app.llm import LLMClient
+from mcp_app.client import MCPClient
+from mcp_app.cli import ChatCLI
+from mcp_app.logger import setup_logging, get_logger
+
+logger = get_logger("main")
+
+
+async def main():
+    """主函数"""
+    
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(
+        description="GDELT MCP Client App",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  python run.py                           # 默认启动
+  python run.py --log-level DEBUG         # 调试模式
+  python run.py --no-file-log             # 仅控制台日志
+        """
+    )
+    parser.add_argument(
+        '--log-level',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+        default=None,
+        help='日志级别（覆盖 .env 配置）'
+    )
+    parser.add_argument(
+        '--no-file-log',
+        action='store_true',
+        help='禁用文件日志'
+    )
+    args = parser.parse_args()
+    
+    # 1. 加载配置
+    print("🚀 启动 GDELT MCP Client App...")
+    
+    try:
+        config = load_config()
+    except ValueError as e:
+        print(f"❌ 配置错误: {e}")
+        print("\n请确保:")
+        print("  1. 已复制 .env_example 为 .env")
+        print("  2. 在 .env 中设置了 MOONSHOT_API_KEY")
+        sys.exit(1)
+    
+    # 2. 设置日志
+    log_level = args.log_level or config.log_level
+    log_dir = None if args.no_file_log else config.log_dir
+    
+    setup_logging(
+        level=log_level,
+        log_dir=log_dir,
+        console=True
+    )
+    
+    logger.info("=" * 60)
+    logger.info("GDELT MCP Client App 启动")
+    logger.info("=" * 60)
+    
+    # 3. 打印配置
+    print_config(config)
+    
+    # 4. 初始化 MCP 客户端
+    mcp_client = MCPClient(
+        server_path=config.mcp_server_path,
+        transport=config.mcp_transport,
+        port=config.mcp_port
+    )
+    
+    try:
+        # 5. 连接到 MCP Server
+        connected = await mcp_client.connect()
+        if not connected:
+            logger.error("无法连接到 MCP Server，请检查:")
+            logger.error("  1. MCP Server 文件是否存在")
+            logger.error("  2. Python 环境是否正确")
+            sys.exit(1)
+        
+        # 6. 发现工具
+        await mcp_client.discover_tools()
+        
+    except Exception as e:
+        logger.exception(f"MCP 初始化失败: {e}")
+        sys.exit(1)
+    
+    # 7. 初始化 LLM 客户端
+    try:
+        llm_client = LLMClient(
+            api_key=config.moonshot_api_key,
+            base_url=config.llm_base_url,
+            model=config.llm_model,
+            temperature=config.llm_temperature,
+            max_tokens=config.llm_max_tokens
+        )
+        logger.info("LLM 客户端初始化完成")
+    except Exception as e:
+        logger.exception(f"LLM 初始化失败: {e}")
+        sys.exit(1)
+    
+    # 8. 启动 CLI
+    cli = ChatCLI(config, llm_client, mcp_client)
+    
+    # 处理信号
+    def signal_handler(sig, frame):
+        logger.info(f"收到信号 {sig}，正在退出...")
+        asyncio.create_task(mcp_client.close())
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        cli.chat_loop()
+    finally:
+        # 清理资源
+        logger.info("正在清理资源...")
+        await mcp_client.close()
+        logger.info("应用已退出")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\n👋 再见！")
+        sys.exit(0)
+    except Exception as e:
+        logger.exception(f"程序错误: {e}")
+        sys.exit(1)
