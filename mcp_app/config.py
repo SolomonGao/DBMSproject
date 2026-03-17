@@ -15,16 +15,23 @@ from dataclasses import dataclass, field, asdict
 from dotenv import load_dotenv
 
 from .logger import get_logger
+from .providers import get_provider, LLM_PROVIDERS
 
 logger = get_logger("config")
 
 
 @dataclass
 class AppConfig:
-    """应用配置类"""
+    """应用配置类（支持多 LLM 提供商）"""
     
-    # API Keys
-    moonshot_api_key: str = ""
+    # LLM 提供商配置
+    llm_provider: str = "kimi"  # 默认 kimi
+    
+    # API Keys (支持多个)
+    kimi_code_api_key: str = ""      # Kimi Code API (api.kimi.com)
+    moonshot_api_key: str = ""       # Moonshot Open Platform
+    anthropic_api_key: str = ""      # Claude
+    gemini_api_key: str = ""         # Gemini
     
     # MCP Server 配置
     mcp_server_path: str = ""
@@ -32,8 +39,8 @@ class AppConfig:
     mcp_port: int = 8000
     
     # LLM 配置
-    llm_model: str = "kimi-k2-0905-preview"
-    llm_base_url: str = "https://api.moonshot.cn/v1"
+    llm_model: str = ""
+    llm_base_url: str = ""
     llm_temperature: float = 0.7
     llm_max_tokens: int = 4096
     
@@ -49,8 +56,22 @@ class AppConfig:
         """验证配置有效性"""
         errors = []
         
-        if not self.moonshot_api_key:
-            errors.append("MOONSHOT_API_KEY 未设置")
+        # 获取当前提供商配置
+        provider = get_provider(self.llm_provider)
+        if not provider:
+            errors.append(f"不支持的 LLM 提供商: {self.llm_provider}")
+            return
+        
+        # 根据提供商获取对应的 API Key
+        api_key = self.get_api_key()
+        if not api_key:
+            errors.append(f"{provider.env_key} 未设置")
+        
+        # 自动填充默认的 base_url 和 model
+        if not self.llm_base_url:
+            self.llm_base_url = provider.base_url
+        if not self.llm_model:
+            self.llm_model = provider.default_model
         
         if not self.mcp_server_path:
             # 自动检测 server.py 路径
@@ -83,13 +104,30 @@ class AppConfig:
             data['moonshot_api_key'] = f"{self.moonshot_api_key[:8]}...{self.moonshot_api_key[-4:]}"
         return data
     
+    def get_api_key(self) -> str:
+        """获取当前提供商的 API Key"""
+        provider = get_provider(self.llm_provider)
+        if not provider:
+            return ""
+        
+        if provider.env_key == "KIMI_CODE_API_KEY":
+            return self.kimi_code_api_key
+        elif provider.env_key == "MOONSHOT_API_KEY":
+            return self.moonshot_api_key
+        elif provider.env_key == "ANTHROPIC_API_KEY":
+            return self.anthropic_api_key
+        elif provider.env_key == "GEMINI_API_KEY":
+            return self.gemini_api_key
+        return ""
+    
     def get_masked_api_key(self) -> str:
         """获取脱敏的 API Key"""
-        if not self.moonshot_api_key:
+        api_key = self.get_api_key()
+        if not api_key:
             return "未设置"
-        if len(self.moonshot_api_key) < 12:
+        if len(api_key) < 12:
             return "***"
-        return f"{self.moonshot_api_key[:8]}...{self.moonshot_api_key[-4:]}"
+        return f"{api_key[:8]}...{api_key[-4:]}"
 
 
 class ConfigLoader:
@@ -141,13 +179,26 @@ class ConfigLoader:
                     value = default
             return value
         
+        # 获取提供商
+        provider_id = get_env("LLM_PROVIDER", "kimi").lower()
+        provider = get_provider(provider_id)
+        
+        # 如果提供商不存在，使用默认
+        if not provider:
+            provider_id = "kimi"
+            provider = get_provider("kimi")
+        
         return AppConfig(
+            llm_provider=provider_id,
+            kimi_code_api_key=get_env("KIMI_CODE_API_KEY", ""),
             moonshot_api_key=get_env("MOONSHOT_API_KEY", ""),
+            anthropic_api_key=get_env("ANTHROPIC_API_KEY", ""),
+            gemini_api_key=get_env("GEMINI_API_KEY", ""),
             mcp_server_path=get_env("MCP_SERVER_PATH", ""),
             mcp_transport=get_env("MCP_TRANSPORT", "stdio"),
             mcp_port=get_env("MCP_PORT", 8000, int),
-            llm_model=get_env("LLM_MODEL", "kimi-k2-0905-preview"),
-            llm_base_url=get_env("LLM_BASE_URL", "https://api.moonshot.cn/v1"),
+            llm_model=get_env("LLM_MODEL", provider.default_model),
+            llm_base_url=get_env("LLM_BASE_URL", provider.base_url),
             llm_temperature=get_env("LLM_TEMPERATURE", 0.7, float),
             llm_max_tokens=get_env("LLM_MAX_TOKENS", 4096, int),
             log_level=get_env("LOG_LEVEL", "INFO"),
@@ -171,10 +222,15 @@ class ConfigLoader:
     
     def print_config(self, config: AppConfig):
         """打印配置摘要（隐藏敏感信息）"""
+        provider = get_provider(config.llm_provider)
+        provider_name = provider.name if provider else config.llm_provider
+        
         logger.info("=" * 50)
         logger.info("配置摘要:")
-        logger.info(f"  Moonshot API Key: {config.get_masked_api_key()}")
+        logger.info(f"  LLM 提供商: {provider_name}")
+        logger.info(f"  API Key: {config.get_masked_api_key()}")
         logger.info(f"  LLM 模型: {config.llm_model}")
+        logger.info(f"  LLM 地址: {config.llm_base_url}")
         logger.info(f"  MCP Server: {config.mcp_server_path}")
         logger.info(f"  传输模式: {config.mcp_transport}")
         if config.mcp_transport == "sse":

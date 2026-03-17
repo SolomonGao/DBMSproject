@@ -1,7 +1,8 @@
 # llm.py - LLM 接口模块
 """
 LLM 客户端：
-- Moonshot AI (Kimi) API 封装
+- 使用 OpenAI 客户端封装
+- 通过 http_client 传递伪装 headers
 - 工具调用处理
 - 对话历史管理
 """
@@ -9,6 +10,7 @@ LLM 客户端：
 import json
 from typing import List, Dict, Any, Optional, Callable
 
+import httpx
 from openai import OpenAI
 
 from .logger import get_logger
@@ -17,26 +19,40 @@ logger = get_logger("llm")
 
 
 class LLMClient:
-    """Kimi LLM 客户端"""
+    """LLM 客户端 - 使用 OpenAI 封装，伪装成 Claude Code"""
     
     def __init__(
         self,
+        provider: str,
         api_key: str,
         base_url: str,
         model: str,
         temperature: float = 0.7,
-        max_tokens: int = 4096
+        max_tokens: int = 4096,
+        timeout: float = 120.0,
     ):
+        self.provider = provider.lower()
         self.api_key = api_key
         self.base_url = base_url
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        # 初始化 OpenAI 客户端
+        # 使用 default_headers 伪装成 Claude Code
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=httpx.Timeout(timeout),
+            default_headers={
+                "User-Agent": "claude-code/1.0",
+                "X-Client-Name": "claude-code",
+            },
+        )
+        
         self.messages: List[Dict[str, Any]] = []
         
-        logger.debug(f"初始化 LLMClient: model={model}, temp={temperature}")
+        logger.debug(f"初始化 LLMClient: provider={provider}, model={model}")
     
     def add_system_message(self, content: str):
         """添加系统消息"""
@@ -91,7 +107,7 @@ class LLMClient:
             AI 回复内容
         """
         try:
-            logger.info(f"发送请求到 LLM (历史消息: {len(self.messages)}条)")
+            logger.info(f"发送请求到 {self.provider} (历史消息: {len(self.messages)}条)")
             
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -110,6 +126,11 @@ class LLMClient:
             
             # 普通回复
             content = message.content or ""
+            
+            # Kimi 特有的 reasoning_content
+            if hasattr(message, "reasoning_content") and message.reasoning_content:
+                logger.debug(f"模型思考过程: {message.reasoning_content[:100]}...")
+            
             self.add_assistant_message(content)
             logger.info(f"收到回复: {content[:100]}{'...' if len(content) > 100 else ''}")
             
@@ -117,7 +138,7 @@ class LLMClient:
             
         except Exception as e:
             logger.exception(f"LLM API 错误: {e}")
-            return f"❌ LLM 请求失败: {e}"
+            return f"LLM 请求失败: {e}"
     
     def _handle_tool_calls(
         self,
@@ -150,12 +171,12 @@ class LLMClient:
             tool_name = tool_call.function.name
             tool_args = json.loads(tool_call.function.arguments)
             
-            logger.info(f"🛠️  调用工具: {tool_name}")
-            logger.debug(f"   参数: {json.dumps(tool_args, ensure_ascii=False)}")
+            logger.info(f"调用工具: {tool_name}")
+            logger.debug(f"参数: {json.dumps(tool_args, ensure_ascii=False)}")
             
             result = tool_executor(tool_name, tool_args)
             
-            logger.info(f"✅ 工具返回: {result[:80]}{'...' if len(result) > 80 else ''}")
+            logger.info(f"工具返回: {result[:80]}{'...' if len(result) > 80 else ''}")
             
             self.add_tool_result(tool_call.id, result)
         

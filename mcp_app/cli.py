@@ -55,13 +55,24 @@ class ChatCLI:
     
     def print_welcome(self):
         """打印欢迎信息"""
+        from .providers import get_provider
+        
+        provider = get_provider(self.config.llm_provider)
+        provider_emoji = {
+            'kimi_code': '⭐',
+            'moonshot': '🌙',
+            'claude': '🧠', 
+            'gemini': '💎'
+        }.get(self.config.llm_provider, '🤖')
+        
         print()
         print("=" * 60)
-        print(f"{self.EMOJI['system']} 欢迎使用 GDELT MCP Client")
+        print(f"{self.EMOJI['system']} 欢迎使用 GDELT MCP Client v1")
         print("=" * 60)
         print()
         print("📋 配置摘要:")
-        print(f"   🌙 Moonshot API: {self.config.get_masked_api_key()}")
+        print(f"   {provider_emoji} LLM 提供商: {provider.name if provider else self.config.llm_provider}")
+        print(f"   🔑 API Key: {self.config.get_masked_api_key()}")
         print(f"   🤖 LLM 模型: {self.config.llm_model}")
         print(f"   🔧 MCP Server: {self.config.mcp_transport}模式")
         print()

@@ -1,27 +1,33 @@
 #!/usr/bin/env python3
-# run.py - 应用启动脚本
+# run_v1.py - CLI v1 启动脚本（支持交互式配置）
 """
-GDELT MCP Client App 启动入口
+GDELT MCP Client App v1 - 交互式配置版本
 
 使用方法:
-    python run.py [选项]
+    python run_v1.py [选项]
 
 选项:
+    --config               强制启动配置向导
     --log-level {DEBUG,INFO,WARNING,ERROR}  设置日志级别
-    --no-file-log                           禁用文件日志
-    -h, --help                              显示帮助
+    --no-file-log          禁用文件日志
+    -h, --help             显示帮助
+
+特性:
+    - 交互式 LLM 提供商选择 (Kimi/Claude/Gemini)
+    - 自动检测并提示配置
+    - 支持多提供商切换
 """
 
 import argparse
 import asyncio
 import sys
-import signal
 from pathlib import Path
 
 # 确保可以导入 mcp_app
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+from mcp_app.config_wizard import ConfigWizard
 from mcp_app.config import load_config, print_config
 from mcp_app.llm import LLMClient
 from mcp_app.client import MCPClient
@@ -36,14 +42,19 @@ async def main():
     
     # 解析命令行参数
     parser = argparse.ArgumentParser(
-        description="GDELT MCP Client App",
+        description="GDELT MCP Client App v1",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python run.py                           # 默认启动
-  python run.py --log-level DEBUG         # 调试模式
-  python run.py --no-file-log             # 仅控制台日志
+  python run_v1.py                          # 启动应用（首次会提示配置）
+  python run_v1.py --config                 # 强制重新配置
+  python run_v1.py --log-level DEBUG        # 调试模式
         """
+    )
+    parser.add_argument(
+        '--config',
+        action='store_true',
+        help='强制启动配置向导'
     )
     parser.add_argument(
         '--log-level',
@@ -58,16 +69,30 @@ async def main():
     )
     args = parser.parse_args()
     
+    # 初始化配置向导
+    wizard = ConfigWizard()
+    
+    # 检查/启动配置
+    if args.config:
+        # 强制启动配置向导
+        print("🚀 强制启动配置向导...")
+        success = wizard.run()
+        if not success:
+            sys.exit(1)
+        print("\n配置完成！正在启动应用...\n")
+    else:
+        # 检查配置，如不存在则提示
+        if not wizard.check_and_prompt():
+            sys.exit(1)
+    
     # 1. 加载配置
-    print("🚀 启动 GDELT MCP Client App...")
+    print("🚀 启动 GDELT MCP Client App v1...")
     
     try:
         config = load_config()
     except ValueError as e:
         print(f"❌ 配置错误: {e}")
-        print("\n请确保:")
-        print("  1. 已复制 .env_example 为 .env")
-        print("  2. 在 .env 中设置了 MOONSHOT_API_KEY")
+        print("\n建议运行: python run_v1.py --config")
         sys.exit(1)
     
     # 2. 设置日志
@@ -81,7 +106,7 @@ async def main():
     )
     
     logger.info("=" * 60)
-    logger.info("GDELT MCP Client App 启动")
+    logger.info("GDELT MCP Client App v1 启动")
     logger.info("=" * 60)
     
     # 3. 打印配置
@@ -113,13 +138,14 @@ async def main():
     # 7. 初始化 LLM 客户端
     try:
         llm_client = LLMClient(
-            api_key=config.moonshot_api_key,
+            provider=config.llm_provider,
+            api_key=config.get_api_key(),
             base_url=config.llm_base_url,
             model=config.llm_model,
             temperature=config.llm_temperature,
             max_tokens=config.llm_max_tokens
         )
-        logger.info("LLM 客户端初始化完成")
+        logger.info(f"LLM 客户端初始化完成 (提供商: {config.llm_provider})")
     except Exception as e:
         logger.exception(f"LLM 初始化失败: {e}")
         sys.exit(1)
@@ -128,6 +154,7 @@ async def main():
     cli = ChatCLI(config, llm_client, mcp_client)
     
     # 处理信号
+    import signal
     def signal_handler(sig, frame):
         logger.info(f"收到信号 {sig}，正在退出...")
         asyncio.create_task(mcp_client.close())
