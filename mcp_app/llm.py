@@ -147,8 +147,8 @@ class LLMClient:
         tool_executor: Callable[[str, Dict], str]
     ) -> str:
         """处理工具调用"""
-        # 添加助手的工具调用请求
-        self.messages.append({
+        # 构建助手的工具调用请求消息
+        assistant_msg = {
             "role": "assistant",
             "content": message.content or "",
             "tool_calls": [
@@ -162,7 +162,14 @@ class LLMClient:
                 }
                 for tc in message.tool_calls
             ]
-        })
+        }
+        
+        # 如果启用了 thinking 功能，需要包含 reasoning_content
+        if hasattr(message, "reasoning_content") and message.reasoning_content:
+            assistant_msg["reasoning_content"] = message.reasoning_content
+            logger.debug(f"工具调用思考过程: {message.reasoning_content[:100]}...")
+        
+        self.messages.append(assistant_msg)
         
         logger.info(f"AI 请求调用 {len(message.tool_calls)} 个工具")
         

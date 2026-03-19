@@ -76,7 +76,7 @@ class AppConfig:
         if not self.mcp_server_path:
             # 自动检测 server.py 路径
             project_root = self._get_project_root()
-            default_path = project_root / "mcp_server" / "server.py"
+            default_path = project_root / "mcp_server" / "main.py"
             if default_path.exists():
                 self.mcp_server_path = str(default_path)
                 logger.debug(f"自动检测到 MCP Server: {default_path}")
