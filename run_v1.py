@@ -164,7 +164,7 @@ async def main():
     signal.signal(signal.SIGTERM, signal_handler)
     
     try:
-        cli.chat_loop()
+        await cli.chat_loop()
     finally:
         # 清理资源
         logger.info("正在清理资源...")

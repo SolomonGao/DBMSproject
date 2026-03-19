@@ -11,7 +11,7 @@ import json
 from typing import List, Dict, Any, Optional, Callable
 
 import httpx
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from .logger import get_logger
 
@@ -40,7 +40,7 @@ class LLMClient:
         
         # 初始化 OpenAI 客户端
         # 使用 default_headers 伪装成 Claude Code
-        self.client = OpenAI(
+        self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
             timeout=httpx.Timeout(timeout),
@@ -91,7 +91,7 @@ class LLMClient:
         """获取对话历史长度"""
         return len(self.messages)
     
-    def chat(
+    async def chat(
         self,
         tools: Optional[List[Dict]] = None,
         tool_executor: Optional[Callable[[str, Dict], str]] = None
@@ -109,7 +109,7 @@ class LLMClient:
         try:
             logger.info(f"发送请求到 {self.provider} (历史消息: {len(self.messages)}条)")
             
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=self.messages,
                 temperature=self.temperature,
@@ -122,7 +122,7 @@ class LLMClient:
             
             # 处理工具调用
             if message.tool_calls and tool_executor:
-                return self._handle_tool_calls(message, tools, tool_executor)
+                return await self._handle_tool_calls(message, tools, tool_executor)
             
             # 普通回复
             content = message.content or ""
@@ -140,7 +140,7 @@ class LLMClient:
             logger.exception(f"LLM API 错误: {e}")
             return f"LLM 请求失败: {e}"
     
-    def _handle_tool_calls(
+    async def _handle_tool_calls(
         self,
         message,
         tools: Optional[List[Dict]],
@@ -181,11 +181,11 @@ class LLMClient:
             logger.info(f"调用工具: {tool_name}")
             logger.debug(f"参数: {json.dumps(tool_args, ensure_ascii=False)}")
             
-            result = tool_executor(tool_name, tool_args)
+            result = await tool_executor(tool_name, tool_args)
             
             logger.info(f"工具返回: {result[:80]}{'...' if len(result) > 80 else ''}")
             
             self.add_tool_result(tool_call.id, result)
         
         # 再次请求获取最终回复
-        return self.chat(tools=None, tool_executor=None)
+        return await self.chat(tools=None, tool_executor=None)

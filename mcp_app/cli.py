@@ -185,7 +185,7 @@ class ChatCLI:
         
         return True
     
-    def chat_loop(self):
+    async def chat_loop(self):
         """主对话循环"""
         self.running = True
         self.print_welcome()
@@ -215,7 +215,7 @@ class ChatCLI:
                 # 调用 LLM
                 print(f"{self.EMOJI['ai']} AI: ", end="", flush=True)
                 
-                response = self.llm.chat(
+                response = await self.llm.chat(
                     tools=self.mcp.tools,
                     tool_executor=tool_executor
                 )

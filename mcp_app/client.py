@@ -172,28 +172,18 @@ class MCPClient:
     
     def create_tool_executor(self) -> Callable[[str, Dict], str]:
         """
-        创建同步工具执行器
+        创建异步工具执行器
         
         Returns:
-            同步回调函数
+            异步回调函数
         """
-        def executor(tool_name: str, tool_args: Dict) -> str:
+        async def executor(tool_name: str, tool_args: Dict) -> str:
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    future = asyncio.run_coroutine_threadsafe(
-                        self.call_tool(tool_name, tool_args), 
-                        loop
-                    )
-                    return future.result(timeout=30)
-                else:
-                    return loop.run_until_complete(
-                        self.call_tool(tool_name, tool_args)
-                    )
+                # 直接 await，不再使用 future.result() 阻塞线程
+                return await self.call_tool(tool_name, tool_args)
             except Exception as e:
                 logger.exception(f"工具执行错误: {e}")
                 return f"工具执行错误: {e}"
-        
         return executor
     
     async def close(self):

@@ -1,51 +1,81 @@
 # GDELT MCP Client App
 
-独立 MCP 客户端应用
+A standalone MCP client application with multi-LLM support, integrating with the Model Context Protocol (MCP) to connect tool servers with Large Language Models (LLMs). Built for GDELT 2.0 dataset analysis (2024 North American events).
 
-## 快速开始
+**Institution**: Virginia Tech ("Ut Prosim" - That I May Serve)  
+**Research Team**: Xing Gao, Xiangxin Tang, Yuxin Miao, Ziliang Chen
 
-### 1. 安装依赖
+---
 
-```bash
-pip install mcp fastmcp openai python-dotenv
-```
+## Features
 
-### 2. 配置 API Key
+- 🤖 **Multi-LLM Support**: Kimi Code, Moonshot, Claude, Gemini
+- 🔧 **MCP Protocol**: Full Model Context Protocol integration
+- 🛠️ **Tool Calling**: Automatic tool discovery and execution
+- 🗄️ **GDELT Database**: MySQL integration for event data analysis
+- 📊 **Logging**: Colorful console output with file logging
+- ⚙️ **Interactive CLI**: Chat interface with command support
 
-```bash
-# 复制配置模板
-copy .env_example .env
+---
 
-# 编辑 .env 文件，填入你的 Moonshot API Key
-```
+## Quick Start
 
-最少配置：
-```
-KIMI_CODE_API_KEY=your_moonshot_api_key_here
-```
-
-### 3. 运行应用
+### 1. Install Dependencies
 
 ```bash
-python run.py
+pip install -r requirements.txt
 ```
 
-或使用调试模式：
+Or using pyproject.toml:
 ```bash
-python run.py --log-level DEBUG
+pip install -e .
 ```
 
-## 使用方法
+### 2. Configure API Key
 
-启动后会进入交互式聊天界面：
+**Option A: Using Configuration Wizard (Recommended)**
+```bash
+python run_v1.py --config
+```
+
+**Option B: Manual Configuration**
+```bash
+# Copy example config
+copy config.example.json config.json
+
+# Edit config.json with your API keys
+```
+
+### 3. Run Application
+
+```bash
+python run_v1.py
+```
+
+**Debug Mode:**
+```bash
+python run_v1.py --log-level DEBUG
+```
+
+**Disable File Logging:**
+```bash
+python run_v1.py --no-file-log
+```
+
+---
+
+## Usage Example
+
+Launch the interactive chat interface:
 
 ```
 ============================================================
-⚙️ 欢迎使用 GDELT MCP Client
+⚙️ 欢迎使用 GDELT MCP Client v1
 ============================================================
 
 📋 配置摘要:
-   🌙 Moonshot API: sk-abc1...xyz9
+   ⭐ LLM 提供商: Kimi Code
+   🔑 API Key: sk-abc1...xyz9
    🤖 LLM 模型: kimi-k2-0905-preview
    🔧 MCP Server: stdio模式
 
@@ -59,114 +89,235 @@ python run.py --log-level DEBUG
 📝 直接输入消息开始对话...
 ------------------------------------------------------------
 
-👤 你: 北京今天天气怎么样？
+👤 你: 帮我计算一下圆周率的平方根
 🤖 AI: 
-🛠️  调用工具: get_weather
-✅ 工具返回: 北京 2026-03-14: 晴, 22°C
-北京今天是晴天，温度 22°C，天气不错！
+🛠️  调用工具: calculate
+✅ 工具返回: 结果: 1.77
+圆周率的平方根约等于 1.77。
 ```
 
-## 可用命令
+---
 
-| 命令 | 说明 |
-|------|------|
-| `/help` | 显示帮助信息 |
-| `/clear` | 清空对话历史 |
-| `/tools` | 列出所有可用工具 |
-| `/status` | 显示当前状态 |
-| `/quit` | 退出应用 |
+## Available Commands
 
-## 项目结构
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/help` | `/h`, `help` | Show help information |
+| `/clear` | `/c`, `clear` | Clear conversation history |
+| `/tools` | `/t`, `tools` | List available tools |
+| `/status` | `/s`, `status` | Show current status |
+| `/quit` | `/q`, `/exit` | Exit application |
+
+---
+
+## Project Structure
 
 ```
 project/
-├── mcp_app/              # 应用主包
+├── mcp_app/                    # Core application package
 │   ├── __init__.py
-│   ├── logger.py         # 日志模块（支持彩色输出和文件）
-│   ├── config.py         # 配置管理
-│   ├── client.py         # MCP 客户端
-│   ├── llm.py            # LLM 接口
-│   └── cli.py            # CLI 界面
-├── mcp_server/           # MCP 服务器
-│   └── server.py
-├── logs/                 # 日志文件目录（运行时创建）
-├── run.py                # 启动脚本
-├── .env                  # 用户配置（需创建）
-└── .env_example          # 配置模板
+│   ├── logger.py              # Logging module (colorful output & file)
+│   ├── config.py              # Configuration management (.env based)
+│   ├── config_json.py         # JSON configuration management
+│   ├── config_wizard_json.py  # Interactive configuration wizard
+│   ├── providers.py           # LLM provider configurations
+│   ├── client.py              # MCP client wrapper
+│   ├── llm.py                 # LLM interface wrapper
+│   └── cli.py                 # CLI interface
+│
+├── mcp_server/                 # MCP Server
+│   ├── __init__.py
+│   ├── main.py                # FastMCP service entry point
+│   └── app/                   # MCP Server application modules
+│       ├── __init__.py
+│       ├── models.py          # Pydantic input models
+│       ├── tools/             # Tool registration modules
+│       │   ├── __init__.py
+│       │   ├── calculator.py
+│       │   └── search.py
+│       └── services/          # Business logic services
+│           ├── __init__.py
+│           ├── calculator.py
+│           └── analysis.py
+│
+├── db_scripts/                 # Database scripts
+│   ├── gdelt_db_v1.sql        # Database schema
+│   ├── import_event.py        # Data import script
+│   └── data_view.py           # Data preview
+│
+├── data/                       # GDELT data files (CSV chunks)
+│   └── *.csv
+│
+├── logs/                       # Log files (created at runtime)
+│   └── mcp_app_YYYYMMDD.log
+│
+├── run_v1.py                   # Application entry point ⭐
+├── test_api_v2.py              # API connection test script
+├── requirements.txt            # Python dependencies
+├── pyproject.toml             # Project configuration (PEP 621)
+├── config.json                # User configuration (created by wizard)
+├── config.example.json        # Configuration template
+├── .env                        # Environment variables (legacy)
+├── .env_example_v1            # Environment template
+├── README.md                  # This file
+├── DOCUMENTATION.md           # Detailed technical documentation
+└── index.html                 # Project frontend page
 ```
 
-## 配置说明
+---
 
-通过 `.env` 文件配置：
+## Configuration
 
-| 变量名 | 必填 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `MOONSHOT_API_KEY` | ✅ | - | Kimi API Key |
-| `MCP_SERVER_PATH` | ❌ | 自动检测 | MCP Server 路径 |
-| `MCP_TRANSPORT` | ❌ | stdio | 传输模式 (stdio/sse) |
-| `LLM_MODEL` | ❌ | kimi-k2-0905-preview | 模型名称 |
-| `LLM_TEMPERATURE` | ❌ | 0.7 | 温度参数 |
-| `LOG_LEVEL` | ❌ | INFO | 日志级别 |
-| `LOG_TO_FILE` | ❌ | true | 是否写入文件日志 |
+Configuration is stored in `config.json` (created automatically by the wizard):
 
-## 日志系统
+```json
+{
+  "llm_provider": "kimi_code",
+  "api_keys": {
+    "kimi_code": "sk-your-api-key",
+    "moonshot": "",
+    "anthropic": "",
+    "gemini": ""
+  },
+  "mcp": {
+    "server_path": "",
+    "transport": "stdio",
+    "port": 8000
+  },
+  "llm": {
+    "model": "kimi-k2-0905-preview",
+    "base_url": "https://api.kimi.com/coding/v1",
+    "temperature": 0.7,
+    "max_tokens": 4096
+  },
+  "logging": {
+    "level": "INFO",
+    "log_to_file": true,
+    "log_dir": "./logs"
+  },
+  "debug": false
+}
+```
 
-日志支持：
-- **控制台输出**: 带颜色（INFO=绿色, WARNING=黄色, ERROR=红色）
-- **文件日志**: 自动按日期分割，保留 5 个备份
-- **日志级别**: DEBUG/INFO/WARNING/ERROR 可调
+### Supported LLM Providers
 
-日志文件位置：`logs/mcp_app_YYYYMMDD.log`
+| Provider | API Key Variable | Base URL | Default Model |
+|----------|-----------------|----------|---------------|
+| **Kimi Code** (Recommended) | `KIMI_CODE_API_KEY` | https://api.kimi.com/coding/v1 | kimi-k2-0905-preview |
+| Moonshot AI | `MOONSHOT_API_KEY` | https://api.moonshot.cn/v1 | kimi-k2-0905-preview |
+| Claude | `ANTHROPIC_API_KEY` | https://api.anthropic.com/v1 | claude-3-5-sonnet-20241022 |
+| Gemini | `GEMINI_API_KEY` | https://generativelanguage.googleapis.com/v1beta | gemini-1.5-pro |
 
-## 命令行参数
+---
+
+## MCP Server
+
+### Run Standalone
 
 ```bash
-python run.py --help
+# STDIO mode (default)
+python mcp_server/main.py
+
+# SSE mode
+python mcp_server/main.py --transport sse --port 8000
 ```
 
-| 参数 | 说明 |
-|------|------|
-| `--log-level {DEBUG,INFO,WARNING,ERROR}` | 设置日志级别 |
-| `--no-file-log` | 禁用文件日志 |
+### Available Tools
 
-## 架构设计
+1. **calculate** - Execute mathematical calculations safely
+2. **smart_search** - Search knowledge base
 
-### 模块化设计
+---
 
-```
-┌─────────────┐
-│   run.py    │  启动入口
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│  mcp_app    │
-├─────────────┤
-│  config.py  │  配置加载和验证
-│  logger.py  │  统一日志管理
-│  client.py  │  MCP 客户端封装
-│  llm.py     │  LLM API 封装
-│  cli.py     │  交互界面
-└─────────────┘
+## Database Setup (Optional)
+
+For GDELT data analysis:
+
+```bash
+# 1. Create database
+mysql -u root -p < db_scripts/gdelt_db_v1.sql
+
+# 2. Import data
+python db_scripts/import_event.py
 ```
 
-### 日志使用示例
+---
 
-```python
-from mcp_app.logger import get_logger
+## Logging System
 
-logger = get_logger("module_name")
-logger.info("信息日志")
-logger.error("错误日志")
+- **Console Output**: Colored by level (INFO=green, WARNING=yellow, ERROR=red)
+- **File Logging**: Auto-rotated daily, keeps 5 backups
+- **Log Location**: `logs/mcp_app_YYYYMMDD.log`
+
+---
+
+## Command Line Arguments
+
+```bash
+python run_v1.py --help
 ```
 
-## 技术栈
+| Argument | Description |
+|----------|-------------|
+| `--config` | Run configuration wizard |
+| `--log-level {DEBUG,INFO,WARNING,ERROR}` | Set log level |
+| `--no-file-log` | Disable file logging |
+
+---
+
+## Architecture
+
+```
+┌─────────────────┐
+│    run_v1.py    │  Entry point
+└────────┬────────┘
+         │
+┌────────▼────────┐
+│    mcp_app      │
+├─────────────────┤
+│  config*.py     │  Configuration management
+│  logger.py      │  Unified logging
+│  client.py      │  MCP client (stdio/sse)
+│  llm.py         │  LLM API wrapper
+│  cli.py         │  Interactive interface
+└─────────────────┘
+         │
+┌────────▼────────┐
+│  mcp_server/    │  FastMCP tools
+└─────────────────┘
+```
+
+---
+
+## Data Source
+
+**GDELT 2.0 Dataset** - North America Events (2024)
+- 100 CSV files (000000-000099 chunks + full file)
+- Geographic coverage: United States, Canada, Mexico
+- Temporal coverage: Full year 2024
+
+---
+
+## Tech Stack
 
 - Python 3.10+
-- MCP (Model Context Protocol)
+- MCP (Model Context Protocol) >= 1.0.0
 - FastMCP
 - OpenAI SDK
-- Moonshot AI (Kimi)
+- Pydantic >= 2.9.0
+- MySQL 8.0+ (with spatial extensions)
 
-## 许可证
+---
+
+## License
 
 Virginia Tech Research Project
+
+---
+
+## Resources
+
+- **Project Proposal**: `Proposal_Tang_Gao_Miao_Chen.pdf`
+- **Detailed Docs**: `DOCUMENTATION.md`
+- **GDELT Project**: https://www.gdeltproject.org/
+- **MCP Protocol**: https://modelcontextprotocol.io/
