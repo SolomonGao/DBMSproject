@@ -8,7 +8,7 @@ MCP 客户端：
 
 import asyncio
 import json
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Awaitable
 from contextlib import AsyncExitStack
 
 from mcp import ClientSession, StdioServerParameters
@@ -170,12 +170,12 @@ class MCPClient:
             logger.error(error_msg)
             return error_msg
     
-    def create_tool_executor(self) -> Callable[[str, Dict], str]:
+    def create_tool_executor(self) -> Callable[[str, Dict], Awaitable[str]]:
         """
         创建异步工具执行器
         
         Returns:
-            异步回调函数
+            异步回调函数，返回 Awaitable[str]
         """
         async def executor(tool_name: str, tool_args: Dict) -> str:
             try:

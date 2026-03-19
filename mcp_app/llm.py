@@ -8,7 +8,7 @@ LLM 客户端：
 """
 
 import json
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Awaitable
 
 import httpx
 from openai import AsyncOpenAI
@@ -94,7 +94,7 @@ class LLMClient:
     async def chat(
         self,
         tools: Optional[List[Dict]] = None,
-        tool_executor: Optional[Callable[[str, Dict], str]] = None
+        tool_executor: Optional[Callable[[str, Dict], Awaitable[str]]] = None
     ) -> str:
         """
         发送对话请求
@@ -144,7 +144,7 @@ class LLMClient:
         self,
         message,
         tools: Optional[List[Dict]],
-        tool_executor: Callable[[str, Dict], str]
+        tool_executor: Callable[[str, Dict], Awaitable[str]]
     ) -> str:
         """处理工具调用"""
         # 构建助手的工具调用请求消息
@@ -189,3 +189,8 @@ class LLMClient:
         
         # 再次请求获取最终回复
         return await self.chat(tools=None, tool_executor=None)
+    
+    async def close(self):
+        """关闭 LLM 客户端连接"""
+        if hasattr(self, 'client'):
+            await self.client.close()

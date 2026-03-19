@@ -6,6 +6,7 @@ CLI 界面：
 - 命令处理
 """
 
+import asyncio
 import sys
 from typing import Optional
 
@@ -195,8 +196,11 @@ class ChatCLI:
         
         while self.running:
             try:
-                # 获取用户输入
-                user_input = input(f"{self.EMOJI['user']} 你: ").strip()
+                # 获取用户输入（使用 to_thread 避免阻塞事件循环）
+                user_input = await asyncio.to_thread(
+                    input, f"{self.EMOJI['user']} 你: "
+                )
+                user_input = user_input.strip()
                 
                 if not user_input:
                     continue

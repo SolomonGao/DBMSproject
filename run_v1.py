@@ -169,6 +169,8 @@ async def main():
         # 清理资源
         logger.info("正在清理资源...")
         await mcp_client.close()
+        if 'llm_client' in locals():      # <--- 加上这一行
+            await llm_client.close()      # <--- 加上这一行
         logger.info("应用已退出")
 
 
