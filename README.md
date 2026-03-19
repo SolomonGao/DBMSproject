@@ -1,14 +1,6 @@
 # GDELT MCP Client App
 
-一个类似 OpenClaw 的独立 MCP 客户端应用，集成了 Kimi AI 和工具调用功能。
-
-## 功能特点
-
-- 🤖 **Kimi AI 集成**: 使用 Moonshot AI (Kimi) 作为对话模型
-- 🔧 **MCP 工具调用**: 自动发现并调用 MCP Server 提供的工具
-- 💬 **交互式 CLI**: 简洁的命令行聊天界面
-- 📊 **完善的日志**: 支持控制台和文件日志，带颜色输出
-- ⚙️ **灵活配置**: 通过 `.env` 文件自定义所有参数
+独立 MCP 客户端应用
 
 ## 快速开始
 
@@ -29,7 +21,7 @@ copy .env_example .env
 
 最少配置：
 ```
-MOONSHOT_API_KEY=your_moonshot_api_key_here
+KIMI_CODE_API_KEY=your_moonshot_api_key_here
 ```
 
 ### 3. 运行应用
