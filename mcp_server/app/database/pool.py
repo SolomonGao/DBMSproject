@@ -11,7 +11,11 @@ import logging
 from typing import Optional, Any, Dict, List
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 import aiomysql
+
+# 加载 .env 文件（如果存在）
+load_dotenv()
 from aiomysql import Pool, Connection, Cursor
 
 from .errors import (

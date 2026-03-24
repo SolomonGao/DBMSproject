@@ -1,5 +1,5 @@
 """
-工具注册模块
+GDELT MCP Server - 工具注册模块
 
 使用装饰器模式注册所有 MCP 工具。
 """
@@ -9,17 +9,12 @@ from fastmcp import FastMCP
 
 def init_tools(mcp: FastMCP):
     """
-    使用装饰器模式初始化所有工具
+    初始化所有 GDELT 工具
     
     Args:
         mcp: FastMCP 实例
     """
-    # 延迟导入避免循环依赖
-    from .calculator import create_calculate_tool
-    from .search import create_smart_search_tool
-    from .database import create_database_tools
+    from .gdelt import create_gdelt_tools
     
-    # 创建工具（装饰器自动注册到 mcp）
-    create_calculate_tool(mcp)
-    create_smart_search_tool(mcp)
-    create_database_tools(mcp)
+    # 注册所有 GDELT 数据库工具
+    create_gdelt_tools(mcp)
