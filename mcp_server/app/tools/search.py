@@ -1,23 +1,34 @@
-from fastmcp import FastMCP, Context
+"""
+智能搜索工具
+
+使用装饰器模式注册 MCP 工具。
+"""
+
 from app.models import SearchInput
 from app.services.analysis import AnalysisService
 
+# 服务实例
 analysis_service = AnalysisService()
 
-def register_analysis_tools(mcp: FastMCP):
+
+def create_smart_search_tool(mcp):
+    """创建 smart_search 工具（使用装饰器模式）"""
+    
     @mcp.tool()
-    async def smart_search(params: SearchInput, ctx: Context) -> str:
+    async def smart_search(params: SearchInput, ctx) -> str:
         """
         智能知识库搜索工具
+        
+        支持搜索: mcp, kimi, fastmcp 等相关知识
         """
-        # 1. 直接使用 ctx 发送控制台消息
+        # 使用 ctx.info 发送进度信息到客户端 UI
         ctx.info("正在调起分析服务...")
         
-        # 2. 将 ctx.info 作为 logger 传入 Service
-        # 这样 Service 内部的进度会实时显示在客户端（如 Claude/Kimi）的 UI 上
         result = analysis_service.smart_search(
             query=params.query, 
             logger=ctx.info
         )
         
         return result
+    
+    return smart_search

@@ -1,10 +1,48 @@
+# ================================================
+# Python
+# ================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ================================================
+# Project Specific
+# ================================================
+# Data files (GDELT CSV files)
 data/*
+
+# Environment variables (API keys, passwords)
 .env
 .env.*
 
-AGENTS.md
-
+# Logs
 logs/*
 
-__pycache__/
-*.py[cod]
+# Agent documentation (auto-generated)
+AGENTS.md
+
+# Local test files
+test_*.py
+*_test.py
