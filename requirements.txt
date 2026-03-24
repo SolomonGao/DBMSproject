@@ -14,6 +14,10 @@ python-dotenv>=1.0.0
 
 # Data Processing
 pydantic>=2.9.0
-
+pandas
+mysql-connector-python
+python-dotenv
+numpy
+tabulate
 # Optional: YAML config support
 # pyyaml>=6.0
