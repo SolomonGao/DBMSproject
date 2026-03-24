@@ -2,7 +2,7 @@ import sys
 import argparse
 from fastmcp import FastMCP
 from app.tools import init_tools
-
+from app.tools.database import get_schema, execute_sql
 
 
 def parse_args():
@@ -15,7 +15,8 @@ def main():
     args = parse_args()
     mcp = FastMCP("v1")
     init_tools(mcp)
-    
+    mcp.add_tool(get_schema)
+    mcp.add_tool(execute_sql)
     # 打印非通信信息必须通过 stderr
     sys.stderr.write(f"🛠️  KimiSmartTools MCP Server Starting...\n")
     sys.stderr.write(f"📡 Transport: {args.transport}\n")
