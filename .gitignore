@@ -6,3 +6,5 @@ AGENTS.md
 
 logs/*
 
+__pycache__/
+*.py[cod]
