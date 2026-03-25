@@ -68,20 +68,51 @@ class GDELTService:
     
     # ==================== 格式化工具 ====================
     
-    def format_markdown(self, columns: List[str], rows: List[tuple]) -> str:
-        """格式化为 Markdown 表格"""
+    def format_markdown(self, columns: List[str], rows: List[tuple], max_display_rows: int = 20) -> str:
+        """
+        格式化为 Markdown 表格
+        
+        Args:
+            max_display_rows: 最大显示行数，超过则显示摘要
+        """
         if not rows:
             return "查詢成功，但未找到符合條件的資料紀錄。"
+        
+        total_rows = len(rows)
         
         def truncate(text: str) -> str:
             text = str(text) if text is not None else "NULL"
             return text[:self.MAX_CELL_WIDTH-3] + "..." if len(text) > self.MAX_CELL_WIDTH else text
         
+        # 如果行数过多，智能压缩
+        if total_rows > max_display_rows:
+            return self._format_summary(columns, rows, total_rows, max_display_rows)
+        
         header = "| " + " | ".join(columns) + " |"
         separator = "|" + "|".join([" --- " for _ in columns]) + "|"
         data_rows = ["| " + " | ".join([truncate(cell) for cell in row]) + " |" for row in rows]
         
-        return "\n".join([header, separator] + data_rows) + f"\n\n*共返回 {len(rows)} 行数据*"
+        return "\n".join([header, separator] + data_rows) + f"\n\n*共返回 {total_rows} 行数据*"
+    
+    def _format_summary(self, columns: List[str], rows: List[tuple], total: int, max_display: int) -> str:
+        """
+        生成结果摘要（用于大数据量时节省 Token）
+        """
+        def truncate(text: str) -> str:
+            text = str(text) if text is not None else "NULL"
+            return text[:self.MAX_CELL_WIDTH-3] + "..." if len(text) > self.MAX_CELL_WIDTH else text
+        
+        # 显示前 N/2 和后 N/2 行
+        half = max_display // 2
+        display_rows = rows[:half] + [("...",) * len(columns)] + rows[-half:]
+        
+        header = "| " + " | ".join(columns) + " |"
+        separator = "|" + "|".join([" --- " for _ in columns]) + "|"
+        data_rows = ["| " + " | ".join([truncate(cell) for cell in row]) + " |" for row in display_rows]
+        
+        summary = f"\n*共 {total} 行，显示前 {half} 行和后 {half} 行（中间省略）*"
+        
+        return "\n".join([header, separator] + data_rows) + summary
     
     def format_error(self, error: str, query: str) -> str:
         """格式化错误信息"""

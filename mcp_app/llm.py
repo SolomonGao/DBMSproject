@@ -7,6 +7,7 @@ LLM 客户端：
 - 对话历史管理
 """
 
+import asyncio
 import json
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 
@@ -91,6 +92,25 @@ class LLMClient:
         """获取对话历史长度"""
         return len(self.messages)
     
+    def truncate_history(self, max_messages: int = 10, keep_system: bool = True):
+        """
+        截断对话历史，只保留最近 N 条
+        
+        Args:
+            max_messages: 保留的最大消息数（不含系统消息）
+            keep_system: 是否保留系统消息
+        """
+        system_msgs = [m for m in self.messages if m["role"] == "system"] if keep_system else []
+        non_system_msgs = [m for m in self.messages if m["role"] != "system"]
+        
+        # 只保留最近 N 条非系统消息
+        if len(non_system_msgs) > max_messages:
+            kept_msgs = non_system_msgs[-max_messages:]
+            self.messages = system_msgs + kept_msgs
+            logger.info(f"历史已截断: 保留最近 {max_messages} 条消息")
+        
+        return len(self.messages)
+    
     async def chat(
         self,
         tools: Optional[List[Dict]] = None,
@@ -173,19 +193,34 @@ class LLMClient:
         
         logger.info(f"AI 请求调用 {len(message.tool_calls)} 个工具")
         
-        # 执行工具调用
-        for tool_call in message.tool_calls:
+        # 并行执行工具调用
+        async def execute_single_tool(tool_call):
+            """执行单个工具调用"""
             tool_name = tool_call.function.name
             tool_args = json.loads(tool_call.function.arguments)
             
-            logger.info(f"调用工具: {tool_name}")
+            logger.info(f"[并行] 调用工具: {tool_name}")
             logger.debug(f"参数: {json.dumps(tool_args, ensure_ascii=False)}")
             
+            start_time = asyncio.get_event_loop().time()
             result = await tool_executor(tool_name, tool_args)
+            elapsed = asyncio.get_event_loop().time() - start_time
             
-            logger.info(f"工具返回: {result[:80]}{'...' if len(result) > 80 else ''}")
+            logger.info(f"[并行] 工具 {tool_name} 返回 ({elapsed:.2f}s): {result[:80]}{'...' if len(result) > 80 else ''}")
             
-            self.add_tool_result(tool_call.id, result)
+            return tool_call.id, result
+        
+        # 并行执行所有工具
+        results = await asyncio.gather(*[
+            execute_single_tool(tc) for tc in message.tool_calls
+        ])
+        
+        # 按原始顺序添加结果（保持 tool_call_id 对应）
+        for tool_call in message.tool_calls:
+            for tc_id, result in results:
+                if tc_id == tool_call.id:
+                    self.add_tool_result(tool_call.id, result)
+                    break
         
         # 再次请求获取最终回复
         return await self.chat(tools=None, tool_executor=None)
