@@ -15,6 +15,7 @@ python-dotenv>=1.0.0
 # Data Processing
 pydantic>=2.9.0
 pandas
+aiomysql
 mysql-connector-python
 python-dotenv
 numpy

@@ -217,6 +217,11 @@ Always be proactive in using tools when necessary."""
                 # 添加用户消息
                 self.llm.add_user_message(user_input)
                 
+                # 自动截断历史（保留最近 10 条对话）
+                if self.llm.get_history_length() > 12:
+                    self.llm.truncate_history(max_messages=10)
+                    logger.info("历史消息过多，已自动截断")
+                
                 # 调用 LLM
                 print(f"{self.EMOJI['ai']} AI: ", end="", flush=True)
                 
