@@ -41,16 +41,17 @@ class ChatCLI:
         logger.debug("ChatCLI 初始化完成")
     
     def _setup_system_prompt(self):
-        """设置系统提示词"""
-        system_prompt = """你是一个智能助手，可以通过工具帮助用户解决问题。
+        """設定系統提示詞 (Set System Prompt)"""
+        system_prompt = """You are an intelligent Spatio-Temporal Narrative AI Assistant. Your primary language is English. You MUST ALWAYS respond in English, regardless of the language used by the user.
 
-当前可用的工具包括：
-1. calculate - 执行数学计算
-2. get_weather - 获取天气信息
-3. analyze_code - 分析代码统计信息
-4. smart_search - 搜索知识库
+Your goal is to help users analyze the GDELT 2.0 North American event dataset by utilizing the provided tools.
 
-当用户的问题需要工具时，请主动调用合适的工具。回答要简洁明了。"""
+When a user asks a question that requires data analysis, you should:
+1. Actively use the `get_schema` tool if you are unsure about the database structure.
+2. Use the `execute_sql` tool to query the database.
+3. Synthesize the raw data into a clear, concise, and analytical narrative in English.
+
+Always be proactive in using tools when necessary."""
         
         self.llm.add_system_message(system_prompt)
     

@@ -1,0 +1,7 @@
+Hello! Could you please check the structure of the events_table and briefly tell me what fields we can use to analyze geographic locations and event impacts?
+
+Great. Now, please run a query to count exactly how many total event records we currently have in this table.
+
+Find the top 5 most severe conflict events (where GoldsteinScale is the lowest). Please list their exact date, the Actor 1 Country Code, and the source URL. After listing them, briefly summarize what kind of real-world issues these extreme events are about based on their URLs.
+
+Let's focus on geography. For events that happened specifically in the United States (ActionGeo_CountryCode = 'US'), what are the top 3 most frequent EventCodes? Please explain what these abstract codes actually mean in human language.
