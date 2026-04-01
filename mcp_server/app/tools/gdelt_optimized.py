@@ -6,6 +6,7 @@
 """
 
 import json
+import math
 from typing import Optional, Any
 from datetime import datetime
 
@@ -13,6 +14,13 @@ from pydantic import BaseModel, Field
 
 from app.services.gdelt_optimized import GDELTServiceOptimized, get_optimized_service
 from app.cache import query_cache
+
+
+# ==================== 辅助函数 ====================
+
+def radians(degrees: float) -> float:
+    """角度转弧度"""
+    return degrees * math.pi / 180.0
 
 
 # ==================== Schema Guide 文本（静态内容）====================
@@ -281,30 +289,31 @@ def create_optimized_tools(mcp):
     
     @mcp.tool()
     async def query_by_location(params: GeoQueryInput) -> str:
-        """按地理位置查询事件（带缓存）"""
-        # 地理查询也支持缓存（位置数据不常变化）
+        """按地理位置查询事件（带缓存）- 使用 ST_Distance_Sphere"""
+        # 使用 MySQL 空间函数计算球面距离（需要 SRID 4326）
+        # 如果 SRID 有问题，会报错，可以切换回 Haversine 公式版本
         query = f"""
         SELECT SQLDATE, Actor1Name, Actor2Name, EventCode,
                ActionGeo_Lat, ActionGeo_Long,
                GoldsteinScale, AvgTone, SOURCEURL,
                ST_Distance_Sphere(
                    ActionGeo_Point, 
-                   POINT(%s, %s)
+                   ST_GeomFromText('POINT(%s %s)', 4326)
                ) / 1000 AS distance_km
         FROM {service.DEFAULT_TABLE}
         WHERE ActionGeo_Lat IS NOT NULL 
           AND ActionGeo_Long IS NOT NULL
           AND ST_Distance_Sphere(
               ActionGeo_Point, 
-              POINT(%s, %s)
+              ST_GeomFromText('POINT(%s %s)', 4326)
           ) <= %s
         ORDER BY distance_km
         LIMIT %s
         """
-        params = (params.lon, params.lat, params.lon, params.lat, 
-                  params.radius_km * 1000, params.limit)
+        params_list = (params.lat, params.lon, params.lat, params.lon, 
+                       params.radius_km * 1000, params.limit)
         
-        rows = await service.execute_sql_cached(query, params, cache_ttl=600)
+        rows = await service.execute_sql_cached(query, params_list, cache_ttl=600)
         
         if not rows:
             return f"未找到距离 ({params.lat}, {params.lon}) {params.radius_km}km 内的事件"
