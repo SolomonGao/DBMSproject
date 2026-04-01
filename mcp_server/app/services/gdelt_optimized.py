@@ -368,6 +368,166 @@ class GDELTServiceOptimized:
         
         return result["cnt"] if result else 0
     
+    # ==================== 基础查询方法（全部支持缓存）====================
+    
+    async def query_by_actor_cached(
+        self,
+        actor_name: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 50,
+        cache_ttl: int = 300
+    ) -> str:
+        """
+        按参与方查询事件（带缓存）
+        
+        缓存 key 基于查询参数，相同参数会直接返回缓存结果。
+        """
+        date_filter = ""
+        params = [f"%{actor_name}%", f"%{actor_name}%"]
+        
+        if start_date and end_date:
+            date_filter = "AND SQLDATE BETWEEN %s AND %s"
+            params.extend([start_date, end_date])
+        
+        # 使用参数化查询确保 SQL 模板一致
+        query = f"""
+        SELECT SQLDATE, Actor1Name, Actor1CountryCode, 
+               Actor2Name, Actor2CountryCode, EventCode,
+               GoldsteinScale, AvgTone, SOURCEURL
+        FROM {self.DEFAULT_TABLE}
+        WHERE (Actor1Name LIKE %s OR Actor2Name LIKE %s)
+        {date_filter}
+        ORDER BY SQLDATE DESC
+        LIMIT %s
+        """
+        params.append(limit)
+        
+        rows = await self.execute_sql_cached(query, tuple(params), cache_ttl)
+        
+        if not rows:
+            return f"未找到涉及 '{actor_name}' 的事件"
+        
+        # 格式化为 Markdown 表格
+        columns = list(rows[0].keys())
+        row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
+        return self._format_markdown(columns, row_tuples)
+    
+    
+    async def query_by_time_range_cached(
+        self,
+        start_date: str,
+        end_date: str,
+        limit: int = 100,
+        cache_ttl: int = 300
+    ) -> str:
+        """按时间范围查询事件（带缓存）"""
+        query = """
+        SELECT SQLDATE, Actor1Name, Actor2Name, EventCode, 
+               GoldsteinScale, AvgTone, NumArticles, SOURCEURL
+        FROM {table}
+        WHERE SQLDATE BETWEEN %s AND %s
+        ORDER BY SQLDATE DESC
+        LIMIT %s
+        """.format(table=self.DEFAULT_TABLE)
+        
+        rows = await self.execute_sql_cached(query, (start_date, end_date, limit), cache_ttl)
+        
+        if not rows:
+            return f"未找到 {start_date} 至 {end_date} 的事件"
+        
+        columns = list(rows[0].keys())
+        row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
+        return self._format_markdown(columns, row_tuples)
+    
+    
+    async def analyze_daily_events_cached(
+        self,
+        start_date: str,
+        end_date: str,
+        cache_ttl: int = 600
+    ) -> str:
+        """按日期统计事件数量（带缓存）"""
+        query = f"""
+        SELECT SQLDATE, 
+               COUNT(*) as event_count,
+               AVG(GoldsteinScale) as avg_goldstein,
+               AVG(AvgTone) as avg_tone
+        FROM {self.DEFAULT_TABLE}
+        WHERE SQLDATE BETWEEN %s AND %s
+        GROUP BY SQLDATE
+        ORDER BY SQLDATE
+        """
+        
+        rows = await self.execute_sql_cached(query, (start_date, end_date), cache_ttl)
+        
+        if not rows:
+            return "未找到数据"
+        
+        columns = list(rows[0].keys())
+        row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
+        return self._format_markdown(columns, row_tuples)
+    
+    
+    async def analyze_top_actors_cached(
+        self,
+        start_date: str,
+        end_date: str,
+        top_n: int = 10,
+        cache_ttl: int = 600
+    ) -> str:
+        """统计最活跃的参与方（带缓存）"""
+        query = f"""
+        SELECT Actor1Name as actor, COUNT(*) as event_count
+        FROM {self.DEFAULT_TABLE}
+        WHERE SQLDATE BETWEEN %s AND %s
+          AND Actor1Name IS NOT NULL
+          AND Actor1Name != ''
+        GROUP BY Actor1Name
+        ORDER BY event_count DESC
+        LIMIT %s
+        """
+        
+        rows = await self.execute_sql_cached(query, (start_date, end_date, top_n), cache_ttl)
+        
+        if not rows:
+            return "未找到数据"
+        
+        columns = list(rows[0].keys())
+        row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
+        return self._format_markdown(columns, row_tuples)
+    
+    
+    # ==================== 格式化工具 ====================
+    
+    def _format_markdown(self, columns: List[str], rows: List[tuple], max_display_rows: int = 20) -> str:
+        """格式化为 Markdown 表格"""
+        if not rows:
+            return "查询成功，但未找到符合条件的资料记录。"
+        
+        total_rows = len(rows)
+        MAX_CELL_WIDTH = 100
+        
+        def truncate(text):
+            text = str(text) if text is not None else "NULL"
+            text = text.encode('utf-8', 'ignore').decode('utf-8')
+            if len(text) > MAX_CELL_WIDTH:
+                text = text[:MAX_CELL_WIDTH-3] + "..."
+            return text.replace('|', '｜').replace('\n', ' ')
+        
+        header = "| " + " | ".join(columns) + " |"
+        separator = "|" + "|".join([" --- " for _ in columns]) + "|"
+        data_rows = ["| " + " | ".join([truncate(cell) for cell in row]) + " |" for row in rows[:max_display_rows]]
+        
+        result = "\n".join([header, separator] + data_rows)
+        if total_rows > max_display_rows:
+            result += f"\n\n*共 {total_rows} 行，显示前 {max_display_rows} 行*"
+        else:
+            result += f"\n\n*共返回 {total_rows} 行数据*"
+        
+        return result
+    
+    
     # ==================== 核心优化：连接预热 ====================
     
     @staticmethod
