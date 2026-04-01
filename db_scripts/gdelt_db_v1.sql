@@ -1,5 +1,5 @@
 -- 创建数据库
-CREATE DATABASE IF NOT EXISTS gdelt_db;
+CREATE DATABASE IF NOT EXISTS gdelt;
 USE gdelt_db;
 
 -- 创建事件表
