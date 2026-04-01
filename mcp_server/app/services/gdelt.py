@@ -68,6 +68,34 @@ class GDELTService:
     
     # ==================== 格式化工具 ====================
     
+    @staticmethod
+    def sanitize_text(text: Any) -> str:
+        """
+        清理文本中的非法 UTF-8 字符
+        
+        处理 surrogate pairs 和其他编码问题。
+        """
+        if text is None:
+            return "NULL"
+        
+        text = str(text)
+        
+        # 1. 移除 surrogate pairs (U+D800-U+DFFF)
+        # 这些字符无法被 UTF-8 编码
+        text = text.encode('utf-8', 'ignore').decode('utf-8')
+        
+        # 2. 替换其他控制字符
+        import unicodedata
+        text = ''.join(
+            char for char in text 
+            if unicodedata.category(char)[0] != 'C' or char in '\n\t\r'
+        )
+        
+        # 3. 移除 null bytes
+        text = text.replace('\x00', '')
+        
+        return text
+    
     def format_markdown(self, columns: List[str], rows: List[tuple], max_display_rows: int = 20) -> str:
         """
         格式化为 Markdown 表格
@@ -80,16 +108,24 @@ class GDELTService:
         
         total_rows = len(rows)
         
-        def truncate(text: str) -> str:
-            text = str(text) if text is not None else "NULL"
-            return text[:self.MAX_CELL_WIDTH-3] + "..." if len(text) > self.MAX_CELL_WIDTH else text
+        def truncate(text: Any) -> str:
+            text = self.sanitize_text(text)
+            # 同时限制宽度和处理特殊字符
+            if len(text) > self.MAX_CELL_WIDTH:
+                text = text[:self.MAX_CELL_WIDTH-3] + "..."
+            # 替换 Markdown 表格分隔符
+            text = text.replace('|', '｜').replace('\n', ' ')
+            return text
+        
+        # 清理列名
+        safe_columns = [self.sanitize_text(col) for col in columns]
         
         # 如果行数过多，智能压缩
         if total_rows > max_display_rows:
-            return self._format_summary(columns, rows, total_rows, max_display_rows)
+            return self._format_summary(safe_columns, rows, total_rows, max_display_rows)
         
-        header = "| " + " | ".join(columns) + " |"
-        separator = "|" + "|".join([" --- " for _ in columns]) + "|"
+        header = "| " + " | ".join(safe_columns) + " |"
+        separator = "|" + "|".join([" --- " for _ in safe_columns]) + "|"
         data_rows = ["| " + " | ".join([truncate(cell) for cell in row]) + " |" for row in rows]
         
         return "\n".join([header, separator] + data_rows) + f"\n\n*共返回 {total_rows} 行数据*"
@@ -98,9 +134,12 @@ class GDELTService:
         """
         生成结果摘要（用于大数据量时节省 Token）
         """
-        def truncate(text: str) -> str:
-            text = str(text) if text is not None else "NULL"
-            return text[:self.MAX_CELL_WIDTH-3] + "..." if len(text) > self.MAX_CELL_WIDTH else text
+        def truncate(text: Any) -> str:
+            text = self.sanitize_text(text)
+            if len(text) > self.MAX_CELL_WIDTH:
+                text = text[:self.MAX_CELL_WIDTH-3] + "..."
+            text = text.replace('|', '｜').replace('\n', ' ')
+            return text
         
         # 显示前 N/2 和后 N/2 行
         half = max_display // 2

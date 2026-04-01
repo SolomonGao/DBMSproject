@@ -10,7 +10,7 @@ import asyncio
 import sys
 from typing import Optional
 
-from .logger import get_logger
+from .logger import get_logger, sanitize_for_log
 
 logger = get_logger("cli")
 
@@ -211,6 +211,8 @@ class ChatCLI:
                         break
                     continue
                 
+                # 清理输入中的非法字符
+                user_input = sanitize_for_log(user_input)
                 logger.info(f"用户输入: {user_input[:50]}...")
                 
                 # 添加用户消息

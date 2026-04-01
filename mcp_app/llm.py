@@ -19,6 +19,31 @@ from .logger import get_logger
 logger = get_logger("llm")
 
 
+def sanitize_text(text: str) -> str:
+    """
+    清理文本中的非法 UTF-8 字符 (surrogate pairs)
+    
+    这些字符无法被 JSON/UTF-8 编码，会导致 API 调用失败。
+    """
+    if not isinstance(text, str):
+        text = str(text)
+    
+    # 移除 surrogate pairs (U+D800-U+DFFF)
+    text = text.encode('utf-8', 'ignore').decode('utf-8')
+    
+    # 替换控制字符（保留正常换行和制表符）
+    import unicodedata
+    text = ''.join(
+        char for char in text 
+        if unicodedata.category(char)[0] != 'C' or char in '\n\t\r'
+    )
+    
+    # 移除 null bytes
+    text = text.replace('\x00', '')
+    
+    return text
+
+
 class LLMClient:
     """LLM 客户端 - 使用 OpenAI 封装，伪装成 Claude Code"""
     
@@ -57,20 +82,29 @@ class LLMClient:
     
     def add_system_message(self, content: str):
         """添加系统消息"""
+        content = sanitize_text(content)
         self.messages.append({"role": "system", "content": content})
         logger.debug(f"添加系统消息: {content[:50]}...")
     
     def add_user_message(self, content: str):
         """添加用户消息"""
+        content = sanitize_text(content)
         self.messages.append({"role": "user", "content": content})
         logger.debug(f"添加用户消息: {content[:50]}...")
     
     def add_assistant_message(self, content: str):
         """添加助手消息"""
+        content = sanitize_text(content)
         self.messages.append({"role": "assistant", "content": content})
     
     def add_tool_result(self, tool_call_id: str, content: str):
         """添加工具调用结果"""
+        if not tool_call_id:
+            logger.error("尝试添加空的 tool_call_id，跳过")
+            return
+        
+        content = sanitize_text(content)
+        # 确保 tool_call_id 不被修改（API 要求完全匹配）
         self.messages.append({
             "role": "tool",
             "tool_call_id": tool_call_id,
@@ -127,6 +161,19 @@ class LLMClient:
             AI 回复内容
         """
         try:
+            # 验证消息格式（特别是 tool 消息必须有 tool_call_id）
+            valid_messages = []
+            for i, msg in enumerate(self.messages):
+                if msg.get("role") == "tool":
+                    if not msg.get("tool_call_id"):
+                        logger.error(f"第 {i} 条 tool 消息缺少 tool_call_id，跳过")
+                        continue
+                valid_messages.append(msg)
+            
+            if len(valid_messages) != len(self.messages):
+                logger.warning(f"过滤了 {len(self.messages) - len(valid_messages)} 条无效消息")
+                self.messages = valid_messages
+            
             logger.info(f"发送请求到 {self.provider} (历史消息: {len(self.messages)}条)")
             
             response = await self.client.chat.completions.create(
@@ -217,10 +264,19 @@ class LLMClient:
         
         # 按原始顺序添加结果（保持 tool_call_id 对应）
         for tool_call in message.tool_calls:
+            tc_id_to_match = tool_call.id
+            if not tc_id_to_match:
+                logger.error("工具调用 ID 为空，跳过")
+                continue
+            
             for tc_id, result in results:
-                if tc_id == tool_call.id:
-                    self.add_tool_result(tool_call.id, result)
+                if tc_id == tc_id_to_match:
+                    self.add_tool_result(tc_id_to_match, result)
                     break
+            else:
+                # 没有找到匹配的结果
+                logger.error(f"未找到工具调用结果: {tc_id_to_match}")
+                self.add_tool_result(tc_id_to_match, "工具执行失败：未找到结果")
         
         # 再次请求获取最终回复
         return await self.chat(tools=None, tool_executor=None)
