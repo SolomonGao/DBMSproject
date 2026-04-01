@@ -10,7 +10,7 @@ import asyncio
 import sys
 from typing import Optional
 
-from .logger import get_logger
+from .logger import get_logger, sanitize_for_log
 
 logger = get_logger("cli")
 
@@ -211,10 +211,17 @@ class ChatCLI:
                         break
                     continue
                 
+                # 清理输入中的非法字符
+                user_input = sanitize_for_log(user_input)
                 logger.info(f"用户输入: {user_input[:50]}...")
                 
                 # 添加用户消息
                 self.llm.add_user_message(user_input)
+                
+                # 自动截断历史（保留最近 10 条对话）
+                if self.llm.get_history_length() > 12:
+                    self.llm.truncate_history(max_messages=10)
+                    logger.info("历史消息过多，已自动截断")
                 
                 # 调用 LLM
                 print(f"{self.EMOJI['ai']} AI: ", end="", flush=True)

@@ -13,12 +13,12 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 
 # 1. 数据库配置
 db_config = {
-    'host': '127.0.0.1',
+    'host': os.getenv('DB_HOST', 'db'),  # 优先读取环境变量，默认使用 Docker 的 'db' 服务名
     'user': 'root',
     'password': DB_PASSWORD,
-    'database': 'gdelt_db', 
+    'database': 'gdelt', 
     'charset': 'utf8mb4',
-    'allow_local_infile': True  # 整个一起导入
+    'allow_local_infile': True 
 }
 
 csv_files = glob.glob("data/gdelt_2024_na_*.csv")

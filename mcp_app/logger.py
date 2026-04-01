@@ -11,6 +11,49 @@ from typing import Optional
 from datetime import datetime
 
 
+def sanitize_for_log(text: str) -> str:
+    """清理日志文本中的非法 UTF-8 字符"""
+    if not isinstance(text, str):
+        text = str(text)
+    # 移除 surrogate pairs
+    text = text.encode('utf-8', 'ignore').decode('utf-8')
+    # 替换控制字符（保留换行和制表符）
+    import unicodedata
+    text = ''.join(
+        char for char in text 
+        if unicodedata.category(char)[0] != 'C' or char in '\n\t\r'
+    )
+    return text.replace('\x00', '')
+
+
+class SafeStreamHandler(logging.StreamHandler):
+    """安全的流处理器 - 处理编码错误"""
+    
+    def emit(self, record: logging.LogRecord):
+        try:
+            # 清理消息内容
+            if isinstance(record.msg, str):
+                record.msg = sanitize_for_log(record.msg)
+            if record.args:
+                # 清理格式化参数
+                safe_args = tuple(
+                    sanitize_for_log(arg) if isinstance(arg, str) else arg
+                    for arg in record.args
+                )
+                record.args = safe_args
+            
+            super().emit(record)
+        except UnicodeEncodeError:
+            # 如果还有编码错误，强制编码
+            try:
+                msg = self.format(record)
+                safe_msg = msg.encode('utf-8', 'ignore').decode('utf-8')
+                self.stream.write(safe_msg + self.terminator)
+                self.flush()
+            except Exception:
+                pass  # 最后的手段：忽略
+
+
 class ColoredFormatter(logging.Formatter):
     """带颜色的日志格式化器"""
     
@@ -29,6 +72,10 @@ class ColoredFormatter(logging.Formatter):
         self.use_colors = use_colors
     
     def format(self, record: logging.LogRecord) -> str:
+        # 清理消息
+        if isinstance(record.msg, str):
+            record.msg = sanitize_for_log(record.msg)
+        
         if self.use_colors and sys.platform != 'win32':
             # Windows 需要启用 ANSI 支持，简化处理
             levelname = record.levelname
@@ -93,7 +140,7 @@ class LoggerManager:
         
         # 控制台处理器
         if console:
-            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler = SafeStreamHandler(sys.stdout)
             console_handler.setLevel(getattr(logging, level.upper()))
             console_handler.setFormatter(console_fmt)
             self.logger.addHandler(console_handler)

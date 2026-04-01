@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # MySQL 資料庫服務
+  db:
+    image: mysql:8.0
+    container_name: gdelt_mysql
+    command: --local-infile=1
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: gdelt
+    ports:
+      - "3307:3306"
+    volumes:
+      # 自動將初始化腳本掛載到資料庫，MySQL 容器啟動時會自動執行建表
+      - ./db_scripts/gdelt_db_v1.sql:/docker-entrypoint-initdb.d/init.sql
+      # (可選) 持久化資料庫資料
+      - db_data:/var/lib/mysql
+
+  # Python MCP 應用程式服務
+  app:
+    build: .
+    container_name: gdelt_app
+    depends_on:
+      - db
+    # 支援互動模式 (相當於 docker run -it)
+    stdin_open: true
+    tty: true
+    volumes:
+      # 將本地代碼掛載到容器，方便本地修改代碼後即時生效
+      - .:/app
+    # 載入環境變數檔案
+    env_file:
+      - .env
+
+volumes:
+  db_data:
