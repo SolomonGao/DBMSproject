@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS event_causal_links (
 
 -- ============================================
 -- 视图: 事件详情完整视图
+-- 基于实际的 events_table 表结构
 -- ============================================
 CREATE OR REPLACE VIEW event_details AS
 SELECT 
@@ -209,13 +210,16 @@ SELECT
     f.summary,
     e.SQLDATE,
     e.MonthYear,
-    LEFT(e.SQLDATE, 4) as Year,
+    e.DATEADDED,
     e.Actor1Name,
-    e.Actor2Name,
     e.Actor1CountryCode,
+    e.Actor1Type1Code,
+    e.Actor2Name,
     e.Actor2CountryCode,
+    e.Actor2Type1Code,
     e.EventCode,
     e.EventRootCode,
+    e.QuadClass,
     e.GoldsteinScale,
     e.NumMentions,
     e.NumSources,
@@ -224,9 +228,9 @@ SELECT
     e.ActionGeo_Type,
     e.ActionGeo_FullName,
     e.ActionGeo_CountryCode,
-    e.ActionGeo_ADM1Code,
     e.ActionGeo_Lat,
     e.ActionGeo_Long,
+    e.SOURCEURL,
     f.key_actors,
     f.event_type_label,
     f.severity_score,
