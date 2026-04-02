@@ -20,5 +20,10 @@ mysql-connector-python
 python-dotenv
 numpy
 tabulate
+aiohttp
+beautifulsoup4
+aiomysql
+chromadb
+sentence-transformers
 # Optional: YAML config support
 # pyyaml>=6.0
