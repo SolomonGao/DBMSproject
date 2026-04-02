@@ -403,12 +403,12 @@ class GDELTETLPipeline:
         regions = await self.pool.fetchall("""
             SELECT 
                 ActionGeo_CountryCode as region,
-                ActionGeo_FullName as region_name,
+                MAX(ActionGeo_FullName) as region_name,
                 COUNT(*) as event_count,
                 AVG(CASE WHEN GoldsteinScale < 0 THEN ABS(GoldsteinScale) ELSE 0 END) as conflict_intensity,
                 AVG(CASE WHEN GoldsteinScale > 0 THEN GoldsteinScale ELSE 0 END) as cooperation_intensity,
                 AVG(AvgTone) as avg_tone,
-                Actor1Name as primary_actor
+                MAX(Actor1Name) as primary_actor
             FROM events_table
             WHERE SQLDATE = %s AND ActionGeo_CountryCode IS NOT NULL AND ActionGeo_CountryCode != ''
             GROUP BY ActionGeo_CountryCode

@@ -121,6 +121,32 @@ class GetHotEventsInput(BaseModel):
     )
 
 
+class GetTopEventsInput(BaseModel):
+    """获取时间段内热度最高的事件"""
+    start_date: str = Field(
+        ...,
+        description="开始日期，如'2024-01-01'"
+    )
+    end_date: str = Field(
+        ...,
+        description="结束日期，如'2024-12-31'"
+    )
+    region_filter: Optional[str] = Field(
+        None,
+        description="区域过滤，如'USA', 'China', 'Middle East'"
+    )
+    event_type: Optional[Literal['conflict', 'cooperation', 'protest', 'any']] = Field(
+        'any',
+        description="事件类型筛选"
+    )
+    top_n: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="返回数量（默认10条）"
+    )
+
+
 class GetDailyBriefInput(BaseModel):
     """获取每日简报"""
     date: Optional[str] = Field(
@@ -237,80 +263,123 @@ def register_core_tools(mcp: FastMCP):
         """
         获取事件详情 - 包含前因后果分析
         
-        示例:
-        - fingerprint="US-20240115-WDC-PROTEST-001"
+        支持两种指纹格式:
+        - 标准指纹: "US-20240115-WDC-PROTEST-001" (ETL生成)
+        - 临时指纹: "EVT-2024-12-25-1217480788" (search_events临时生成)
         """
-        # 从指纹解析或使用指纹查询
-        # 先尝试通过指纹表查询
+        fingerprint = params.fingerprint
+        
         try:
             pool = await get_db_pool()
             async with pool.acquire() as conn:
                 async with conn.cursor() as cursor:
-                    # 尝试从指纹表获取
-                    await cursor.execute("""
-                        SELECT global_event_id, fingerprint, headline, summary,
-                               key_actors, event_type_label, severity_score,
-                               location_name, location_country
-                        FROM event_fingerprints
-                        WHERE fingerprint = %s
-                    """, (params.fingerprint,))
                     
-                    fp_row = await cursor.fetchone()
-                    
-                    if fp_row:
-                        global_event_id = fp_row[0]
-                        # 获取完整事件数据
+                    # 判断指纹类型
+                    if fingerprint.startswith('EVT-'):
+                        # 临时指纹格式: EVT-YYYY-MM-DD-GID
+                        # 解析出 GlobalEventID
+                        parts = fingerprint.split('-')
+                        if len(parts) >= 4:
+                            # 最后一部分是 GID
+                            global_event_id = parts[-1]
+                        else:
+                            return f"❌ 临时指纹格式错误: {fingerprint}"
+                        
+                        # 直接查询 events_table
                         await cursor.execute(f"""
                             SELECT * FROM {DEFAULT_TABLE}
                             WHERE GlobalEventID = %s
                         """, (global_event_id,))
+                        
                         event_row = await cursor.fetchone()
+                        if not event_row:
+                            return f"⚠️ 未找到事件: GlobalEventID={global_event_id}"
+                        
                         event_cols = [desc[0] for desc in cursor.description] if cursor.description else []
-                        event_data = dict(zip(event_cols, event_row)) if event_row else {}
+                        event_data = dict(zip(event_cols, event_row))
+                        
+                        # 实时生成显示内容
+                        return _format_event_detail_from_raw(event_data, fingerprint, params)
+                    
                     else:
-                        # 直接查询events表（可能没有指纹）
-                        # 指纹格式: US-20240115-WDC-PROTEST-001
-                        # 尝试从日期解析
-                        return f"⚠️ 事件指纹 `{params.fingerprint}` 尚未生成或不存在\n\n提示：请先运行ETL Pipeline生成事件指纹，或使用 search_events 查找事件。"
-                    
-                    # 构建输出
-                    output = []
-                    output.append(f"# 📰 {fp_row[2] or '事件详情'}")
-                    output.append(f"**指纹ID**: `{params.fingerprint}`")
-                    output.append(f"**时间**: {event_data.get('SQLDATE', 'N/A')}")
-                    output.append(f"**地点**: {fp_row[7] or event_data.get('ActionGeo_FullName', 'N/A')}")
-                    output.append(f"**类型**: {fp_row[5] or 'N/A'}")
-                    output.append(f"**严重程度**: {'🔴' * int((fp_row[6] or 5) / 2)}")
-                    output.append("")
-                    
-                    if fp_row[3]:  # summary
-                        output.append(f"**摘要**: {fp_row[3]}")
-                        output.append("")
-                    
-                    # 参与方
-                    if fp_row[4]:  # key_actors
-                        try:
-                            actors = json.loads(fp_row[4])
-                            if actors:
-                                output.append(f"**参与方**: {', '.join(actors)}")
+                        # 标准指纹，查询指纹表
+                        await cursor.execute("""
+                            SELECT global_event_id, fingerprint, headline, summary,
+                                   key_actors, event_type_label, severity_score,
+                                   location_name, location_country
+                            FROM event_fingerprints
+                            WHERE fingerprint = %s
+                        """, (fingerprint,))
+                        
+                        fp_row = await cursor.fetchone()
+                        
+                        if fp_row:
+                            global_event_id = fp_row[0]
+                            # 获取完整事件数据
+                            await cursor.execute(f"""
+                                SELECT * FROM {DEFAULT_TABLE}
+                                WHERE GlobalEventID = %s
+                            """, (global_event_id,))
+                            event_row = await cursor.fetchone()
+                            event_cols = [desc[0] for desc in cursor.description] if cursor.description else []
+                            event_data = dict(zip(event_cols, event_row)) if event_row else {}
+                            
+                            # 使用指纹表数据构建输出
+                            output = []
+                            output.append(f"# 📰 {fp_row[2] or '事件详情'}")
+                            output.append(f"**指纹ID**: `{fingerprint}`")
+                            output.append(f"**GlobalEventID**: {global_event_id}")
+                            output.append(f"**时间**: {event_data.get('SQLDATE', 'N/A')}")
+                            output.append(f"**地点**: {fp_row[7] or event_data.get('ActionGeo_FullName', 'N/A')}")
+                            output.append(f"**类型**: {fp_row[5] or 'N/A'}")
+                            output.append(f"**严重程度**: {'🔴' * int((fp_row[6] or 5) / 2)}")
+                            output.append("")
+                            
+                            if fp_row[3]:  # summary
+                                output.append(f"**摘要**: {fp_row[3]}")
                                 output.append("")
-                        except:
-                            pass
-                    
-                    # 原始数据
-                    output.append("## 📊 数据指标")
-                    output.append(f"- GoldsteinScale: {event_data.get('GoldsteinScale', 'N/A')}")
-                    output.append(f"- NumArticles: {event_data.get('NumArticles', 'N/A')}")
-                    output.append(f"- AvgTone: {event_data.get('AvgTone', 'N/A')}")
-                    output.append("")
-                    
-                    # 占位符：前因后果分析
-                    if params.include_causes or params.include_effects:
-                        output.append("## ⏱️ 因果分析")
-                        output.append("_（需要运行因果链分析Pipeline）_")
-                        output.append("")
-                    
-                    return "\n".join(output)
+                            
+                            # 参与方
+                            if fp_row[4]:  # key_actors
+                                try:
+                                    actors = json.loads(fp_row[4])
+                                    if actors:
+                                        output.append(f"**参与方**: {', '.join(actors)}")
+                                        output.append("")
+                                except:
+                                    pass
+                            
+                            # 原始数据
+                            output.append("## 📊 数据指标")
+                            output.append(f"- GoldsteinScale: {event_data.get('GoldsteinScale', 'N/A')}")
+                            output.append(f"- NumArticles: {event_data.get('NumArticles', 'N/A')}")
+                            output.append(f"- AvgTone: {event_data.get('AvgTone', 'N/A')}")
+                            output.append("")
+                            
+                            # 占位符：前因后果分析
+                            if params.include_causes or params.include_effects:
+                                output.append("## ⏱️ 因果分析")
+                                output.append("_（需要运行因果链分析Pipeline）_")
+                                output.append("")
+                            
+                            return "\n".join(output)
+                        else:
+                            # 尝试用指纹作为 GID 直接查询
+                            try:
+                                await cursor.execute(f"""
+                                    SELECT * FROM {DEFAULT_TABLE}
+                                    WHERE GlobalEventID = %s
+                                """, (fingerprint,))
+                                
+                                event_row = await cursor.fetchone()
+                                if event_row:
+                                    event_cols = [desc[0] for desc in cursor.description] if cursor.description else []
+                                    event_data = dict(zip(event_cols, event_row))
+                                    return _format_event_detail_from_raw(event_data, fingerprint, params)
+                            except:
+                                pass
+                            
+                            return f"⚠️ 事件指纹 `{fingerprint}` 尚未生成或不存在\n\n提示：该指纹可能尚未通过ETL处理，或使用 search_events 重新查找。"
                     
         except Exception as e:
             logger.error(f"获取事件详情失败: {e}")
@@ -452,7 +521,8 @@ def register_core_tools(mcp: FastMCP):
                         for fp in hot_fingerprints[:params.top_n]:
                             await cursor.execute("""
                                 SELECT f.fingerprint, f.headline, f.summary, f.severity_score,
-                                       f.location_name, e.SQLDATE, e.GoldsteinScale, e.NumArticles
+                                       f.location_name, e.SQLDATE, e.GoldsteinScale, e.NumArticles,
+                                       e.GlobalEventID, 'standard' as fp_type
                                 FROM event_fingerprints f
                                 JOIN events_table e ON f.global_event_id = e.GlobalEventID
                                 WHERE f.fingerprint = %s
@@ -461,28 +531,36 @@ def register_core_tools(mcp: FastMCP):
                             if row:
                                 events.append(row)
                     
-                    # 如果没有预计算数据，实时查询
+                    # 如果没有预计算数据，实时查询但尝试匹配指纹表
                     if not events:
                         region_condition = ""
                         query_params = [query_date]
                         
                         if params.region_filter:
-                            region_condition = "AND (ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)"
+                            region_condition = "AND (e.ActionGeo_CountryCode = %s OR e.ActionGeo_FullName LIKE %s)"
                             query_params.extend([params.region_filter.upper(), f'%{params.region_filter}%'])
                         
+                        # 先查实时热点，然后LEFT JOIN指纹表获取标准指纹
                         await cursor.execute(f"""
                             SELECT 
-                                CAST(GlobalEventID AS CHAR) as fingerprint,
-                                CONCAT(Actor1Name, ' vs ', Actor2Name) as headline,
-                                ActionGeo_FullName as summary,
-                                ABS(GoldsteinScale) as severity_score,
-                                ActionGeo_FullName as location_name,
-                                SQLDATE,
-                                GoldsteinScale,
-                                NumArticles
-                            FROM {DEFAULT_TABLE}
-                            WHERE SQLDATE = %s {region_condition}
-                            ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+                                COALESCE(f.fingerprint, CONCAT('EVT-', e.SQLDATE, '-', CAST(e.GlobalEventID AS CHAR))) as fingerprint,
+                                COALESCE(f.headline, CONCAT(
+                                    COALESCE(NULLIF(e.Actor1Name, ''), '某方'), 
+                                    ' vs ', 
+                                    COALESCE(NULLIF(e.Actor2Name, ''), '对方')
+                                )) as headline,
+                                COALESCE(f.summary, e.ActionGeo_FullName) as summary,
+                                COALESCE(f.severity_score, ABS(e.GoldsteinScale)) as severity_score,
+                                COALESCE(f.location_name, e.ActionGeo_FullName) as location_name,
+                                e.SQLDATE as date,
+                                e.GoldsteinScale,
+                                e.NumArticles,
+                                e.GlobalEventID,
+                                CASE WHEN f.fingerprint IS NOT NULL THEN 'standard' ELSE 'temp' END as fp_type
+                            FROM {DEFAULT_TABLE} e
+                            LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+                            WHERE e.SQLDATE = %s {region_condition}
+                            ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
                             LIMIT %s
                         """, tuple(query_params + [params.top_n]))
                         
@@ -497,24 +575,178 @@ def register_core_tools(mcp: FastMCP):
                     output.append("")
                     
                     for i, evt in enumerate(events, 1):
-                        fingerprint = evt[0][:30] + "..." if len(evt[0]) > 30 else evt[0]
-                        headline = evt[1] or "未知事件"
+                        fingerprint = evt[0]
+                        raw_headline = evt[1]
+                        # 改进 headline 显示
+                        if raw_headline and raw_headline not in ['某方 vs 对方', ' vs ', 'NULL vs NULL']:
+                            headline = raw_headline
+                        else:
+                            # 尝试从指纹或事件类型推断
+                            gid = evt[8] if len(evt) > 8 else (fingerprint.split('-')[-1] if '-' in str(fingerprint) else '未知')
+                            headline = f"事件 #{gid}"
                         location = evt[4] or "未知地点"
                         severity = evt[3] or 5
                         num_articles = evt[7] or 0
+                        fp_type = evt[9] if len(evt) > 9 else 'unknown'
+                        
+                        # 标记指纹类型
+                        fp_badge = "📌" if fp_type == 'standard' else "📝"
                         
                         output.append(f"## {i}. {headline}")
-                        output.append(f"**指纹**: `{fingerprint}`")
+                        output.append(f"**指纹**: {fp_badge} `{fingerprint}` {'(标准)' if fp_type == 'standard' else '(临时)'}")
                         output.append(f"**地点**: {location} | **严重度**: {'🔴' * int(severity / 2)}")
                         output.append(f"**报道量**: {num_articles} 篇")
                         if evt[2] and len(str(evt[2])) > 10:
                             output.append(f"**摘要**: {str(evt[2])[:100]}...")
                         output.append("")
                     
+                    output.append("💡 _使用 `get_event_detail` 查看详情_")
                     return "\n".join(output)
                     
         except Exception as e:
             logger.error(f"获取热点事件失败: {e}")
+            return f"❌ 查询失败: {str(e)}"
+
+    @mcp.tool()
+    async def get_top_events(params: GetTopEventsInput) -> str:
+        """
+        获取时间段内热度最高的事件
+        
+        示例:
+        - start_date="2024-01-01", end_date="2024-12-31" (2024年全年最热)
+        - start_date="2024-06-01", end_date="2024-06-30", region_filter="USA"
+        - start_date="2024-01-01", end_date="2024-12-31", event_type="conflict", top_n=20
+        """
+        try:
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                async with conn.cursor() as cursor:
+                    # 构建查询条件
+                    conditions = ["SQLDATE BETWEEN %s AND %s"]
+                    query_params = [params.start_date, params.end_date]
+                    
+                    # 区域过滤
+                    if params.region_filter:
+                        conditions.append("(ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)")
+                        query_params.extend([params.region_filter.upper(), f'%{params.region_filter}%'])
+                    
+                    # 事件类型过滤
+                    if params.event_type == 'conflict':
+                        conditions.append("GoldsteinScale < -5")
+                    elif params.event_type == 'cooperation':
+                        conditions.append("GoldsteinScale > 5")
+                    elif params.event_type == 'protest':
+                        conditions.append("EventRootCode = '14'")
+                    
+                    where_clause = " AND ".join(conditions)
+                    
+                    # 查询热度最高的事件
+                    # 热度 = NumArticles * |GoldsteinScale| (报道量 * 冲突强度)
+                    await cursor.execute(f"""
+                        SELECT 
+                            GlobalEventID,
+                            SQLDATE,
+                            Actor1Name,
+                            Actor2Name,
+                            ActionGeo_FullName,
+                            ActionGeo_CountryCode,
+                            EventRootCode,
+                            GoldsteinScale,
+                            NumArticles,
+                            NumSources,
+                            AvgTone,
+                            SOURCEURL
+                        FROM {DEFAULT_TABLE}
+                        WHERE {where_clause}
+                        ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+                        LIMIT %s
+                    """, tuple(query_params + [params.top_n]))
+                    
+                    rows = await cursor.fetchall()
+                    
+                    if not rows:
+                        return f"📭 {params.start_date} ~ {params.end_date} 期间未找到符合条件的事件"
+                    
+                    # 格式化输出
+                    output = []
+                    output.append(f"# 🔥 {params.start_date} ~ {params.end_date} 热度最高事件 TOP {len(rows)}")
+                    if params.region_filter:
+                        output.append(f"**区域过滤**: {params.region_filter}")
+                    if params.event_type != 'any':
+                        output.append(f"**类型过滤**: {params.event_type}")
+                    output.append("")
+                    output.append("| 排名 | 指纹ID | 事件 | 热度 | 日期 | 地点 |")
+                    output.append("|------|--------|------|------|------|------|")
+                    
+                    detail_list = []
+                    
+                    for i, row in enumerate(rows, 1):
+                        (gid, date, actor1, actor2, location, country, 
+                         event_root, goldstein, articles, sources, tone, url) = row
+                        
+                        # 生成临时指纹
+                        temp_fp = f"EVT-{date}-{gid}"
+                        
+                        # 事件类型标签
+                        type_labels = {
+                            '01': '声明', '02': '呼吁', '03': '意向',
+                            '04': '磋商', '05': '合作', '06': '援助',
+                            '07': '援助', '08': '援助', '09': '让步',
+                            '10': '要求', '11': '不满', '12': '拒绝',
+                            '13': '威胁', '14': '抗议', '15': '武力',
+                            '16': '降级', '17': '强制', '18': '摩擦',
+                            '19': '冲突', '20': '攻击'
+                        }
+                        event_label = type_labels.get(str(event_root)[:2], '事件') if event_root else '事件'
+                        
+                        # 热度评分
+                        hot_score = (articles or 0) * abs(goldstein or 0)
+                        
+                        actor1 = actor1 or '某国'
+                        actor2 = actor2 or '对方'
+                        location_short = (location or '未知')[:15]  # 缩短地点
+                        
+                        # 简化的标题
+                        title = f"{actor1[:10]} vs {actor2[:10]}"
+                        
+                        # 表格行
+                        output.append(f"| {i} | `{temp_fp}` | {title} [{event_label}] | {hot_score:.0f} | {date} | {location_short} |")
+                        
+                        # 详细信息（用于后续展开）
+                        detail_list.append({
+                            'rank': i,
+                            'fingerprint': temp_fp,
+                            'title': title,
+                            'event_label': event_label,
+                            'date': date,
+                            'location': location,
+                            'hot_score': hot_score,
+                            'articles': articles,
+                            'goldstein': goldstein,
+                            'tone': tone
+                        })
+                    
+                    output.append("")
+                    output.append("## 详细信息")
+                    output.append("")
+                    
+                    for d in detail_list[:5]:  # 只展示前5个详情
+                        output.append(f"### {d['rank']}. {d['title']} [{d['event_label']}]")
+                        output.append(f"- **指纹**: `{d['fingerprint']}` ← 复制此ID查看详情")
+                        output.append(f"- **时间**: {d['date']} | **地点**: {d['location']}")
+                        output.append(f"- **热度**: {d['hot_score']:.0f} (报道{d['articles']}篇 × 强度{abs(d['goldstein'] or 0):.1f})")
+                        output.append(f"- **Goldstein**: {d['goldstein']:.2f} | **Tone**: {d['tone']:.2f}")
+                        output.append("")
+                    
+                    if len(detail_list) > 5:
+                        output.append(f"_... 还有 {len(detail_list) - 5} 个事件，使用指纹ID查看详情_")
+                        output.append("")
+                    
+                    output.append("💡 **查看事件详情**: `get_event_detail(fingerprint='EVT-YYYY-MM-DD-GID')`")
+                    return "\n".join(output)
+                    
+        except Exception as e:
+            logger.error(f"获取Top事件失败: {e}")
             return f"❌ 查询失败: {str(e)}"
 
     @mcp.tool()
@@ -779,6 +1011,94 @@ def _format_regional_overview_precomputed(rows: list, region: str,
             output.append("- **中风险**: 局部冲突时有发生")
         else:
             output.append("- **低风险**: 总体局势稳定")
+        output.append("")
+    
+    return "\n".join(output)
+
+
+def _format_event_detail_from_raw(event_data: dict, fingerprint: str, params) -> str:
+    """
+    从原始事件数据格式化详情（无指纹表数据时）
+    """
+    actor1 = event_data.get('Actor1Name', '') or '某国'
+    actor2 = event_data.get('Actor2Name', '') or '对方'
+    location = event_data.get('ActionGeo_FullName', '') or '未知地点'
+    date = event_data.get('SQLDATE', 'N/A')
+    goldstein = event_data.get('GoldsteinScale', 0) or 0
+    articles = event_data.get('NumArticles', 0) or 0
+    tone = event_data.get('AvgTone', 0) or 0
+    gid = event_data.get('GlobalEventID', 'N/A')
+    event_root = str(event_data.get('EventRootCode', ''))[:2]
+    country = event_data.get('ActionGeo_CountryCode', 'XX')
+    
+    # 事件类型标签
+    type_labels = {
+        '01': '外交声明', '02': '外交呼吁', '03': '政策意向',
+        '04': '外交磋商', '05': '参与合作', '06': '物资援助',
+        '07': '人员援助', '08': '保护援助', '09': '让步缓和',
+        '10': '提出要求', '11': '表达不满', '12': '拒绝反对',
+        '13': '威胁警告', '14': '抗议示威', '15': '展示武力',
+        '16': '关系降级', '17': '强制胁迫', '18': '军事摩擦',
+        '19': '大规模冲突', '20': '武装攻击'
+    }
+    event_label = type_labels.get(event_root, '其他事件')
+    
+    # 严重度
+    severity = min(10, max(1, abs(goldstein) * 2))
+    if articles > 100:
+        severity += 1
+    severity = min(10, severity)
+    
+    output = []
+    output.append(f"# 📰 {actor1} vs {actor2} [{event_label}]")
+    output.append(f"**指纹ID**: `{fingerprint}`")
+    output.append(f"**GlobalEventID**: {gid}")
+    output.append(f"**时间**: {date}")
+    output.append(f"**地点**: {location} ({country})")
+    output.append(f"**类型**: {event_label}")
+    output.append(f"**严重程度**: {'🔴' * int(severity / 2)}")
+    output.append("")
+    
+    # 实时生成摘要
+    intensity_desc = "轻微"
+    if abs(goldstein) > 7:
+        intensity_desc = "严重"
+    elif abs(goldstein) > 4:
+        intensity_desc = "中等"
+    
+    coverage = ""
+    if articles > 100:
+        coverage = f"，受到广泛报道({articles}篇)"
+    elif articles > 10:
+        coverage = f"，受到一定报道({articles}篇)"
+    
+    summary = f"{actor1}与{actor2}在{location}发生{intensity_desc}互动{coverage}。"
+    output.append(f"**摘要**: {summary}")
+    output.append("")
+    
+    if actor1 != '某国' or actor2 != '对方':
+        actors = [a for a in [actor1, actor2] if a not in ['某国', '对方']]
+        if actors:
+            output.append(f"**参与方**: {', '.join(actors)}")
+            output.append("")
+    
+    # 原始数据
+    output.append("## 📊 数据指标")
+    output.append(f"- GoldsteinScale: {goldstein:.2f}")
+    output.append(f"- NumArticles: {articles}")
+    output.append(f"- AvgTone: {tone:.2f}")
+    output.append(f"- QuadClass: {event_data.get('QuadClass', 'N/A')}")
+    output.append("")
+    
+    # 占位符
+    if params.include_causes or params.include_effects:
+        output.append("## ⏱️ 因果分析")
+        output.append("_（需要运行因果链分析Pipeline）_")
+        output.append("")
+    
+    if params.include_related:
+        output.append("## 🔗 相关事件")
+        output.append("_（需要事件相似度计算）_")
         output.append("")
     
     return "\n".join(output)

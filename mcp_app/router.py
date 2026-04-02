@@ -147,15 +147,21 @@ class OllamaRouter:
 - chat: 闲聊、问候、简单问答（如"你好"、"谢谢"、"你能做什么"）
 - clarification: 需要用户澄清（输入模糊或不完整）
 
-可用工具：
-- query_by_actor: 按参与方名称查询
-- query_by_time_range: 按时间范围查询
-- query_by_location: 按地理位置查询
-- analyze_daily_events: 每日事件统计
-- analyze_top_actors: Top 参与方排名
-- get_dashboard: 仪表盘（多维度统计）
-- analyze_time_series: 时间序列分析
-- get_geo_heatmap: 地理热力图
+可用工具（V2 - 意图驱动）：
+- search_events: 智能事件搜索（核心入口）- 支持自然语言如"1月华盛顿的抗议"
+- get_event_detail: 获取事件详情（通过指纹ID如 US-20240115-WDC-PROTEST-001）
+- get_regional_overview: 区域态势概览（如"中东局势"）
+- get_hot_events: 热点事件推荐（单日）
+- get_top_events: 时间段热度排行（跨时间范围，如"2024年最热事件"）
+- get_daily_brief: 每日简报
+
+工具选择指南：
+- 用户说"搜索"、"查找"、"查一下" → search_events
+- 用户提到"详情"、"详细说说" → get_event_detail
+- 用户问"局势"、"态势"、"怎么样" → get_regional_overview
+- 用户问"热点"、"新闻"、"发生了什么"（单日）→ get_hot_events
+- 用户问"最热的"、"Top"、"排行"、"排名"（跨时间）→ get_top_events
+- 用户要"简报"、"日报"、"总结" → get_daily_brief
 
 输出格式（严格 JSON）：
 {
@@ -169,7 +175,8 @@ class OllamaRouter:
 注意：
 1. 只输出 JSON，不要其他内容
 2. needs_llm: 复杂查询需要大模型推理时为 true，简单查询可为 false
-3. confidence: 0-1 之间的数字"""
+3. confidence: 0-1 之间的数字
+4. 优先使用新工具（V2），不要用旧的 query_by_actor 等"""
 
         messages = [
             {"role": "system", "content": system_prompt},

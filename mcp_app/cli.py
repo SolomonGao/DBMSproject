@@ -102,7 +102,16 @@ class ChatCLI:
   - "昨天亚洲的热点事件"
 参数：date, region_filter, top_n
 
-【5. get_daily_brief - 每日简报】
+【5. get_top_events - 时间段热度排行】⭐ 新增
+用途：获取任意时间段内热度最高的事件
+适用场景：
+  - "2024年最热的事件是什么？"
+  - "6月份美国最热的10个事件"
+  - "2024年冲突强度最高的20个事件"
+参数：start_date, end_date, region_filter, event_type, top_n
+注意：热度 = 报道量 × 冲突强度(Goldstein)
+
+【6. get_daily_brief - 每日简报】
 用途：生成每日新闻简报（类似新闻摘要）
 适用场景：
   - "给我一份今日简报"
@@ -256,18 +265,22 @@ class ChatCLI:
         
         elif cmd in ['/help', '/h', 'help']:
             self.print_help()
+            return True
         
         elif cmd in ['/clear', '/c', 'clear']:
             self.llm.clear_history()
             self._setup_system_prompt()
             print(f"{self.EMOJI['success']} 对话历史已清空\n")
             logger.info("对话历史已清空")
+            return True
         
         elif cmd in ['/tools', '/t', 'tools']:
             self.print_tools()
+            return True
         
         elif cmd in ['/status', '/s', 'status']:
             self.print_status()
+            return True
         
         elif cmd in ['/router', '/r']:
             # 切换 Router 状态
@@ -277,10 +290,12 @@ class ChatCLI:
                 self.router_enabled = not self.router_enabled
                 status = "开启" if self.router_enabled else "关闭"
                 print(f"{self.EMOJI['success']} Router 已{status}\n")
+            return True
         
         else:
             print(f"{self.EMOJI['error']} 未知命令: {command}")
             print("   输入 /help 查看可用命令\n")
+            return True
         
         return True
     
@@ -328,6 +343,19 @@ class ChatCLI:
                         )
                         logger.info(f"Router decision: {router_decision.intent} (confidence: {router_decision.confidence:.2f})")
                         
+                        # 处理命令（/开头的指令）
+                        if router_decision.intent == "command":
+                            # 调用 handle_command 执行具体命令
+                            if not self.handle_command(user_input):
+                                break
+                            continue
+                        
+                        # 如果 Router 建议跳过 LLM（如安全过滤、直接回复）
+                        if router_decision.skip_llm:
+                            if router_decision.direct_response:
+                                print(f"{self.EMOJI['ai']} AI: {router_decision.direct_response}\n")
+                            continue
+                        
                         # 显示路由信息（调试用，可注释掉）
                         if router_decision.intent == "chat":
                             print(f"{self.EMOJI['info']} [Router] 闲聊模式\n")
@@ -343,9 +371,10 @@ class ChatCLI:
                 # 清理输入
                 user_input = sanitize_for_log(user_input)
                 
-                # 如果 Router 建议直接回复
-                if router_decision and router_decision.direct_response:
+                # 如果 Router 建议直接回复（非 skip_llm 情况）
+                if router_decision and router_decision.direct_response and not router_decision.skip_llm:
                     print(f"{self.EMOJI['ai']} AI: {router_decision.direct_response}\n")
+                    self.llm.add_assistant_message(router_decision.direct_response)
                     continue
                 
                 # 构建增强的用户消息（包含 Router 建议）
