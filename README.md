@@ -118,12 +118,11 @@ project/
 │   ├── __init__.py
 │   ├── logger.py              # Logging module (colorful output & file)
 │   ├── config.py              # Configuration management (.env based)
-│   ├── config_json.py         # JSON configuration management
-│   ├── config_wizard_json.py  # Interactive configuration wizard
 │   ├── providers.py           # LLM provider configurations
 │   ├── client.py              # MCP client wrapper
 │   ├── llm.py                 # LLM interface wrapper
-│   └── cli.py                 # CLI interface
+│   ├── cli.py                 # CLI interface
+│   └── router.py              # Ollama Router (intent classification)
 │
 ├── mcp_server/                 # MCP Server
 │   ├── __init__.py
@@ -131,19 +130,18 @@ project/
 │   └── app/                   # MCP Server application modules
 │       ├── __init__.py
 │       ├── models.py          # Pydantic input models
-│       ├── tools/             # Tool registration modules
+│       ├── cache.py           # Query cache (LRU)
+│       ├── tools/             # Tool registration modules (V2)
 │       │   ├── __init__.py
-│       │   ├── calculator.py
-│       │   └── search.py
+│       │   └── core_tools_v2.py   # 6 intent-based tools
 │       └── services/          # Business logic services
-│           ├── __init__.py
-│           ├── calculator.py
-│           └── analysis.py
+│           └── __init__.py
 │
 ├── db_scripts/                 # Database scripts
-│   ├── gdelt_db_v1.sql        # Database schema
-│   ├── import_event.py        # Data import script
-│   └── data_view.py           # Data preview
+│   ├── precompute_tables.sql  # Pre-computed tables (7 tables)
+│   ├── etl_pipeline.py        # Daily ETL pipeline
+│   ├── partition_events_table.sql  # Partitioning scheme
+│   └── crontab_setup.sh       # Cron job configuration
 │
 ├── data/                       # GDELT data files (CSV chunks)
 │   └── *.csv
@@ -152,7 +150,7 @@ project/
 │   └── mcp_app_YYYYMMDD.log
 │
 ├── run_v1.py                   # Application entry point ⭐
-├── test_api_v2.py              # API connection test script
+├── run_etl_2024.sh             # 2024 full year ETL batch script
 ├── requirements.txt            # Python dependencies
 ├── pyproject.toml             # Project configuration (PEP 621)
 ├── config.json                # User configuration (created by wizard)
@@ -234,11 +232,14 @@ python mcp_server/main.py --transport sse --port 8000
 For GDELT data analysis:
 
 ```bash
-# 1. Create database
-mysql -u root -p < db_scripts/gdelt_db_v1.sql
+# 1. Create pre-computed tables
+docker exec -i gdelt_mysql mysql -u root -prootpassword gdelt < db_scripts/precompute_tables.sql
 
-# 2. Import data
-python db_scripts/import_event.py
+# 2. Run daily ETL
+docker exec -w /app gdelt_app python db_scripts/etl_pipeline.py 2024-01-15
+
+# 3. Or batch process full year
+./run_etl_2024.sh
 ```
 
 ---
