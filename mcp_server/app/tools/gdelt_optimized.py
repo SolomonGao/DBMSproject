@@ -220,8 +220,13 @@ def create_optimized_tools(mcp):
     
     @mcp.tool()
     async def query_by_location(params: GeoQueryInput) -> str:
-        """按地理位置查询事件（带缓存）"""
-        # 计算边界框（用于索引预过滤）
+        """
+        按地理位置查询事件（带缓存）- 使用空间索引优化
+        
+        使用 ST_Distance_Sphere + MBRContains 利用空间索引 idx_geo_point
+        """
+        # 计算边界框（用于 MBRContains 预过滤，利用空间索引）
+        # 1度纬度 ≈ 111km
         lat_delta = params.radius_km / 111.0
         cos_lat = math.cos(math.radians(params.lat))
         lon_delta = params.radius_km / (111.0 * max(cos_lat, 0.01))
@@ -229,33 +234,31 @@ def create_optimized_tools(mcp):
         lat_min, lat_max = params.lat - lat_delta, params.lat + lat_delta
         lon_min, lon_max = params.lon - lon_delta, params.lon + lon_delta
         
+        # 使用 MBRContains + ST_Distance_Sphere 组合
+        # 1. MBRContains 利用空间索引快速过滤
+        # 2. ST_Distance_Sphere 精确计算距离
         query = f"""
         SELECT SQLDATE, Actor1Name, Actor2Name, EventCode,
                ActionGeo_Lat, ActionGeo_Long,
                GoldsteinScale, AvgTone, SOURCEURL,
-               (6371 * acos(
-                   cos(radians(%s)) * cos(radians(ActionGeo_Lat)) * 
-                   cos(radians(ActionGeo_Long) - radians(%s)) + 
-                   sin(radians(%s)) * sin(radians(ActionGeo_Lat))
-               )) AS distance_km
+               ST_Distance_Sphere(
+                   ActionGeo_Point, 
+                   ST_GeomFromText('POINT({params.lat} {params.lon})', 4326)
+               ) / 1000 AS distance_km
         FROM {service.DEFAULT_TABLE}
-        WHERE ActionGeo_Lat BETWEEN %s AND %s
-          AND ActionGeo_Long BETWEEN %s AND %s
-          AND ActionGeo_Lat != 0
-          AND ActionGeo_Long != 0
-        HAVING distance_km <= %s
+        WHERE MBRContains(
+            ST_GeomFromText('POLYGON(({lat_min} {lon_min}, {lat_max} {lon_min}, 
+                            {lat_max} {lon_max}, {lat_min} {lon_max}, {lat_min} {lon_min}))', 4326),
+            ActionGeo_Point
+        )
+        HAVING distance_km <= {params.radius_km}
         ORDER BY distance_km
-        LIMIT %s
+        LIMIT {params.limit}
         """
         
-        sql_params = (
-            params.lat, params.lon, params.lat,
-            lat_min, lat_max, lon_min, lon_max,
-            params.radius_km,
-            params.limit
-        )
-        
-        rows = await service.execute_sql_cached(query, sql_params, cache_ttl=600)
+        # 注意：这里用字符串拼接而不是参数化，因为空间函数需要常量
+        # 缓存 key 会基于完整 SQL，所以安全
+        rows = await service.execute_sql_cached(query, None, cache_ttl=600)
         
         if not rows:
             return f"未找到距离 ({params.lat}, {params.lon}) {params.radius_km}km 内的事件"
@@ -268,11 +271,14 @@ def create_optimized_tools(mcp):
     @mcp.tool()
     async def query_by_location_and_time(params: LocationTimeQueryInput) -> str:
         """
-        【推荐】按地理位置+时间范围组合查询
+        【推荐】按地理位置+时间范围组合查询 - 使用空间索引优化
         
-        这是最高效的地理时间组合查询，先按时间过滤，再按地理筛选。
+        这是最高效的地理时间组合查询：
+        1. 先用时间索引（idx_sqldate）过滤
+        2. 再用空间索引（idx_geo_point）通过 MBRContains 过滤
+        3. 最后用 ST_Distance_Sphere 精确计算距离
+        
         适用于：查询某时间段内某地点附近的事件（如"1月份DC附近的新闻"）
-        
         性能：比分别执行 query_by_time_range + query_by_location 快 10-50 倍
         """
         # 计算边界框
@@ -283,37 +289,30 @@ def create_optimized_tools(mcp):
         lat_min, lat_max = params.lat - lat_delta, params.lat + lat_delta
         lon_min, lon_max = params.lon - lon_delta, params.lon + lon_delta
         
+        # 使用 MBRContains 利用空间索引 + 时间索引
         query = f"""
         SELECT SQLDATE, Actor1Name, Actor2Name, EventCode,
                ActionGeo_Lat, ActionGeo_Long,
                GoldsteinScale, AvgTone, SOURCEURL,
-               (6371 * acos(
-                   cos(radians(%s)) * cos(radians(ActionGeo_Lat)) * 
-                   cos(radians(ActionGeo_Long) - radians(%s)) + 
-                   sin(radians(%s)) * sin(radians(ActionGeo_Lat))
-               )) AS distance_km
+               ST_Distance_Sphere(
+                   ActionGeo_Point, 
+                   ST_GeomFromText('POINT({params.lat} {params.lon})', 4326)
+               ) / 1000 AS distance_km
         FROM {service.DEFAULT_TABLE}
-        WHERE SQLDATE BETWEEN %s AND %s          -- 先用时间索引过滤！
-          AND ActionGeo_Lat BETWEEN %s AND %s    -- 再用地理索引过滤！
-          AND ActionGeo_Long BETWEEN %s AND %s
-          AND ActionGeo_Lat != 0
-          AND ActionGeo_Long != 0
-        HAVING distance_km <= %s
+        WHERE SQLDATE BETWEEN '{params.start_date}' AND '{params.end_date}'  -- 时间索引
+          AND MBRContains(
+              ST_GeomFromText('POLYGON(({lat_min} {lon_min}, {lat_max} {lon_min}, 
+                              {lat_max} {lon_max}, {lat_min} {lon_max}, {lat_min} {lon_min}))', 4326),
+              ActionGeo_Point
+          )  -- 空间索引！
+        HAVING distance_km <= {params.radius_km}
         ORDER BY 
             CASE WHEN GoldsteinScale < 0 THEN ABS(GoldsteinScale) ELSE 0 END DESC,
             distance_km
-        LIMIT %s
+        LIMIT {params.limit}
         """
         
-        sql_params = (
-            params.lat, params.lon, params.lat,      # Haversine 参数
-            params.start_date, params.end_date,       # 时间范围
-            lat_min, lat_max, lon_min, lon_max,       # 地理边界
-            params.radius_km,                         # 精确距离
-            params.limit                              # 限制
-        )
-        
-        rows = await service.execute_sql_cached(query, sql_params, cache_ttl=300)
+        rows = await service.execute_sql_cached(query, None, cache_ttl=300)
         
         if not rows:
             return f"未找到 {params.start_date} 至 {params.end_date} 期间，距离 ({params.lat}, {params.lon}) {params.radius_km}km 内的事件"

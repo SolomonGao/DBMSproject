@@ -75,11 +75,11 @@ class ChatCLI:
 【便捷查询】
 - query_by_actor: 按参与方名称查询事件
 - query_by_time_range: 按时间范围查询事件  
-- query_by_location: 按地理位置查询事件（仅限纯地理查询）
+- query_by_location: 按地理位置查询事件（使用空间索引 MBRContains + ST_Distance_Sphere）
 - **query_by_location_and_time**: 【推荐】按地理位置+时间范围组合查询（最高效！）
   - 适用于："1月份DC附近的新闻"、"2024年3月纽约附近的事件"
   - 性能：比分别调用 query_by_time_range + query_by_location 快 10-50 倍
-  - 工作原理：先按时间索引过滤，再按地理索引筛选
+  - 工作原理：时间索引 + 空间索引(MBRContains) + 精确距离计算
 
 【统计分析】
 - analyze_daily_events: 每日事件统计分析
