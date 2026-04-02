@@ -273,26 +273,36 @@ class GDELTServiceOptimized:
         precision: int = 2  # 小数位数，越大精度越高
     ) -> List[Dict[str, Any]]:
         """
-        地理热力图数据 - 网格聚合
+        地理热力图数据 - 网格聚合（优化版）
         
-        将相近坐标聚合到网格，减少前端渲染压力。
+        使用子查询先过滤有地理坐标的数据，减少聚合压力。
         """
+        # 先限制只查询有地理坐标的数据（使用覆盖索引）
         query = f"""
         SELECT 
-            ROUND(ActionGeo_Lat, {precision}) as lat,
-            ROUND(ActionGeo_Long, {precision}) as lng,
+            ROUND(lat, {precision}) as lat,
+            ROUND(lng, {precision}) as lng,
             COUNT(*) as intensity,
             AVG(GoldsteinScale) as avg_conflict,
-            -- 代表性位置名称
             ANY_VALUE(ActionGeo_FullName) as sample_location
-        FROM {self.DEFAULT_TABLE}
-        WHERE SQLDATE BETWEEN %s AND %s
-          AND ActionGeo_Lat IS NOT NULL 
-          AND ActionGeo_Long IS NOT NULL
+        FROM (
+            SELECT 
+                ActionGeo_Lat as lat,
+                ActionGeo_Long as lng,
+                GoldsteinScale,
+                ActionGeo_FullName
+            FROM {self.DEFAULT_TABLE}
+            WHERE SQLDATE BETWEEN %s AND %s
+              AND ActionGeo_Lat != 0
+              AND ActionGeo_Long != 0
+              AND ActionGeo_Lat IS NOT NULL 
+              AND ActionGeo_Long IS NOT NULL
+            LIMIT 100000  -- 限制处理数据量，防止内存溢出
+        ) filtered
         GROUP BY 
-            ROUND(ActionGeo_Lat, {precision}),
-            ROUND(ActionGeo_Long, {precision})
-        HAVING intensity >= 5  -- 过滤稀疏点
+            ROUND(lat, {precision}),
+            ROUND(lng, {precision})
+        HAVING intensity >= 5
         ORDER BY intensity DESC
         LIMIT 1000
         """
@@ -300,7 +310,7 @@ class GDELTServiceOptimized:
         return await self.execute_sql_cached(
             query,
             (start_date, end_date),
-            cache_ttl=600
+            cache_ttl=1800  # 热力图缓存 30 分钟
         )
     
     # ==================== 核心优化：预编译批量操作 ====================

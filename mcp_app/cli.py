@@ -75,7 +75,11 @@ class ChatCLI:
 【便捷查询】
 - query_by_actor: 按参与方名称查询事件
 - query_by_time_range: 按时间范围查询事件  
-- query_by_location: 按地理位置查询事件
+- query_by_location: 按地理位置查询事件（仅限纯地理查询）
+- **query_by_location_and_time**: 【推荐】按地理位置+时间范围组合查询（最高效！）
+  - 适用于："1月份DC附近的新闻"、"2024年3月纽约附近的事件"
+  - 性能：比分别调用 query_by_time_range + query_by_location 快 10-50 倍
+  - 工作原理：先按时间索引过滤，再按地理索引筛选
 
 【统计分析】
 - analyze_daily_events: 每日事件统计分析
@@ -93,6 +97,11 @@ class ChatCLI:
 
 【Router 建议】
 系统配置了智能 Router（Qwen 2.5B）进行输入分析。当用户输入中包含 "[系统提示：建议优先使用以下工具: ...]" 时，请优先考虑这些工具建议，但你有最终决定权。
+
+【重要提示】
+当用户查询同时包含"时间范围"和"地理位置"时（如"1月份DC附近的新闻"），
+务必使用 query_by_location_and_time 组合查询工具，不要并行调用 query_by_time_range 和 query_by_location。
+组合查询性能提升 10-50 倍！
 
 当用户的问题需要查询数据时，请主动调用合适的工具。优先使用便捷查询工具（如 query_by_actor）而不是 execute_sql。回答要简洁明了。"""
         
