@@ -280,8 +280,11 @@ def register_core_tools(mcp: FastMCP):
                         # 解析出 GlobalEventID
                         parts = fingerprint.split('-')
                         if len(parts) >= 4:
-                            # 最后一部分是 GID
-                            global_event_id = parts[-1]
+                            # 最后一部分是 GID，转为整数
+                            try:
+                                global_event_id = int(parts[-1])
+                            except ValueError:
+                                return f"❌ 临时指纹格式错误，无法解析 GID: {fingerprint}"
                         else:
                             return f"❌ 临时指纹格式错误: {fingerprint}"
                         
@@ -314,7 +317,9 @@ def register_core_tools(mcp: FastMCP):
                         fp_row = await cursor.fetchone()
                         
                         if fp_row:
-                            global_event_id = fp_row[0]
+                            global_event_id = int(fp_row[0]) if fp_row[0] else None
+                            if not global_event_id:
+                                return f"⚠️ 指纹数据不完整: {fingerprint}"
                             # 获取完整事件数据
                             await cursor.execute(f"""
                                 SELECT * FROM {DEFAULT_TABLE}
