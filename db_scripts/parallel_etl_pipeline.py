@@ -390,7 +390,10 @@ class GDELTETLWorker:
     
     async def _batch_insert_fingerprints(self, fingerprints: List[Tuple]) -> int:
         """
-        批量插入指纹（使用单条 SQL 多 VALUES，避免死锁）
+        批量插入指纹（使用 INSERT IGNORE，无死锁，rowcount 准确）
+        
+        策略：INSERT IGNORE 遇到重复键直接忽略，返回实际插入的行数
+        避免使用 ON DUPLICATE KEY UPDATE（可能触发死锁）
         
         Args:
             fingerprints: 指纹数据列表，每条是 9 个字段的 tuple
@@ -401,44 +404,37 @@ class GDELTETLWorker:
         if not fingerprints:
             return 0
         
-        # 构建批量 INSERT ... VALUES (...), (...), (...) 
-        # 使用 executemany 批量执行
         try:
-            # 获取原始连接进行 executemany
             async with self.pool._pool.acquire() as conn:
                 async with conn.cursor() as cursor:
-                    # executemany 一次性发送所有数据，减少锁竞争
+                    # INSERT IGNORE：重复则忽略，rowcount 准确
                     await cursor.executemany("""
-                        INSERT INTO event_fingerprints 
+                        INSERT IGNORE INTO event_fingerprints 
                         (global_event_id, fingerprint, headline, summary, 
                          key_actors, event_type_label, severity_score,
                          location_name, location_country)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                        fingerprint = VALUES(fingerprint),
-                        headline = VALUES(headline),
-                        summary = VALUES(summary)
                     """, fingerprints)
                     await conn.commit()
-                    return cursor.rowcount if cursor.rowcount > 0 else len(fingerprints)
+                    # cursor.rowcount 对于 INSERT IGNORE 是准确的
+                    return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+                    
         except Exception as e:
-            # 如果批量失败，降级为逐条插入（带重试）
+            # 极少数情况下批量失败，降级逐条
             logger.warning(f"    [{self.date}] 批量插入失败，降级逐条: {e}")
             inserted = 0
             for fp_data in fingerprints:
                 try:
                     await self.pool.execute("""
-                        INSERT INTO event_fingerprints 
+                        INSERT IGNORE INTO event_fingerprints 
                         (global_event_id, fingerprint, headline, summary, 
                          key_actors, event_type_label, severity_score,
                          location_name, location_country)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                        fingerprint = VALUES(fingerprint)
                     """, fp_data)
                     inserted += 1
-                except Exception as e2:
-                    logger.debug(f"    跳过单条: {e2}")
+                except Exception:
+                    pass  # 忽略单条错误
             return inserted
     
     async def _update_region_stats(self) -> int:
