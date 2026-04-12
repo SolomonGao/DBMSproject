@@ -9,7 +9,10 @@ import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Callable
 from functools import lru_cache
-
+import os
+import chromadb
+from chromadb.utils import embedding_functions
+import logging
 from app.database.pool import DatabasePool, get_db_pool
 from app.database.streaming import StreamingQuery, ParallelQuery
 from app.cache import query_cache, QueryCache
@@ -35,6 +38,7 @@ class GDELTServiceOptimized:
         self._streaming: Optional[StreamingQuery] = None
         self._parallel: Optional[ParallelQuery] = None
         self._cache = query_cache
+        self._chroma_collection = None
     
     async def _get_pool(self) -> DatabasePool:
         """延迟初始化连接池"""
@@ -547,6 +551,63 @@ class GDELTServiceOptimized:
         # 并发预热
         await asyncio.gather(*[ping() for _ in range(count)])
         print(f"[warmup] 预热完成: {count} 个连接")
+
+    def _get_chroma_collection(self):
+        """延迟初始化 ChromaDB (避免启动时卡顿)"""
+        if self._chroma_collection is None:
+            try:
+                # 定位到项目根目录下的 chroma_db 文件夹
+                project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+                db_path = os.path.join(project_root, 'chroma_db')
+                
+                client = chromadb.PersistentClient(path=db_path)
+                ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+                self._chroma_collection = client.get_collection(
+                    name="gdelt_news_collection", 
+                    embedding_function=ef
+                )
+                logging.info("✅ ChromaDB 向量检索工具初始化成功！")
+            except Exception as e:
+                logging.error(f"❌ ChromaDB 初始化失败: {e}")
+        return self._chroma_collection
+
+    # ==================== 核心优化：RAG 语义检索 ====================
+    
+    async def search_news_context(self, query: str, n_results: int = 3) -> str:
+        """执行向量数据库语义检索 (Agent 的右脑)"""
+        collection = self._get_chroma_collection()
+        if not collection:
+            return "Error: 向量数据库未初始化或无法连接。"
+
+        try:
+            # ChromaDB 本地检索非常快，直接调用
+            results = collection.query(
+                query_texts=[query],
+                n_results=n_results
+            )
+            
+            if not results['documents'] or not results['documents'][0]:
+                return f"Knowledge base 中未找到与 '{query}' 相关的新闻报道。"
+                
+            formatted_result = f"🔍 Found the following news excerpts for query '{query}':\n\n"
+            for i in range(len(results['documents'][0])):
+                doc_text = results['documents'][0][i]
+                event_id = results['ids'][0][i]
+                url = results['metadatas'][0][i].get('source_url', 'Unknown URL')
+                date = results['metadatas'][0][i].get('date', 'Unknown Date')
+                
+                # 截取前 1000 个字符，防止 Token 超载
+                snippet = doc_text[:1000] + "..." if len(doc_text) > 1000 else doc_text
+                
+                formatted_result += f"--- Result {i+1} ---\n"
+                formatted_result += f"Event ID: {event_id}\n"
+                formatted_result += f"Date: {date}\n"
+                formatted_result += f"Source URL: {url}\n"
+                formatted_result += f"Content Snippet: {snippet}\n\n"
+                
+            return formatted_result
+        except Exception as e:
+            return f"检索知识库时发生错误: {str(e)}"
 
 
 # 便捷函数

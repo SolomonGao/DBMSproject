@@ -199,6 +199,26 @@ class StreamQueryInput(BaseModel):
     end_date: Optional[str] = Field(None, description="结束日期")
     max_results: int = Field(default=100, description="最大返回数量", le=1000)
 
+class StreamQueryInput(BaseModel):
+    """流式查询"""
+    actor_name: str = Field(..., description="参与方名称（模糊匹配）")
+    start_date: Optional[str] = Field(None, description="开始日期")
+    end_date: Optional[str] = Field(None, description="结束日期")
+    max_results: int = Field(default=100, description="最大返回数量", le=1000)
+
+# ▼▼▼ 在這裡新增以下這段 ▼▼▼
+class NewsSearchInput(BaseModel):
+    """新聞語義搜索輸入"""
+    query: str = Field(
+        ..., 
+        description="英文語義搜索查詢詞，例如 'protesters demanding climate action', 'police response'"
+    )
+    n_results: int = Field(
+        default=3,
+        description="返回的相關新聞數量限制",
+        ge=1,
+        le=10
+    )
 
 # ==================== 工具注册 ====================
 
@@ -583,3 +603,14 @@ def create_optimized_tools(mcp):
         """清除所有查询缓存"""
         count = await query_cache.clear()
         return f"✅ 已清除 {count} 个缓存条目"
+    
+    @mcp.tool()
+    async def search_news_context(params: NewsSearchInput) -> str:
+        """
+        【RAG 右腦】新聞語義搜索引擎
+        
+        當你需要了解事件的具體起因、人群具體訴求、警方回應或詳細新聞背景時調用此工具。
+        請輸入英文自然語言查詢本地向量知識庫中真實的新聞文本片段。
+        """
+        # 呼叫我們在 GDELTServiceOptimized 中新增的檢索方法
+        return await service.search_news_context(params.query, params.n_results)   

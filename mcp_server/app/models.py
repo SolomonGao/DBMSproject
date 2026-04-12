@@ -128,3 +128,16 @@ class VisualizationInput(BaseModel):
         default="GDELT 数据分析",
         description="图表标题"
     )
+
+class NewsSearchInput(BaseModel):
+    """新闻语义搜索输入"""
+    query: str = Field(
+        ..., 
+        description="英文语义搜索查询词，例如 'protesters demanding climate action', 'police response'"
+    )
+    n_results: int = Field(
+        default=3,
+        description="返回的相关新闻数量限制",
+        ge=1,
+        le=10
+    )
