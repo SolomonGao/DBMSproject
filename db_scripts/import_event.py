@@ -18,7 +18,7 @@ db_config = {
     'host': os.getenv('DB_HOST', 'db'),  # 优先读取环境变量，默认使用 Docker 的 'db' 服务名
     'user': 'root',
     'password': DB_PASSWORD,
-    'database': 'gdelt_db', 
+    'database': 'gdelt', 
     'charset': 'utf8mb4',
     'allow_local_infile': True 
 }

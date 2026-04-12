@@ -14,7 +14,10 @@ def init_tools(mcp: FastMCP):
     Args:
         mcp: FastMCP 实例
     """
-    from .gdelt import create_gdelt_tools
+    # 只注册优化版工具（包含所有原始功能 + 缓存 + 并行查询）
+    from .gdelt_optimized import create_optimized_tools
+    create_optimized_tools(mcp)
     
-    # 注册所有 GDELT 数据库工具
-    create_gdelt_tools(mcp)
+    # 注意：原始工具已合并到优化版中
+    # from .gdelt import create_gdelt_tools
+    # create_gdelt_tools(mcp)

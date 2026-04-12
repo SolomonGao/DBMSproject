@@ -62,7 +62,7 @@ class DatabasePool:
         "port": int(os.getenv("DB_PORT", "3306")),
         "user": os.getenv("DB_USER", "root"),
         "password": os.getenv("DB_PASSWORD", "rootpassword"),
-        "db": os.getenv("DB_NAME", "gdelt_db"),
+        "db": os.getenv("DB_NAME", "gdelt"),
         "charset": "utf8mb4",
         # 连接池配置
         "minsize": 1,

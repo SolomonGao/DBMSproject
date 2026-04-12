@@ -10,7 +10,7 @@ services:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: gdelt
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       # 自動將初始化腳本掛載到資料庫，MySQL 容器啟動時會自動執行建表
       - ./db_scripts/gdelt_db_v1.sql:/docker-entrypoint-initdb.d/init.sql
