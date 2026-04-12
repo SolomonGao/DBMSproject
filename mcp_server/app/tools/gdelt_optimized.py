@@ -199,13 +199,6 @@ class StreamQueryInput(BaseModel):
     end_date: Optional[str] = Field(None, description="结束日期")
     max_results: int = Field(default=100, description="最大返回数量", le=1000)
 
-class StreamQueryInput(BaseModel):
-    """流式查询"""
-    actor_name: str = Field(..., description="参与方名称（模糊匹配）")
-    start_date: Optional[str] = Field(None, description="开始日期")
-    end_date: Optional[str] = Field(None, description="结束日期")
-    max_results: int = Field(default=100, description="最大返回数量", le=1000)
-
 # ▼▼▼ 在這裡新增以下這段 ▼▼▼
 class NewsSearchInput(BaseModel):
     """新聞語義搜索輸入"""
@@ -332,22 +325,6 @@ def create_optimized_tools(mcp):
         columns = list(rows[0].keys())
         row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
         return service._format_markdown(columns, row_tuples)
-    
-    
-    @mcp.tool()
-    async def analyze_daily_events(params: EventAnalysisInput) -> str:
-        """按日期统计事件数量（带缓存）"""
-        return await service.analyze_daily_events_cached(
-            params.start_date, params.end_date, cache_ttl=600
-        )
-    
-    
-    @mcp.tool()
-    async def analyze_top_actors(params: EventAnalysisInput) -> str:
-        """统计最活跃的参与方（带缓存）"""
-        return await service.analyze_top_actors_cached(
-            params.start_date, params.end_date, top_n=10, cache_ttl=600
-        )
     
     
     @mcp.tool()
