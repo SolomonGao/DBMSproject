@@ -62,6 +62,20 @@ python run_v1.py --log-level DEBUG
 python run_v1.py --no-file-log
 ```
 
+### 4. Run The Web Chat UI
+
+```bash
+python run_web.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080/chat
+```
+
+The web interface reuses the existing `.env` configuration, starts the same MCP-backed analysis flow, and keeps multi-session chat history in the browser.
+
 ---
 
 ## Usage Example
@@ -163,6 +177,16 @@ project/
 ├── DOCUMENTATION.md           # Detailed technical documentation
 └── index.html                 # Project frontend page
 ```
+
+---
+
+## Web Interface Files
+
+- `run_web.py` - Starts the local web chat server
+- `web_app/server.py` - Serves the landing page, chat page, and `/api/chat`
+- `web_app/static/index.html` - ChatGPT-style interface
+- `web_app/static/styles.css` - Custom responsive styling
+- `web_app/static/app.js` - Frontend state, local chat history, and API calls
 
 ---
 
