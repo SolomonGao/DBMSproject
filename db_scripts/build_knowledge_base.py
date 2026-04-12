@@ -26,7 +26,7 @@ DB_CONFIG = {
 
 BATCH_SIZE = 100  
 # 🎯 将目标调大，比如这次我们定个 2000 篇的小目标
-TOTAL_TARGET = 20000 
+TOTAL_TARGET = 300000 
 
 # 新增：用于保存进度的本地文件
 PROGRESS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sync_progress.txt'))
