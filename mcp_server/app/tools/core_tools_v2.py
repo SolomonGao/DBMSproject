@@ -177,6 +177,28 @@ class NewsSearchInput(BaseModel):
     )
 
 
+class StreamQueryInput(BaseModel):
+    """流式查询输入"""
+    actor_name: str = Field(
+        ...,
+        description="参与方名称关键词，支持模糊匹配"
+    )
+    start_date: Optional[str] = Field(
+        None,
+        description="开始日期 (YYYY-MM-DD)"
+    )
+    end_date: Optional[str] = Field(
+        None,
+        description="结束日期 (YYYY-MM-DD)"
+    )
+    max_results: int = Field(
+        default=100,
+        description="最大返回数量",
+        ge=1,
+        le=1000
+    )
+
+
 # ============================================================================
 # 工具注册函数
 # ============================================================================
