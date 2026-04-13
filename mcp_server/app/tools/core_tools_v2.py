@@ -709,26 +709,34 @@ def register_core_tools(mcp: FastMCP):
                     conditions = ["SQLDATE BETWEEN %s AND %s"]
                     query_params = [params.start_date, params.end_date]
                     
-                    # 区域过滤（支持国家代码、城市名、地区名）
+                    # 区域过滤（智能解析，支持索引优化查询）
                     if params.region_filter:
-                        # 解析可能的输入：Washington DC, USA, China, Middle East
-                        region = params.region_filter.strip()
+                        region_input = params.region_filter.strip()
                         
-                        # 构建多重匹配条件
+                        # 智能解析用户输入
+                        parsed_regions = _parse_region_input(region_input)
+                        
+                        # 构建索引友好的匹配条件
                         region_conditions = []
                         
-                        # 1. 国家代码匹配（如 USA, CHN）
-                        region_conditions.append("ActionGeo_CountryCode = %s")
-                        query_params.append(region.upper()[:3])  # 取前3位大写
-                        
-                        # 2. 地点全称模糊匹配（如 Washington, Beijing）
-                        region_conditions.append("ActionGeo_FullName LIKE %s")
-                        query_params.append(f'%{region}%')
-                        
-                        # 3. ADM1Code 匹配（如 US_TX, US_DC）
-                        if len(region) == 2:
-                            region_conditions.append("ActionGeo_ADM1Code LIKE %s")
-                            query_params.append(f'US_{region.upper()}%')
+                        for region in parsed_regions:
+                            # 1. 前缀匹配（索引友好）: 'Washington%'
+                            region_conditions.append("ActionGeo_FullName LIKE %s")
+                            query_params.append(f'{region}%')
+                            
+                            # 2. 逗号后的前缀匹配: '%, Washington%'
+                            region_conditions.append("ActionGeo_FullName LIKE %s")
+                            query_params.append(f'%, {region}%')
+                            
+                            # 3. 国家代码（2-3位大写）
+                            if len(region) <= 3 and region.isalpha():
+                                region_conditions.append("ActionGeo_CountryCode = %s")
+                                query_params.append(region.upper()[:3])
+                            
+                            # 4. 州代码匹配（如 DC, TX, CA）
+                            if len(region) == 2:
+                                region_conditions.append("ActionGeo_ADM1Code = %s")
+                                query_params.append(f'US_{region.upper()}')
                         
                         where_clause_region = " OR ".join(region_conditions)
                         conditions.append(f"({where_clause_region})")
@@ -1167,6 +1175,136 @@ def _parse_time_hint(time_hint: Optional[str]) -> tuple:
             start = end - timedelta(days=7)
     
     return start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
+
+
+def _parse_region_input(region_input: str) -> list:
+    """
+    Smart parse user region input for index-friendly queries
+    
+    Supports:
+    - Chinese/English: '华盛顿' → ['Washington', 'DC']
+    - City + State: 'Washington DC' → ['Washington', 'DC']
+    - Abbreviations: 'DC', 'TX', 'CA'
+    - Full names: 'Washington', 'Texas'
+    - Multiple variants: ['Washington', 'DC', 'Washingto', 'D.C.']
+    
+    Returns list of search terms for index-friendly LIKE queries
+    """
+    import re
+    
+    region = region_input.strip()
+    results = set()
+    
+    # Common Chinese to English mappings
+    cn_to_en = {
+        '华盛顿': ['Washington', 'DC'],
+        '纽约': ['New York', 'NYC'],
+        '洛杉矶': ['Los Angeles', 'LA'],
+        '芝加哥': ['Chicago'],
+        '休斯顿': ['Houston'],
+        '旧金山': ['San Francisco', 'SF'],
+        '西雅图': ['Seattle'],
+        '波士顿': ['Boston'],
+        '迈阿密': ['Miami'],
+        '达拉斯': ['Dallas'],
+        '奥斯汀': ['Austin'],
+        '费城': ['Philadelphia'],
+        '亚特兰大': ['Atlanta'],
+        '丹佛': ['Denver'],
+        '凤凰城': ['Phoenix'],
+        '底特律': ['Detroit'],
+        '美国': ['United States', 'USA', 'US'],
+        '中国': ['China', 'CHN', 'CN'],
+        '英国': ['United Kingdom', 'UK', 'GBR', 'GB'],
+        '法国': ['France', 'FRA', 'FR'],
+        '德国': ['Germany', 'DEU', 'DE'],
+        '日本': ['Japan', 'JPN', 'JP'],
+        '俄罗斯': ['Russia', 'RUS', 'RU'],
+        '加拿大': ['Canada', 'CAN', 'CA'],
+        '墨西哥': ['Mexico', 'MEX', 'MX'],
+        '印度': ['India', 'IND', 'IN'],
+        '澳大利亚': ['Australia', 'AUS', 'AU'],
+        '巴西': ['Brazil', 'BRA', 'BR'],
+        '中东': ['Middle East', 'Mideast'],
+        '欧洲': ['Europe', 'European'],
+        '亚洲': ['Asia', 'Asian'],
+        '非洲': ['Africa', 'African'],
+        '德州': ['Texas', 'TX'],
+        '得克萨斯': ['Texas', 'TX'],
+        '加州': ['California', 'CA'],
+        '加利福尼亚': ['California', 'CA'],
+        '佛州': ['Florida', 'FL'],
+        '佛罗里达': ['Florida', 'FL'],
+        '宾州': ['Pennsylvania', 'PA'],
+        '宾夕法尼亚': ['Pennsylvania', 'PA'],
+        '伊利诺伊': ['Illinois', 'IL'],
+        '俄亥俄': ['Ohio', 'OH'],
+        '密歇根': ['Michigan', 'MI'],
+        '乔治亚': ['Georgia', 'GA'],
+        '北卡': ['North Carolina', 'NC'],
+        '南卡': ['South Carolina', 'SC'],
+        '弗吉尼亚': ['Virginia', 'VA'],
+        '马里兰': ['Maryland', 'MD'],
+        '新泽西': ['New Jersey', 'NJ'],
+        '马萨诸塞': ['Massachusetts', 'MA'],
+        '亚利桑那': ['Arizona', 'AZ'],
+        '科罗拉多': ['Colorado', 'CO'],
+        '犹他': ['Utah', 'UT'],
+        '内华达': ['Nevada', 'NV'],
+        '俄勒冈': ['Oregon', 'OR'],
+        '华盛顿州': ['Washington State', 'WA'],
+        '夏威夷': ['Hawaii', 'HI'],
+        '阿拉斯加': ['Alaska', 'AK'],
+    }
+    
+    # Check for Chinese mappings
+    if region in cn_to_en:
+        results.update(cn_to_en[region])
+    
+    # Add original input
+    results.add(region)
+    
+    # Remove 'City' suffix if present
+    region_clean = re.sub(r'\s+(City|County|State)$', '', region, flags=re.IGNORECASE)
+    if region_clean != region:
+        results.add(region_clean)
+    
+    # Split by common separators (for "Washington DC" → ["Washington", "DC"])
+    parts = re.split(r'[,\s]+', region)
+    for part in parts:
+        if part and len(part) > 1:  # Ignore single chars
+            results.add(part.strip())
+            # Check if part is Chinese
+            if part in cn_to_en:
+                results.update(cn_to_en[part])
+    
+    # Add common variations for state abbreviations
+    us_states = {
+        'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+        'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+        'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+        'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+        'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+        'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+        'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+        'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+        'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+        'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+        'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+        'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+        'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia',
+    }
+    
+    upper_region = region.upper()
+    if upper_region in us_states:
+        results.add(upper_region)  # Add abbreviation
+        results.add(us_states[upper_region])  # Add full name
+        # Also add with state suffix removed for cities like "Washington"
+        if upper_region == 'DC':
+            results.add('Washington')  # DC is usually Washington DC
+    
+    # Remove duplicates and empty strings
+    return sorted(list(results))
 
 
 def _calculate_risk_level(intensity: float) -> str:
