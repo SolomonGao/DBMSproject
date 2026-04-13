@@ -133,6 +133,25 @@ To find events within X meters of coordinates, use `ST_Distance_Sphere`:
 === Router Integration ===
 The system has an intelligent Router (Qwen 2.5B) for input analysis. 
 When you see "[System hint: suggested tools: ...]", consider these recommendations but you have final decision.
+
+=== DISPLAY GUIDELINES ===
+
+1. FINGERPRINT DISPLAY (指纹ID显示)
+- Event fingerprints are CRITICAL identifiers for follow-up queries
+- ALWAYS display the COMPLETE fingerprint ID, never truncate
+- Correct: `US-20241218-FLO-INTENT-126`
+- Incorrect: `US-20241...` (truncated)
+- When showing event details, prominently display the full fingerprint in code blocks
+
+2. LOCATION MATCHING (地点匹配)
+- The system uses index-optimized prefix matching for locations
+- Supported formats: city names (Washington), country codes (US), state codes (DC, TX)
+- Multiple variants are automatically expanded (e.g., "华盛顿" → Washington, DC)
+
+3. RESPONSE FORMAT
+- Keep responses concise (under 3 paragraphs)
+- Use bullet points for structured data
+- Include complete fingerprint IDs for any mentioned events
 """
         
         self.llm.add_system_message(system_prompt)

@@ -336,11 +336,35 @@ def register_core_tools(mcp: FastMCP):
         conditions.append("e.SQLDATE BETWEEN %s AND %s")
         query_params.extend([date_start, date_end])
         
-        # 地点条件
+        # 地点条件（使用索引优化的前缀匹配）
         if params.location_hint:
-            conditions.append("(e.ActionGeo_FullName LIKE %s OR e.ActionGeo_CountryCode = %s)")
-            location_pattern = f"%{params.location_hint}%"
-            query_params.extend([location_pattern, params.location_hint.upper()])
+            # 解析地点输入，获取所有可能的变体
+            location_terms = _parse_region_input(params.location_hint)
+            
+            # 构建索引友好的匹配条件（前缀匹配）
+            location_conditions = []
+            for term in location_terms:
+                # 1. 前缀匹配（索引友好）: 'Washington%'
+                location_conditions.append("e.ActionGeo_FullName LIKE %s")
+                query_params.append(f'{term}%')
+                
+                # 2. 逗号后的前缀匹配（城市名在逗号后）: '%, Washington%'
+                location_conditions.append("e.ActionGeo_FullName LIKE %s")
+                query_params.append(f'%, {term}%')
+                
+                # 3. 国家代码（2-3位大写）
+                if len(term) <= 3 and term.isalpha():
+                    location_conditions.append("e.ActionGeo_CountryCode = %s")
+                    query_params.append(term.upper()[:3])
+                
+                # 4. 州代码匹配（如 DC, TX, CA）
+                if len(term) == 2:
+                    location_conditions.append("e.ActionGeo_ADM1Code = %s")
+                    query_params.append(f'US_{term.upper()}')
+            
+            # 组合所有地点条件
+            if location_conditions:
+                conditions.append(f"({' OR '.join(location_conditions)})")
         
         # 事件类型
         if params.event_type != 'any':
@@ -1170,12 +1194,12 @@ def register_core_tools(mcp: FastMCP):
             count = 0
             async for row in streaming.stream(query, tuple(params_list)):
                 output.append(
-                    f"| {row.get('SQLDATE')} | "
-                    f"{str(row.get('Actor1Name', 'N/A'))[:15]} | "
-                    f"{str(row.get('Actor2Name', 'N/A'))[:15]} | "
-                    f"{row.get('GoldsteinScale', 'N/A')} | "
-                    f"{row.get('AvgTone', 'N/A')} | "
-                    f"{str(row.get('ActionGeo_FullName', 'N/A'))[:20]} |"
+                    f"| {sanitize_text(row.get('SQLDATE'))} | "
+                    f"{sanitize_text(row.get('Actor1Name', 'N/A'))[:15]} | "
+                    f"{sanitize_text(row.get('Actor2Name', 'N/A'))[:15]} | "
+                    f"{sanitize_text(row.get('GoldsteinScale', 'N/A'))} | "
+                    f"{sanitize_text(row.get('AvgTone', 'N/A'))} | "
+                    f"{sanitize_text(row.get('ActionGeo_FullName', 'N/A'))[:20]} |"
                 )
                 
                 count += 1
@@ -1238,7 +1262,12 @@ def register_core_tools(mcp: FastMCP):
                     lines.append(f"{i}. {row.get('Actor1Name')}: {row.get('cnt')} 事件")
                 lines.append("")
             
-            total_time = sum(v.get("elapsed_ms", 0) for v in dashboard.values() if isinstance(v, dict))
+            # 计算总耗时（只统计字典类型的结果）
+            total_time = sum(
+                v.get("elapsed_ms", 0) 
+                for v in dashboard.values() 
+                if isinstance(v, dict) and "elapsed_ms" in v
+            )
             lines.append(f"\n*查询耗时: {total_time:.0f}ms (并行优化)*")
             
             return "\n".join(lines)
@@ -1377,13 +1406,14 @@ def register_core_tools(mcp: FastMCP):
             async for row in service.stream_events_by_actor(
                 params.actor_name, params.start_date, params.end_date
             ):
+                # 使用 sanitize_text 防止 Markdown 表格被破坏
                 lines.append(
-                    f"| {row.get('SQLDATE')} | "
-                    f"{str(row.get('Actor1Name', 'N/A'))[:15]} | "
-                    f"{str(row.get('Actor2Name', 'N/A'))[:15]} | "
-                    f"{row.get('GoldsteinScale', 'N/A')} | "
-                    f"{row.get('AvgTone', 'N/A')} | "
-                    f"{str(row.get('ActionGeo_FullName', 'N/A'))[:20]} |"
+                    f"| {sanitize_text(row.get('SQLDATE'))} | "
+                    f"{sanitize_text(row.get('Actor1Name', 'N/A'))[:15]} | "
+                    f"{sanitize_text(row.get('Actor2Name', 'N/A'))[:15]} | "
+                    f"{sanitize_text(row.get('GoldsteinScale', 'N/A'))} | "
+                    f"{sanitize_text(row.get('AvgTone', 'N/A'))} | "
+                    f"{sanitize_text(row.get('ActionGeo_FullName', 'N/A'))[:20]} |"
                 )
                 
                 count += 1
@@ -1404,6 +1434,24 @@ def register_core_tools(mcp: FastMCP):
 # ============================================================================
 # 辅助函数
 # ============================================================================
+
+def sanitize_text(text) -> str:
+    """清理文本中的非法字符，防止 Markdown 表格被破坏"""
+    if text is None:
+        return "N/A"
+    text = str(text)
+    # 移除 surrogate pairs
+    text = text.encode('utf-8', 'ignore').decode('utf-8')
+    # 替换控制字符
+    import unicodedata
+    text = ''.join(
+        char for char in text 
+        if unicodedata.category(char)[0] != 'C' or char in '\n\t\r'
+    )
+    # 移除 null bytes 和 Markdown 表格特殊字符
+    text = text.replace('\x00', '').replace('|', ' ').replace('\n', ' ')
+    return text.strip()
+
 
 def _parse_time_hint(time_hint: Optional[str]) -> tuple:
     """解析时间提示为日期范围"""
