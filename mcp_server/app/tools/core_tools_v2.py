@@ -689,12 +689,17 @@ def register_core_tools(mcp: FastMCP):
     @mcp.tool()
     async def get_top_events(params: GetTopEventsInput) -> str:
         """
-        获取时间段内热度最高的事件
+        Get top events by heat score in a time period
         
-        示例:
-        - start_date="2024-01-01", end_date="2024-12-31" (2024年全年最热)
-        - start_date="2024-06-01", end_date="2024-06-30", region_filter="USA"
-        - start_date="2024-01-01", end_date="2024-12-31", event_type="conflict", top_n=20
+        Heat score = NumArticles × |GoldsteinScale| (media coverage × conflict intensity)
+        
+        Examples:
+        - Full year 2024: start_date="2024-01-01", end_date="2024-12-31"
+        - Washington DC in 2024: start_date="2024-01-01", end_date="2024-12-31", region_filter="Washington"
+        - USA conflicts: start_date="2024-01-01", end_date="2024-12-31", region_filter="USA", event_type="conflict"
+        - Middle East protests: region_filter="Middle East", event_type="protest"
+        
+        Region filter supports: country codes (USA, CHN), city names (Washington, Beijing), regions (Middle East)
         """
         try:
             pool = await get_db_pool()
@@ -704,10 +709,29 @@ def register_core_tools(mcp: FastMCP):
                     conditions = ["SQLDATE BETWEEN %s AND %s"]
                     query_params = [params.start_date, params.end_date]
                     
-                    # 区域过滤
+                    # 区域过滤（支持国家代码、城市名、地区名）
                     if params.region_filter:
-                        conditions.append("(ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)")
-                        query_params.extend([params.region_filter.upper(), f'%{params.region_filter}%'])
+                        # 解析可能的输入：Washington DC, USA, China, Middle East
+                        region = params.region_filter.strip()
+                        
+                        # 构建多重匹配条件
+                        region_conditions = []
+                        
+                        # 1. 国家代码匹配（如 USA, CHN）
+                        region_conditions.append("ActionGeo_CountryCode = %s")
+                        query_params.append(region.upper()[:3])  # 取前3位大写
+                        
+                        # 2. 地点全称模糊匹配（如 Washington, Beijing）
+                        region_conditions.append("ActionGeo_FullName LIKE %s")
+                        query_params.append(f'%{region}%')
+                        
+                        # 3. ADM1Code 匹配（如 US_TX, US_DC）
+                        if len(region) == 2:
+                            region_conditions.append("ActionGeo_ADM1Code LIKE %s")
+                            query_params.append(f'US_{region.upper()}%')
+                        
+                        where_clause_region = " OR ".join(region_conditions)
+                        conditions.append(f"({where_clause_region})")
                     
                     # 事件类型过滤
                     if params.event_type == 'conflict':
