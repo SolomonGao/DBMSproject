@@ -97,7 +97,21 @@ Step 4: 叙事合成
    - 返回时间线 + 相关方 + 演变过程
 ```
 
-### 4. ⚡ 性能优化
+### 4. 💬 Web Chat UI（ChatGPT-style）
+
+除了 CLI，系统现在提供完整的 Web 前端：
+
+```
+http://localhost:8080/chat
+```
+
+- **多会话管理**：侧边栏保存本地对话历史
+- **Thinking Process**：每条回复可展开查看 Router 决策、工具调用、耗时明细
+- **Stop 按钮**：请求发送中可随时中断思考
+- **120 秒超时**：兼容长耗时数据库查询（如 70 秒+ 的大数据分析）
+- **Prompt 卡片**：一键填入常用查询模板
+
+### 5. ⚡ 性能优化
 
 | 优化技术 | 效果 | 实现 |
 |---------|------|------|
@@ -115,7 +129,7 @@ Step 4: 叙事合成
 ┌─────────────────────────────────────────────────────────────────┐
 │                         用户层                                   │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │   CLI        │  │   Web (TODO) │  │   API (TODO) │          │
+│  │   CLI        │  │   Web UI     │  │   API (TODO) │          │
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
 └─────────┼─────────────────┼─────────────────┼───────────────────┘
           │                 │                 │
@@ -345,10 +359,23 @@ docker-compose logs -f app
 
 ### 4. 运行主程序
 
+**方式 A：交互式 CLI**
 ```bash
-# 启动交互式 CLI
 python run_v1.py
 ```
+
+**方式 B：Web UI（推荐新用户）**
+```bash
+# 本地运行
+python run_web.py --port 8080
+
+# Docker 内运行（需暴露 0.0.0.0）
+docker exec -it gdelt_app python run_web.py --host 0.0.0.0 --port 8080
+```
+
+访问 `http://localhost:8080/` 进入主页，点击 **Launch Chat UI** 开始对话。
+
+> **注意**：`docker-compose.yml` 已将容器 8080 端口映射到宿主机，修改代码后需重启 `run_web.py` 主进程才能生效。
 
 ### 5. 构建知识库（可选，首次使用）
 
@@ -427,8 +454,8 @@ PROTEST: 事件类型（CAMEO映射）
 - [ ] `compare_regions` - 区域对比（对比多国冲突趋势）
 - [ ] `export_events` - 数据导出（CSV/JSON格式）
 
-#### Phase 5: 前端可视化（4周）
-- [ ] React + TypeScript 项目初始化
+#### Phase 5: 前端可视化（已完成 MVP）
+- [x] ChatGPT-style Web UI（多会话、Thinking Process、Stop 按钮）
 - [ ] 事件地图视图（Leaflet）
 - [ ] 事件详情卡片组件
 - [ ] 时间轴视图
@@ -449,8 +476,11 @@ PROTEST: 事件类型（CAMEO映射）
 # 启动服务
 docker-compose up -d
 
-# 运行主程序
+# 运行主程序（CLI）
 python run_v1.py
+
+# 运行 Web UI
+docker exec -it gdelt_app python run_web.py --host 0.0.0.0 --port 8080
 
 # 构建知识库
 python start_kb.py
@@ -488,5 +518,5 @@ docker exec gdelt_mysql mysql -u root -prootpassword gdelt -e "SHOW TABLES;"
 
 ---
 
-*最后更新: 2026-04-12*  
-*版本: merge-optimized (txx_docker + 用户驱动版本)*
+*最后更新: 2026-04-13*  
+*版本: merge-ui (eng + chat/ui 合并版)*

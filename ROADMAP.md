@@ -2,9 +2,9 @@
 
 > 从"数据查询工具"到"国际事件洞察助手"
 >
-> **当前版本**: merge-optimized (txx_docker + 用户驱动版本)  
-> **更新日期**: 2026-04-12  
-> **当前进度**: Phase 1-3.5 已完成
+> **当前版本**: merge-ui (eng + chat/ui 合并版)  
+> **更新日期**: 2026-04-13  
+> **当前进度**: Phase 1-4 MVP 已完成
 
 ---
 
@@ -15,7 +15,7 @@ Phase 1: 产品定位重塑     ✅ 已完成 (2周)
 Phase 2: 数据架构优化     ✅ 已完成 (2周)
 Phase 3: 工具重构精简     ✅ 已完成 (2周)
 Phase 3.5: 技术融合增强   ✅ 已完成 (1周)  ← txx_docker 合并
-Phase 4: 前端可视化       ⏸️ 待开始 (4周)
+Phase 4: 前端可视化       🚧 MVP 已完成 (4周)
 Phase 5: 智能增强         ⏸️ 待开始 (2周)
 ```
 
@@ -90,6 +90,14 @@ search_news_context("Washington protest demands")
 | **标准指纹** (📌) | ETL每日2AM生成 | ⭐⭐⭐⭐⭐ 完整 | 优先返回 |
 | **临时指纹** (📝) | 实时生成 | ⭐⭐⭐ 基础 | 后备兼容 |
 
+### Phase 4: 前端可视化 (MVP 已完成)
+- [x] **ChatGPT-style Web UI**: `web_app/` 纯前端实现，支持多会话、本地历史
+- [x] **Thinking Process 展示**: Router 决策、工具调用、耗时明细可折叠查看
+- [x] **Stop 按钮**: 发送中可随时中断请求（AbortController）
+- [x] **120 秒前端超时**: 兼容长耗时数据库查询
+- [x] **Landing Page**: 项目主页集成 `/chat` 入口
+- [x] **Docker 端口映射**: `docker-compose.yml` 暴露 8080 端口
+
 ---
 
 ## 📈 当前能力矩阵
@@ -110,37 +118,27 @@ search_news_context("Washington protest demands")
 
 ---
 
-## ⏳ 待开发 (Phase 4-5)
+## ⏳ 待开发 (Phase 4 剩余 + Phase 5)
 
-### Phase 4: 前端可视化 (4周)
+### Phase 4: 前端可视化（剩余高级组件）(2周)
 
-#### 4.1 React项目初始化
-- [ ] TypeScript + React 18 + Vite
-- [ ] UI组件库 (Ant Design / Chakra UI)
-- [ ] 状态管理 (Zustand / Redux Toolkit)
-
-#### 4.2 核心视图组件
+#### 4.1 地图与可视化
 - [ ] **事件地图视图** (Leaflet/React-Leaflet)
   - 热力图叠加
   - 事件标记弹窗
   - 区域筛选
-  
 - [ ] **事件详情卡片**
   - 指纹ID显示
   - 时间线组件
   - 相关方关系图
-  
 - [ ] **时间轴视图** (Vis.js / react-vis-timeline)
   - 垂直时间线
   - 因果链可视化
   - 缩放/筛选
-  
 - [ ] **仪表盘视图** (ECharts / Recharts)
   - 趋势图表
   - 统计卡片
   - 实时更新
-
-#### 4.3 高级可视化
 - [ ] **事件关联图谱** (D3.js / Cytoscape.js)
   - 力导向图
   - 事件-参与方-地点关联
@@ -212,8 +210,9 @@ search_news_context("Washington protest demands")
 2024-04-02  项目启动
 2024-04-16  Phase 1-3 完成（用户驱动版本）
 2026-04-12  Phase 3.5 完成（txx_docker 合并）
+2026-04-13  Phase 4 MVP 完成（Web UI + Thinking Process + Stop 按钮）
             └── 当前状态
-2026-05-??  Phase 4 开始（前端可视化）
+2026-05-??  Phase 4 剩余高级可视化组件
 2026-07-??  Phase 5 开始（智能增强）
 2026-08-??  v2.0 正式发布
 
