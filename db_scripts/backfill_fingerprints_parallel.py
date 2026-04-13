@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 parallel补全eventfingerprint
-usemultithreadparallelprocessmulti天ETL
+usemultithreadparallelprocessmultidayETL
 
 usage:
     python backfill_fingerprints_parallel.py --workers 8
@@ -33,7 +33,7 @@ def get_dates_to_process(start_date: str, end_date: str) -> List[str]:
 
 
 def check_date_status(date: str) -> Tuple[str, int, int]:
-    """check某天fingerprint状state"""
+    """check某dayfingerprintstatusstate"""
     try:
         # fetcheventnumber
         evt_result = subprocess.run(
@@ -63,25 +63,25 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
 
 
 def process_date(date: str) -> Tuple[str, bool, str]:
-    """processform天ETL"""
+    """processformdayETL"""
     try:
-        # 先check状state
+        # firstcheckstatusstate
         date_str, fp_count, evt_count = check_date_status(date)
         
         if fp_count >= evt_count:
-            return (date, True, f"alreadycomplete整 ({fp_count}/{evt_count})")
+            return (date, True, f"alreadycompletewhole ({fp_count}/{evt_count})")
         
         print(f"  [{date}] startETL，whenbefore {fp_count}/{evt_count}...")
         
-        # runETL（增add超when到10minute，Because one day may have2-5万event）
+        # runETL（增addsuperwhento10minute，Because one day may have2-5万event）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
-            capture_output=True, text=True, timeout=600  # 10minute超when
+            capture_output=True, text=True, timeout=600  # 10minutesuperwhen
         )
         
         if result.returncode == 0:
-            # 再次check
+            # 再timecheck
             _, new_fp, evt = check_date_status(date)
             added = new_fp - fp_count
             if new_fp >= evt:
@@ -93,7 +93,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
             return (date, False, f"failed: {error_msg}")
             
     except subprocess.TimeoutExpired:
-        return (date, False, "超when(10minute)")
+        return (date, False, "superwhen(10minute)")
     except Exception as e:
         return (date, False, f"asyncconstant: {str(e)}")
 
@@ -103,7 +103,7 @@ def main():
     parser.add_argument('--start', default='2024-01-01', help='startdate (YYYY-MM-DD)')
     parser.add_argument('--end', default='2024-12-31', help='enddate (YYYY-MM-DD)')
     parser.add_argument('--workers', type=int, default=8, help='parallelworkthreadnumber (default: 8)')
-    parser.add_argument('--dry-run', action='store_true', help='只check状state，不执rowETL')
+    parser.add_argument('--dry-run', action='store_true', help='onlycheckstatusstate，不execrowETL')
     
     args = parser.parse_args()
     
@@ -116,11 +116,11 @@ def main():
     
     # generatedatecolumntable
     dates = get_dates_to_process(args.start, args.end)
-    print(f"总共 {len(dates)} 天needprocess")
+    print(f"总共 {len(dates)} dayneedprocess")
     print()
     
-    # 先checkalldate状state
-    print("📊 checkwhenbefore状state...")
+    # firstcheckalldatestatusstate
+    print("📊 checkwhenbeforestatusstate...")
     status_list = []
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {executor.submit(check_date_status, date): date for date in dates}
@@ -129,35 +129,35 @@ def main():
             status_list.append((date, fp, evt))
     
     # statistics
-    # complete整: fingerprintnumber >= eventnumber（package括eventnumber为0case）
+    # completewhole: fingerprintnumber >= eventnumber（package括eventnumberfor0case）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
-    # 部分: 有fingerprintbut未complete整
+    # 部分: hasfingerprintbut未completewhole
     partial = sum(1 for _, fp, evt in status_list if 0 < fp < evt)
-    # 空缺: 有eventbut无fingerprint
+    # 空缺: haseventbutnofingerprint
     empty = sum(1 for _, fp, evt in status_list if fp == 0 and evt > 0)
     # error: queryfailed
     error = sum(1 for _, fp, evt in status_list if fp < 0 or evt < 0)
     
-    print(f"状statestatistics:")
-    print(f"  ✅ complete整: {complete} 天")
-    print(f"  ⚠️  部分: {partial} 天")
-    print(f"  ❌ 空缺: {empty} 天")
+    print(f"statusstatestatistics:")
+    print(f"  ✅ completewhole: {complete} day")
+    print(f"  ⚠️  部分: {partial} day")
+    print(f"  ❌ 空缺: {empty} day")
     if error > 0:
-        print(f"  💥 error: {error} 天")
+        print(f"  💥 error: {error} day")
     print()
     
     if args.dry_run:
-        print("📝 干runmodelpattern，不执rowETL")
+        print("📝 干runmodelpattern，不execrowETL")
         return
     
     # 筛selectneedprocessdate
     need_process = [date for date, fp, evt in status_list if fp < evt]
     
     if not need_process:
-        print("✅ alldatealreadycomplete整，无需process")
+        print("✅ alldatealreadycompletewhole，no需process")
         return
     
-    print(f"🚀 startprocess {len(need_process)} 天...")
+    print(f"🚀 startprocess {len(need_process)} day...")
     print()
     
     # parallelprocess
@@ -179,13 +179,13 @@ def main():
     print("✅ processcompleted")
     print("=" * 60)
     
-    # 最endstatistics
+    # mostendstatistics
     final_result = subprocess.run(
         ["docker", "exec", "gdelt_mysql", "mysql", "-u", "root", "-prootpassword",
          "-e", "SELECT 'events_table', COUNT(*) FROM events_table WHERE SQLDATE BETWEEN '2024-01-01' AND '2024-12-31' UNION ALL SELECT 'fingerprints', COUNT(*) FROM event_fingerprints"],
         capture_output=True, text=True
     )
-    print("最endstatistics:")
+    print("mostendstatistics:")
     print(final_result.stdout)
 
 

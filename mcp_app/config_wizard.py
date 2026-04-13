@@ -3,7 +3,7 @@
 interactive configuration wizard：
 - guide user selection LLM provider
 - collect API Key 和config
-- save到 .env file
+- saveto .env file
 """
 
 import os
@@ -78,61 +78,61 @@ class ConfigWizard:
             
             if value:
                 return value
-            self._print_error("This field cannot be empty，请重newinput")
+            self._print_error("This field cannot be empty，please重newinput")
     
     def _select_provider(self) -> ProviderConfig:
-        """step骤 1: select择 LLM provider"""
-        self._print_header("step骤 1/3: select择 LLM provider")
+        """stepstep 1: selectselect LLM provider"""
+        self._print_header("stepstep 1/3: selectselect LLM provider")
         
-        self._print("请select择您wantuse AI 服务provider：\n", bold=True)
+        self._print("pleaseselectselect您wantuse AI serviceprovider：\n", bold=True)
         
         providers = list(LLM_PROVIDERS.items())
         for idx, (key, provider) in enumerate(providers, 1):
             marker = " ⭐" if key == "kimi_code" else ""
             self._print(f"  [{idx}] {provider.name}{marker}", 'green' if key == "kimi_code" else 'cyan')
-            print(f"      默认model: {provider.default_model}")
+            print(f"      defaultmodel: {provider.default_model}")
             print()
         
         while True:
             try:
-                choice = input(f"请inputselectitem编号 (1-{len(providers)}): ").strip()
+                choice = input(f"pleaseinputselectitem编号 (1-{len(providers)}): ").strip()
                 idx = int(choice) - 1
                 if 0 <= idx < len(providers):
                     provider_id, provider = providers[idx]
                     self.config['provider_id'] = provider_id
-                    self._print_success(f"alreadyselect择: {provider.name}")
+                    self._print_success(f"alreadyselectselect: {provider.name}")
                     return provider
                 else:
-                    self._print_error(f"无效selectitem，请input 1-{len(providers)}")
+                    self._print_error(f"no效selectitem，pleaseinput 1-{len(providers)}")
             except ValueError:
-                self._print_error("请input有效number字")
+                self._print_error("pleaseinputhas效number字")
     
     def _input_api_key(self, provider: ProviderConfig) -> str:
-        """step骤 2: input API Key"""
-        self._print_header("step骤 2/3: config API Key")
+        """stepstep 2: input API Key"""
+        self._print_header("stepstep 2/3: config API Key")
         
         self._print(f"provider: {provider.name}", bold=True)
         print()
         self._print_info(provider.api_key_hint)
-        print(f"gridpattern提示: {provider.api_key_pattern}")
+        print(f"gridpattern提show: {provider.api_key_pattern}")
         print()
         
         # Check if configuration already exists
         existing_key = os.getenv(provider.env_key, '')
         if existing_key and len(existing_key) > 10:
-            # verify现有 key Not log error information（简formcheck）
+            # verify现has key Not log error information（简formcheck）
             if '|' not in existing_key and 'ERROR' not in existing_key:
                 masked = f"{existing_key[:8]}...{existing_key[-4:]}"
-                self._print_info(f"detect到already有 API Key: {masked}")
-                keep = input("whetherusealready有config? (y/n，默认 y): ").strip().lower()
+                self._print_info(f"detecttoalreadyhas API Key: {masked}")
+                keep = input("whetherusealreadyhasconfig? (y/n，default y): ").strip().lower()
                 if keep in ('', 'y', 'yes'):
                     self.config['api_key'] = existing_key
                     return existing_key
             else:
-                self._print_error("detect到现有 API Key gridpatternasyncconstant，请重newinput")
+                self._print_error("detectto现has API Key gridpatternasyncconstant，please重newinput")
         
         print()
-        print("请粘贴您 API Key (inputWill not display on screen):")
+        print("please粘贴您 API Key (inputWill not display on screen):")
         api_key = self._input_required(
             f"{provider.env_key}=", 
             hide_input=True
@@ -158,13 +158,13 @@ class ConfigWizard:
         elif provider.env_key == "ANTHROPIC_API_KEY":
             return api_key.startswith("sk-ant-")
         elif provider.env_key == "GEMINI_API_KEY":
-            return len(api_key) > 30  # Gemini key notifyconstant较长
+            return len(api_key) > 30  # Gemini key notifyconstant较long
         
         return True
     
     def _select_model(self, provider: ProviderConfig) -> str:
-        """step骤 3: select择model"""
-        self._print_header("step骤 3/3: select择model")
+        """stepstep 3: selectselectmodel"""
+        self._print_header("stepstep 3/3: selectselectmodel")
         
         self._print(f"provider: {provider.name}", bold=True)
         print()
@@ -172,18 +172,18 @@ class ConfigWizard:
         print()
         
         for idx, model in enumerate(provider.models, 1):
-            marker = " (默认)" if model == provider.default_model else ""
+            marker = " (default)" if model == provider.default_model else ""
             color = 'green' if model == provider.default_model else 'cyan'
             self._print(f"  [{idx}] {model}{marker}", color)
         
         print()
         
         while True:
-            choice = input(f"请select择model (1-{len(provider.models)}，directenteruse默认): ").strip()
+            choice = input(f"pleaseselectselectmodel (1-{len(provider.models)}，directenterusedefault): ").strip()
             
-            # use默认
+            # usedefault
             if not choice:
-                self._print_success(f"use默认model: {provider.default_model}")
+                self._print_success(f"usedefaultmodel: {provider.default_model}")
                 self.config['model'] = provider.default_model
                 return provider.default_model
             
@@ -191,40 +191,40 @@ class ConfigWizard:
                 idx = int(choice) - 1
                 if 0 <= idx < len(provider.models):
                     selected = provider.models[idx]
-                    self._print_success(f"alreadyselect择model: {selected}")
+                    self._print_success(f"alreadyselectselectmodel: {selected}")
                     self.config['model'] = selected
                     return selected
                 else:
-                    self._print_error(f"无效selectitem，请input 1-{len(provider.models)}")
+                    self._print_error(f"no效selectitem，pleaseinput 1-{len(provider.models)}")
             except ValueError:
-                self._print_error("请input有效number字")
+                self._print_error("pleaseinputhas效number字")
     
     def _advanced_options(self):
         """advancedconfigselectitem"""
         self._print_header("advancedconfigselectitem（可select）")
         
-        print("以underconfiguse默认value即可，如需modifychange请inputnewvalue，directenterskip:")
+        print("thereforeunderconfigusedefaultvalue即可，if需modifychangepleaseinputnewvalue，directenterskip:")
         print()
         
         # Temperature
-        temp = input("Temperature (0.0-1.0, 默认 0.7): ").strip()
+        temp = input("Temperature (0.0-1.0, default 0.7): ").strip()
         self.config['temperature'] = float(temp) if temp else 0.7
         
         # Max Tokens
-        max_tokens = input("Max Tokens (默认 4096): ").strip()
+        max_tokens = input("Max Tokens (default 4096): ").strip()
         self.config['max_tokens'] = int(max_tokens) if max_tokens else 4096
         
         # Log Level
         print()
-        print("日志级别: [1] DEBUG [2] INFO [3] WARNING [4] ERROR")
-        log_choice = input("请select择 (默认 2-INFO): ").strip()
+        print("log level: [1] DEBUG [2] INFO [3] WARNING [4] ERROR")
+        log_choice = input("pleaseselectselect (default 2-INFO): ").strip()
         log_levels = {'1': 'DEBUG', '2': 'INFO', '3': 'WARNING', '4': 'ERROR'}
         self.config['log_level'] = log_levels.get(log_choice, 'INFO')
         
         self._print_success("Advanced configuration saved")
     
     def _generate_env_content(self) -> str:
-        """generate .env file内容"""
+        """generate .env fileinside容"""
         provider = get_provider(self.config['provider_id'])
         
         lines = [
@@ -254,7 +254,7 @@ class ConfigWizard:
             "# transmittransportmodelpattern: stdio or sse",
             "MCP_TRANSPORT=stdio",
             "",
-            "# SSE modelpattern端口（仅 transport=sse when有效）",
+            "# SSE modelpatternend口（仅 transport=sse whenhas效）",
             "MCP_PORT=8000",
             "",
             "# ============================================",
@@ -264,21 +264,21 @@ class ConfigWizard:
             f"# 温scheduleparamnumber (0.0 - 1.0)",
             f"LLM_TEMPERATURE={self.config['temperature']}",
             "",
-            f"# 最大 Token number",
+            f"# mostbig Token number",
             f"LLM_MAX_TOKENS={self.config['max_tokens']}",
             "",
             "# ============================================",
             "# 日志config",
             "# ============================================",
             "",
-            f"# 日志级别: DEBUG, INFO, WARNING, ERROR",
+            f"# log level: DEBUG, INFO, WARNING, ERROR",
             f"LOG_LEVEL={self.config['log_level']}",
             "",
             "# Whether to write file logs",
             "LOG_TO_FILE=true",
             "",
             "# ============================================",
-            "# 开sendconfig",
+            "# opensendconfig",
             "# ============================================",
             "",
             "# callback试modelpattern",
@@ -289,22 +289,22 @@ class ConfigWizard:
         return '\n'.join(lines)
     
     def _save_config(self):
-        """saveconfig到 .env file"""
+        """saveconfigto .env file"""
         self._print_header("saveconfig")
         
-        # generate内容
+        # generateinside容
         content = self._generate_env_content()
         
         # backupoldconfig
         if self.env_file.exists():
             backup = self.env_file.with_suffix('.env.backup')
             backup.write_text(self.env_file.read_text(encoding='utf-8'), encoding='utf-8')
-            self._print_info(f"alreadybackupoldconfig到: {backup.name}")
+            self._print_info(f"alreadybackupoldconfigto: {backup.name}")
         
         # writeinputnewconfig
         self.env_file.write_text(content, encoding='utf-8')
         
-        self._print_success(f"configalreadysave到: {self.env_file}")
+        self._print_success(f"configalreadysaveto: {self.env_file}")
         print()
         self._print("You can edit this file at any time to modify configuration", 'yellow')
     
@@ -318,25 +318,25 @@ class ConfigWizard:
         try:
             self._print_header("🚀 GDELT MCP Client configwizard")
             print()
-            print("欢迎use！This wizard will help you configure AI 服务provider。")
+            print("欢迎use！This wizard will help you configure AI serviceprovider。")
             print()
             
-            # step骤 1: select择provider
+            # stepstep 1: selectselectprovider
             provider = self._select_provider()
             
-            # step骤 2: input API Key
+            # stepstep 2: input API Key
             self._input_api_key(provider)
             
-            # step骤 3: select择model
+            # stepstep 3: selectselectmodel
             self._select_model(provider)
             
             # advancedselectitem
             print()
-            advanced = input("whetherconfigadvancedselectitem? (y/n，默认 n): ").strip().lower()
+            advanced = input("whetherconfigadvancedselectitem? (y/n，default n): ").strip().lower()
             if advanced in ('y', 'yes'):
                 self._advanced_options()
             else:
-                # use默认value
+                # usedefaultvalue
                 self.config['temperature'] = 0.7
                 self.config['max_tokens'] = 4096
                 self.config['log_level'] = 'INFO'
@@ -386,12 +386,12 @@ class ConfigWizard:
         if has_config:
             return True
         
-        # 没有config，startwizard
+        # 没hasconfig，startwizard
         print()
-        self._print("⚠️  未detect到有效 API Key config", 'yellow', bold=True)
+        self._print("⚠️  未detecttohas效 API Key config", 'yellow', bold=True)
         print()
         
-        response = input("Whether to start configuration wizard? (y/n，默认 y): ").strip().lower()
+        response = input("Whether to start configuration wizard? (y/n，default y): ").strip().lower()
         if response in ('', 'y', 'yes'):
             return self.run()
         else:

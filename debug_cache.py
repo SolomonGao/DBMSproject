@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cache Debug Tool - 验证cacheisNowork
+Cache Debug Tool - validatecacheisNowork
 
 Usage:
     python debug_cache.py
@@ -17,7 +17,7 @@ from app.services.gdelt import GDELTService
 
 
 async def test_cache():
-    """测试cacheisNonormalwork"""
+    """testcacheisNonormalwork"""
     print("🔍 cachedebugtool")
     print("=" * 60)
     
@@ -26,41 +26,41 @@ async def test_cache():
     
     service = GDELTService()
     
-    # query看initialstartcache状state
-    print("\n📊 initialstartcache状state:")
+    # queryseeinitialstartcachestatusstate
+    print("\n📊 initialstartcachestatusstate:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
     
-    # 执row第一次query
-    print("\n🔍 第一次query 'Virginia'...")
+    # execrow第一timequery
+    print("\n🔍 第一timequery 'Virginia'...")
     start = asyncio.get_event_loop().time()
     result1 = await service.query_by_actor("Virginia", limit=10)
     elapsed1 = asyncio.get_event_loop().time() - start
     print(f"   耗when: {elapsed1:.3f}s")
-    print(f"   result果长schedule: {len(result1)} 字符")
+    print(f"   resultresultlongschedule: {len(result1)} 字符")
     
-    # query看cache状state
-    print("\n📊 第一次queryaftercache状state:")
+    # queryseecachestatusstate
+    print("\n📊 第一timequeryaftercachestatusstate:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
     
-    # 执row第二次samequery
-    print("\n🔍 第二次query 'Virginia' (应该hitcache)...")
+    # execrow第二timesamequery
+    print("\n🔍 第二timequery 'Virginia' (应该hitcache)...")
     start = asyncio.get_event_loop().time()
     result2 = await service.query_by_actor("Virginia", limit=10)
     elapsed2 = asyncio.get_event_loop().time() - start
     print(f"   耗when: {elapsed2:.3f}s")
-    print(f"   result果长schedule: {len(result2)} 字符")
+    print(f"   resultresultlongschedule: {len(result2)} 字符")
     
-    # query看cache状state
-    print("\n📊 第二次queryaftercache状state:")
+    # queryseecachestatusstate
+    print("\n📊 第二timequeryaftercachestatusstate:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
     
-    # 计算add速比
+    # calculateadd速比
     if elapsed1 > 0:
         speedup = elapsed1 / elapsed2
         print(f"\n🚀 add速比: {speedup:.1f}x")
@@ -68,11 +68,11 @@ async def test_cache():
         if speedup > 10:
             print("✅ cacheworknormal！")
         elif elapsed2 < 0.01:
-            print("✅ 可能iscachehit（or者querythis身就很快）")
+            print("✅ 可caniscachehit（or者querythis身就很fast）")
         else:
-            print("⚠️  可能没hashitcache")
+            print("⚠️  可can没hashitcache")
     
-    # 显示cache key Example
+    # displaycache key Example
     print("\n🔑 cache Key generateExample:")
     query = """SELECT SQLDATE, Actor1Name, Actor1CountryCode, 
                Actor2Name, Actor2CountryCode, EventCode,

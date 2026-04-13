@@ -25,14 +25,14 @@ DB_CONFIG = {
 }
 
 BATCH_SIZE = 100  
-# 🎯 将project标callback大，For example, this time we set a 2000 篇小project标
+# 🎯 将project标callbackbig，For example, this time we set a 2000 篇小project标
 TOTAL_TARGET = 300000 
 
 # new增：used forsaveprogressthislocationfile
 PROGRESS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sync_progress.txt'))
 
 def get_last_offset():
-    """readupload一次process到databaserow count"""
+    """readupload一timeprocesstodatabaserow count"""
     if os.path.exists(PROGRESS_FILE):
         with open(PROGRESS_FILE, 'r') as f:
             return int(f.read().strip())
@@ -47,13 +47,13 @@ def save_offset(offset):
 # 2. core函number定义
 # ==========================================
 def init_chromadb():
-    """initialstartization ChromaDB 和向amountmodel"""
-    logging.info("🚀 initialstartization ChromaDB 向amountdatabase...")
-    # 确save放在project根directoryunder chroma_db filefolder中
+    """initialstartization ChromaDB 和towardamountmodel"""
+    logging.info("🚀 initialstartization ChromaDB towardamountdatabase...")
+    # 确save放在project根directoryunder chroma_db filefolderin
     db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../chroma_db'))
     chroma_client = chromadb.PersistentClient(path=db_path)
     
-    logging.info("⏳ 正在addload Embedding model (all-MiniLM-L6-v2)...")
+    logging.info("⏳ correct在addload Embedding model (all-MiniLM-L6-v2)...")
     sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
     
     collection = chroma_client.get_or_create_collection(
@@ -63,7 +63,7 @@ def init_chromadb():
     return collection
 
 async def fetch_urls_batch(pool, limit, offset=0):
-    """从 MySQL 中batchcapturefetch包含 SOURCEURL eventrecordlog"""
+    """从 MySQL inbatchcapturefetchpackage含 SOURCEURL eventrecordlog"""
     query = """
         SELECT GlobalEventID, SQLDATE, SOURCEURL 
         FROM events_table 
@@ -98,7 +98,7 @@ async def scrape_article(session, event_id, date, url):
                     }
             return None
     except Exception:
-        # ignorenetwork超whenorfetchfailed链receive
+        # ignorenetworksuperwhenorfetchfailed链receive
         return None
 
 # ==========================================
@@ -111,21 +111,21 @@ async def main():
     total_processed = 0
     total_saved = 0
     
-    # 🌟 corechange动：从file中readupload次progress
+    # 🌟 corechange动：从fileinreaduploadtimeprogress
     current_offset = get_last_offset()
-    logging.info(f"🔄 detect到历史progress，this次将从database第 {current_offset} rowstartfetch。")
+    logging.info(f"🔄 detectto历史progress，thistime将从database第 {current_offset} rowstartfetch。")
     
     try:
         async with aiohttp.ClientSession() as session:
             while total_saved < TOTAL_TARGET:
-                logging.info(f"\n📦 正在从database拉fetch第 {current_offset} 到 {current_offset + BATCH_SIZE} 条recordlog...")
+                logging.info(f"\n📦 correct在从database拉fetch第 {current_offset} to {current_offset + BATCH_SIZE} itemrecordlog...")
                 records = await fetch_urls_batch(pool, BATCH_SIZE, current_offset)
                 
                 if not records:
-                    logging.info("database中没有updatemultirecordlog了，all URL alreadyprocesscomplete毕！")
+                    logging.info("databasein没hasupdatemultirecordlog了，all URL alreadyprocesscomplete毕！")
                     break
                 
-                # createandsendfetch任务
+                # createandsendfetchtask
                 tasks = [scrape_article(session, r['GlobalEventID'], r['SQLDATE'], r['SOURCEURL']) for r in records]
                 scraped_results = await asyncio.gather(*tasks)
                 
@@ -145,13 +145,13 @@ async def main():
                 total_processed += len(records)
                 current_offset += BATCH_SIZE
                 
-                # 🌟 corechange动：每completed一个batch，就save一次progress
+                # 🌟 corechange动：eachcompleted一batch，就save一timeprogress
                 save_offset(current_offset)
 
     finally:
         pool.close()
         await pool.wait_closed()
-        logging.info(f"🎉 任务end！this次共process链receive: {total_processed}，successinput库filethis: {total_saved} 篇。最new Offset alreadysave为 {current_offset}。")
+        logging.info(f"🎉 taskend！thistime共process链receive: {total_processed}，successinputlibraryfilethis: {total_saved} 篇。mostnew Offset alreadysavefor {current_offset}。")
 
 if __name__ == "__main__":
     import sys

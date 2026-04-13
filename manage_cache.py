@@ -3,10 +3,10 @@
 cachemanageprocess CLI tool
 
 Usage:
-    python manage_cache.py stats          # query看statistics
-    python manage_cache.py clear          # 清空所hascache
-    python manage_cache.py cleanup        # cleanupexpired条project
-    python manage_cache.py clear-pattern <pattern>  # 按modelpattern清remove
+    python manage_cache.py stats          # queryseestatistics
+    python manage_cache.py clear          # 清空sohascache
+    python manage_cache.py cleanup        # cleanupexpireditemproject
+    python manage_cache.py clear-pattern <pattern>  # bymodelpattern清remove
     python manage_cache.py monitor        # real-timemonitormodelpattern
 """
 
@@ -25,11 +25,11 @@ def format_stats(stats: dict) -> str:
     lines = [
         "📊 querycachestatistics",
         "=" * 40,
-        f"  cache条project: {stats['size']:,} / {stats['maxsize']:,}",
-        f"  hit次number: {stats['hits']:,}",
+        f"  cacheitemproject: {stats['size']:,} / {stats['maxsize']:,}",
+        f"  hittimenumber: {stats['hits']:,}",
         f"  未hit:   {stats['misses']:,}",
         f"  hit率:   {stats['hit_rate']}",
-        f"  eviction次number: {stats['evictions']:,}",
+        f"  evictiontimenumber: {stats['evictions']:,}",
         "=" * 40,
     ]
     
@@ -38,11 +38,11 @@ def format_stats(stats: dict) -> str:
     try:
         hit_rate = float(hit_rate_str)
         if hit_rate >= 80:
-            lines.append("✅ hit率优秀 (≥80%)")
+            lines.append("✅ hit率opt秀 (≥80%)")
         elif hit_rate >= 50:
             lines.append("⚠️ hit率一般 (50-80%)")
         else:
-            lines.append("❌ hit率较低 (<50%)，build议checkcacheconfig")
+            lines.append("❌ hit率较low (<50%)，build议checkcacheconfig")
     except:
         pass
     
@@ -50,41 +50,41 @@ def format_stats(stats: dict) -> str:
 
 
 async def cmd_stats():
-    """显示statisticsinfo"""
+    """displaystatisticsinfo"""
     stats = query_cache.get_stats()
     print(format_stats(stats))
 
 
 async def cmd_clear():
-    """清空所hascache"""
-    print("⚠️  OKwant清空所hascache吗？这willexport致under次queryvariable慢。")
+    """清空sohascache"""
+    print("⚠️  OKwant清空sohascache吗？thiswillexport致undertimequeryvariableslow。")
     confirm = input("input 'yes' Confirm: ")
     
     if confirm.lower() == 'yes':
         count = await query_cache.clear()
-        print(f"✅ already清空 {count} 个cache条project")
+        print(f"✅ already清空 {count} cacheitemproject")
     else:
         print("alreadyCancel")
 
 
 async def cmd_cleanup():
-    """cleanupexpired条project"""
+    """cleanupexpireditemproject"""
     count = await query_cache.cleanup_expired()
     if count > 0:
-        print(f"🧹 cleanup {count} 个expired条project")
+        print(f"🧹 cleanup {count} expireditemproject")
     else:
-        print("🤷 没hasexpired条projectneedcleanup")
+        print("🤷 没hasexpireditemprojectneedcleanup")
 
 
 async def cmd_clear_pattern(pattern: str):
-    """按modelpattern清remove"""
+    """bymodelpattern清remove"""
     count = await query_cache.invalidate_pattern(pattern)
-    print(f"✅ already清remove {count} 个包含 '{pattern}' 条project")
+    print(f"✅ already清remove {count} package含 '{pattern}' itemproject")
 
 
 async def cmd_monitor(interval: int = 5):
     """real-timemonitormodelpattern"""
-    print(f"🔍 开startmonitorcache（每 {interval} 秒Refresh，按 Ctrl+C 停stop）...")
+    print(f"🔍 openstartmonitorcache（each {interval} 秒Refresh，by Ctrl+C 停stop）...")
     print("-" * 60)
     
     last_hits = 0
@@ -94,16 +94,16 @@ async def cmd_monitor(interval: int = 5):
         while True:
             stats = query_cache.get_stats()
             
-            # 计算real-time QPS
+            # calculatereal-time QPS
             total_reqs = stats['hits'] + stats['misses']
             last_total = last_hits + last_misses
             qps = (total_reqs - last_total) / interval
             
-            # print状staterow
+            # printstatusstaterow
             timestamp = datetime.now().strftime("%H:%M:%S")
             print(
                 f"\r[{timestamp}] "
-                f"条project: {stats['size']:>3}/{stats['maxsize']:<3} | "
+                f"itemproject: {stats['size']:>3}/{stats['maxsize']:<3} | "
                 f"hit: {stats['hits']:>6} | "
                 f"未hit: {stats['misses']:>6} | "
                 f"hit率: {stats['hit_rate']:>6} | "
@@ -135,21 +135,21 @@ Example:
     subparsers = parser.add_subparsers(dest='command', help='availablecommand')
     
     # stats
-    subparsers.add_parser('stats', help='query看cachestatistics')
+    subparsers.add_parser('stats', help='queryseecachestatistics')
     
     # clear
-    subparsers.add_parser('clear', help='清空所hascache')
+    subparsers.add_parser('clear', help='清空sohascache')
     
     # cleanup
-    subparsers.add_parser('cleanup', help='cleanupexpired条project')
+    subparsers.add_parser('cleanup', help='cleanupexpireditemproject')
     
     # clear-pattern
-    pattern_parser = subparsers.add_parser('clear-pattern', help='按modelpattern清removecache')
-    pattern_parser.add_argument('pattern', help='匹allocatemodelpattern（如 2024-01-01）')
+    pattern_parser = subparsers.add_parser('clear-pattern', help='bymodelpattern清removecache')
+    pattern_parser.add_argument('pattern', help='匹allocatemodelpattern（if 2024-01-01）')
     
     # monitor
     monitor_parser = subparsers.add_parser('monitor', help='real-timemonitormodelpattern')
-    monitor_parser.add_argument('--interval', '-i', type=int, default=5, help='Refresh间隔（秒）')
+    monitor_parser.add_argument('--interval', '-i', type=int, default=5, help='Refreshinterval隔（秒）')
     
     args = parser.parse_args()
     

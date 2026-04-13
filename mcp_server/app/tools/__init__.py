@@ -1,7 +1,7 @@
 """
 GDELT MCP Server - toolRegistermodel块
 
-use装饰handlermodelpatternRegister所has MCP tool。
+use装饰handlermodelpatternRegistersohas MCP tool。
 """
 
 from fastmcp import FastMCP
@@ -18,7 +18,7 @@ def init_tools(mcp: FastMCP):
     from .core_tools_v2 import register_core_tools
     register_core_tools(mcp)
     
-    # oldtoolalreadydeprecated（gdelt_optimized.py - 15个Argsizationtool）
+    # oldtoolalreadydeprecated（gdelt_optimized.py - 15Argsizationtool）
     # If you need to restore old tools，Cancelunder面注释：
     # from .gdelt_optimized import create_optimized_tools
     # create_optimized_tools(mcp)

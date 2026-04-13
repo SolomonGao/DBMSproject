@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 GDELT ETL Pipeline
-Purpose: precalculateday报data、generate event fingerprints、updatestatisticsdata
-runfrequency: 每day一次（build议凌晨2点）
+Purpose: precalculatedayreportdata、generate event fingerprints、updatestatisticsdata
+runfrequency: eachday一time（build议凌晨2point）
 
 Usage:
     python db_scripts/etl_pipeline.py [YYYY-MM-DD]
     
-    不transmitarguments则process昨天data
+    不transmitarguments则process昨daydata
 """
 
 import asyncio
@@ -49,14 +49,14 @@ class GDELTETLPipeline:
     async def close(self):
         """close connection"""
         await DatabasePool.close()
-        logger.info("✅ databaseconnectionalready关闭")
+        logger.info("✅ databaseconnectionalreadyclose")
     
     async def run_daily_etl(self, target_date: Optional[str] = None):
         """
-        run每dayETLtask
+        runeachdayETLtask
         
         Args:
-            target_date: project标date (YYYY-MM-DD)，default昨天
+            target_date: project标date (YYYY-MM-DD)，default昨day
         """
         if target_date is None:
             target_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
@@ -64,7 +64,7 @@ class GDELTETLPipeline:
         logger.info(f"🚀 startETLprocess: {target_date}")
         
         try:
-            # 1. check该datewhether有data
+            # 1. check该datewhetherhasdata
             has_data = await self._check_data_exists(target_date)
             if not has_data:
                 logger.warning(f"⚠️ {target_date} no data，skipETL")
@@ -92,18 +92,18 @@ class GDELTETLPipeline:
             raise
     
     async def _check_data_exists(self, date: str) -> bool:
-        """check指定datewhether有data"""
+        """check指定datewhetherhasdata"""
         result = await self.pool.fetchone(
             "SELECT COUNT(*) as cnt FROM events_table WHERE SQLDATE = %s",
             (date,)
         )
         count = result['cnt'] if result else 0
-        logger.info(f"📊 {date} dataamount: {count} 条")
+        logger.info(f"📊 {date} dataamount: {count} item")
         return count > 0
     
     async def _generate_daily_summary(self, date: str):
         """generate daily digesttable"""
-        logger.info(f"📊 generateday报: {date}")
+        logger.info(f"📊 generatedayreport: {date}")
         
         # statistics基础data
         stats = await self.pool.fetchone("""
@@ -175,7 +175,7 @@ class GDELTETLPipeline:
         
         type_dist = {row['event_type']: row['cnt'] for row in types_result}
         
-        # hoteventfingerprint（临whenuseGID，after续update为fingerprint）
+        # hoteventfingerprint（临whenuseGID，after续updateforfingerprint）
         hot_result = await self.pool.fetchall("""
             SELECT GlobalEventID, NumArticles * ABS(GoldsteinScale) as hot_score
             FROM events_table
@@ -186,7 +186,7 @@ class GDELTETLPipeline:
         
         hot_events = [str(row['GlobalEventID']) for row in hot_result]
         
-        # insert/updateday报
+        # insert/updatedayreport
         await self.pool.execute("""
             INSERT INTO daily_summary 
             (date, total_events, conflict_events, cooperation_events,
@@ -216,13 +216,13 @@ class GDELTETLPipeline:
             json.dumps(hot_events)
         ))
         
-        logger.info(f"  ✓ day报alreadygenerate: {stats['total_events']} event, {len(top_actors)} 个活跃Actor")
+        logger.info(f"  ✓ dayreportalreadygenerate: {stats['total_events']} event, {len(top_actors)} 活跃Actor")
     
     async def _generate_event_fingerprints(self, date: str):
-        """为neweventgeneratefingerprint"""
+        """forneweventgeneratefingerprint"""
         logger.info(f"🔖 generate event fingerprints: {date}")
         
-        # fetchwhen天尚未generatefingerprintevent（batchprocess）
+        # fetchwhenday尚未generatefingerprintevent（batchprocess）
         total_processed = 0
         batch_size = 5000
         
@@ -265,40 +265,40 @@ class GDELTETLPipeline:
                     logger.warning(f"    skipduplicatefingerprint: {e}")
             
             total_processed += inserted
-            logger.info(f"  ✓ thisbatchgenerate {inserted} 个fingerprint，累计 {total_processed}")
+            logger.info(f"  ✓ thisbatchgenerate {inserted} fingerprint，累计 {total_processed}")
             
             # ifthisbatchinsufficient batch_size，descriptionprocesscomplete了
             if len(batch) < batch_size:
                 break
         
-        logger.info(f"  ✓ 总共generate {total_processed} 个fingerprint")
+        logger.info(f"  ✓ 总共generate {total_processed} fingerprint")
     
     def _create_fingerprint(self, evt: Dict) -> Tuple:
         """
-        为eventcreatefingerprint
+        foreventcreatefingerprint
         
         fingerprintformat: {COUNTRY}-{YYYYMMDD}-{LOCATION}-{TYPE}-{SEQ}
         example: US-20240115-WDC-PROTEST-001
         """
         gid = evt['GlobalEventID']
         sqldate = evt['SQLDATE']
-        actor1 = evt['Actor1Name'] or '某国'
+        actor1 = evt['Actor1Name'] or 'some country'
         actor2 = evt['Actor2Name'] or 'objectmethod'
         event_root = str(evt['EventRootCode'] or '')[:2]
         goldstein = evt['GoldsteinScale'] or 0
-        location = evt['ActionGeo_FullName'] or 'unknownlocation点'
+        location = evt['ActionGeo_FullName'] or 'unknownlocationpoint'
         country = evt['ActionGeo_CountryCode'] or 'XX'
         articles = evt['NumArticles'] or 0
         
-        # 解析date
+        # parsedate
         if isinstance(sqldate, str):
             date_str = sqldate.replace('-', '')
         else:
             date_str = str(sqldate).replace('-', '')
         
-        # location点缩write (fetchbefore3个字母大write)
+        # locationpoint缩write (fetchbefore3字母bigwrite)
         location_code = 'UNK'
-        if location and location != 'unknownlocation点':
+        if location and location != 'unknownlocationpoint':
             parts = location.split(',')
             if parts:
                 location_code = parts[0].strip()[:3].upper()
@@ -315,7 +315,7 @@ class GDELTETLPipeline:
         }
         event_type = type_map.get(event_root, 'EVENT')
         
-        # 序号 (基于GID最after3位)
+        # 序号 (基于GIDmostafter3位)
         seq = str(gid)[-3:].zfill(3)
         
         fingerprint = f"{country}-{date_str}-{location_code}-{event_type}-{seq}"
@@ -327,7 +327,7 @@ class GDELTETLPipeline:
         summary = self._generate_summary(actor1, actor2, location, goldstein, articles)
         
         # 关keyparticipant
-        key_actors = json.dumps([a for a in [actor1, actor2] if a and a not in ['某国', 'objectmethod']])
+        key_actors = json.dumps([a for a in [actor1, actor2] if a and a not in ['some country', 'objectmethod']])
         
         # eventtypetag
         event_label = self._get_event_label(event_root)
@@ -347,24 +347,24 @@ class GDELTETLPipeline:
     def _generate_headline(self, actor1: str, actor2: str, 
                           event_root: str, location: str) -> str:
         """generateevent标题"""
-        a1 = actor1 or '某国'
+        a1 = actor1 or 'some country'
         a2 = actor2 or 'objectmethod'
         loc = location or '某location'
         
         action_map = {
-            '01': f"{a1}sendtable声明", '02': f"{a1}向{a2}呼吁",
-            '03': f"{a1}table达意graph", '04': f"{a1}与{a2}磋商",
-            '05': f"{a1}param与{a2}事务", '06': f"{a1}向{a2}提供物资",
-            '07': f"{a1}向{a2}提供援助", '08': f"{a1}向{a2}提供援助",
-            '09': f"{a1}向{a2}让step", '10': f"{a1}向{a2}提outputwant求",
-            '11': f"{a1}object{a2}table示不满", '12': f"{a1}拒绝{a2}",
+            '01': f"{a1}sendtable声clear", '02': f"{a1}toward{a2}呼吁",
+            '03': f"{a1}table达意graph", '04': f"{a1}and{a2}磋商",
+            '05': f"{a1}paramand{a2}事务", '06': f"{a1}toward{a2}提供物资",
+            '07': f"{a1}toward{a2}提供援助", '08': f"{a1}toward{a2}提供援助",
+            '09': f"{a1}toward{a2}让step", '10': f"{a1}toward{a2}提outputwant求",
+            '11': f"{a1}object{a2}tableshow不满", '12': f"{a1}拒绝{a2}",
             '13': f"{a1}威胁{a2}", '14': f"{a1}send起抗议",
-            '15': f"{a1}展示武力", '16': f"{a1}reduceobject{a2}关系",
-            '17': f"{a1}胁迫{a2}", '18': f"{a1}与{a2}occur摩擦",
-            '19': f"{a1}与{a2}occurconflict", '20': f"{a1}object{a2}use武力"
+            '15': f"{a1}展show武力", '16': f"{a1}reduceobject{a2}关系",
+            '17': f"{a1}胁迫{a2}", '18': f"{a1}and{a2}occur摩擦",
+            '19': f"{a1}and{a2}occurconflict", '20': f"{a1}object{a2}use武力"
         }
         
-        action = action_map.get(event_root, f"{a1}与{a2}互动")
+        action = action_map.get(event_root, f"{a1}and{a2}互动")
         
         if loc and loc not in [a1, a2]:
             return f"{action} ({loc})"
@@ -373,7 +373,7 @@ class GDELTETLPipeline:
     def _generate_summary(self, actor1: str, actor2: str, 
                          location: str, goldstein: float, articles: int) -> str:
         """generateeventdigest"""
-        a1 = actor1 or '某国'
+        a1 = actor1 or 'some country'
         a2 = actor2 or 'objectmethod'
         loc = location or '某location'
         
@@ -382,7 +382,7 @@ class GDELTETLPipeline:
             if abs(goldstein) > 7:
                 intensity = "严重"
             elif abs(goldstein) > 4:
-                intensity = "中等"
+                intensity = "in等"
         
         coverage = ""
         if articles > 100:
@@ -390,18 +390,18 @@ class GDELTETLPipeline:
         elif articles > 10:
             coverage = f"，receivecertainreport({articles}篇)"
         
-        return f"{a1}与{a2}在{loc}occur{intensity}互动{coverage}。"
+        return f"{a1}and{a2}在{loc}occur{intensity}互动{coverage}。"
     
     def _get_event_label(self, event_root: str) -> str:
         """fetcheventtypetag"""
         labels = {
-            '01': '外交声明', '02': '外交呼吁', '03': '政策意向',
-            '04': '外交磋商', '05': 'param与合作', '06': '物资援助',
+            '01': 'outside交声clear', '02': 'outside交呼吁', '03': '政策意toward',
+            '04': 'outside交磋商', '05': 'paramand合job', '06': '物资援助',
             '07': '人员援助', '08': '保护援助', '09': '让step缓和',
             '10': '提outputwant求', '11': 'table达不满', '12': '拒绝反object',
-            '13': '威胁warning', '14': '抗议示威', '15': '展示武力',
+            '13': '威胁warning', '14': '抗议show威', '15': '展show武力',
             '16': '关系downgrade', '17': '强system胁迫', '18': '军事摩擦',
-            '19': '大规modelconflict', '20': '武装攻击'
+            '19': 'big规modelconflict', '20': '武装攻击'
         }
         return labels.get(event_root, '其他event')
     
@@ -409,7 +409,7 @@ class GDELTETLPipeline:
         """update region statistics"""
         logger.info(f"🌍 update region statistics: {date}")
         
-        # 按国家statistics
+        # by国家statistics
         regions = await self.pool.fetchall("""
             SELECT 
                 ActionGeo_CountryCode as region,
@@ -450,13 +450,13 @@ class GDELTETLPipeline:
             except Exception as e:
                 logger.warning(f"    skiplocation区 {r['region']}: {e}")
         
-        logger.info(f"  ✓ update {updated} 个location区")
+        logger.info(f"  ✓ update {updated} location区")
     
     async def _update_geo_grid(self, date: str):
         """update geo gridhot"""
         logger.info(f"🗺️ update geo grid: {date}")
         
-        # 按0.5schedulegridaggregate
+        # by0.5schedulegridaggregate
         grids = await self.pool.fetchall("""
             SELECT 
                 FLOOR(ActionGeo_Lat * 2) / 2 as lat_grid,
@@ -499,7 +499,7 @@ class GDELTETLPipeline:
             except Exception as e:
                 logger.warning(f"    skipgrid {grid_id}: {e}")
         
-        logger.info(f"  ✓ update {updated} 个grid")
+        logger.info(f"  ✓ update {updated} grid")
     
     async def _identify_hot_events(self, date: str):
         """识别andupdatehoteventfingerprintreference"""
@@ -513,7 +513,7 @@ class GDELTETLPipeline:
         """, (date,))
         
         if not result or not result['hot_event_fingerprints']:
-            logger.info("  ⚠️ 无hoteventdata")
+            logger.info("  ⚠️ nohoteventdata")
             return
         
         hot_fingerprints_data = result['hot_event_fingerprints']
@@ -522,7 +522,7 @@ class GDELTETLPipeline:
         else:
             gids = hot_fingerprints_data
         
-        # 将GID转换为fingerprint
+        # 将GIDconvertforfingerprint
         fingerprints = []
         for gid in gids[:10]:
             fp_result = await self.pool.fetchone("""
@@ -533,7 +533,7 @@ class GDELTETLPipeline:
             if fp_result:
                 fingerprints.append(fp_result['fingerprint'])
         
-        # updateday报
+        # updatedayreport
         if fingerprints:
             await self.pool.execute("""
                 UPDATE daily_summary 
@@ -541,12 +541,12 @@ class GDELTETLPipeline:
                 WHERE date = %s
             """, (json.dumps(fingerprints), date))
             
-            logger.info(f"  ✓ update {len(fingerprints)} 个hoteventfingerprint")
+            logger.info(f"  ✓ update {len(fingerprints)} hoteventfingerprint")
 
 
 async def main():
     """主input口"""
-    # 解析arguments
+    # parsearguments
     target_date = None
     if len(sys.argv) > 1:
         target_date = sys.argv[1]
@@ -555,7 +555,7 @@ async def main():
             datetime.strptime(target_date, '%Y-%m-%d')
         except ValueError:
             print(f"❌ dateformaterror: {target_date}")
-            print("   正确format: YYYY-MM-DD")
+            print("   correct确format: YYYY-MM-DD")
             sys.exit(1)
     
     # runETL

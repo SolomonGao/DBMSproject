@@ -2,9 +2,9 @@ import subprocess
 import sys
 
 def main():
-    print("🚀 正instart Spatio-Temporal Narrative AI Agent...")
+    print("🚀 correctinstart Spatio-Temporal Narrative AI Agent...")
     
-    # Defineswant执row Docker command
+    # Defineswantexecrow Docker command
     command = [
         "docker-compose", 
         "run", 
@@ -16,12 +16,12 @@ def main():
     ]
     
     try:
-        # use subprocess 执rowcommand，不catchcapturetransportoutput，directjointowhenbeforeend端
+        # use subprocess execrowcommand，不catchcapturetransportoutput，directjointowhenbeforeendend
         subprocess.run(command, check=True)
     except subprocess.CalledProcessError as e:
         print(f"\n❌ 运rowoutputerror，Exit码: {e.returncode}")
     except KeyboardInterrupt:
-        print("\n👋 accepttoExit信号，正in安全关闭...")
+        print("\n👋 accepttoExit信号，correctin安全close...")
         sys.exit(0)
 
 if __name__ == "__main__":

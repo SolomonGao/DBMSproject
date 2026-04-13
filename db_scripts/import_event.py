@@ -24,7 +24,7 @@ db_config = {
     'allow_local_infile': True 
 }
 
-# 🌟 优ization1：addupload sorted，按 0000 到 0075 顺序执row
+# 🌟 optization1：addupload sorted，by 0000 to 0075 顺序execrow
 csv_files = sorted(glob.glob("data/gdelt_2024_na_*.csv"))
 
 temp_file = os.path.abspath('temp_bulk_load.csv').replace('\\', '/')
@@ -69,26 +69,26 @@ def record_import(cursor, file_path, row_count):
 
 def fast_ingest():
     if not csv_files:
-        logging.error("❌ 在 data/ directoryNo results found under gdelt_2024_na_*.csv file，请checkpath！")
+        logging.error("❌ 在 data/ directoryNo results found under gdelt_2024_na_*.csv file，pleasecheckpath！")
         return
 
-    logging.info(f"📂 共扫描到 {len(csv_files)} 个shardfile准备import。")
+    logging.info(f"📂 共扫描to {len(csv_files)} shardfileprepareimport。")
     
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
     
-    # checkwhether有 CSV file
+    # checkwhetherhas CSV file
     if not csv_files:
-        logging.error("❌ 未找到 CSV file (data/gdelt_2024_na_*.csv)")
+        logging.error("❌ 未找to CSV file (data/gdelt_2024_na_*.csv)")
         return
     
-    logging.info(f"📁 找到 {len(csv_files)} 个 CSV file")
+    logging.info(f"📁 找to {len(csv_files)}  CSV file")
     logging.info("-" * 60)
     
-    # checkalready有dataamount
+    # checkalreadyhasdataamount
     cursor.execute("SELECT COUNT(*) FROM events_table")
     existing_count = cursor.fetchone()[0]
-    logging.info(f"📊 databasealready有 {existing_count:,} 条recordlog")
+    logging.info(f"📊 databasealreadyhas {existing_count:,} itemrecordlog")
     logging.info("-" * 60)
 
     imported_count = 0
@@ -105,7 +105,7 @@ def fast_ingest():
         
         logging.info(f"   🚀 startclean和import...")
         
-        # 🌟 优ization2：增add try-except，防stopformfileError interrupts entire process
+        # 🌟 optization2：增add try-except，防stopformfileError interrupts entire process
         try:
             # 1. readandclean 
             df = pd.read_csv(file, dtype={'EventCode': str, 'EventRootCode': str})
@@ -116,11 +116,11 @@ def fast_ingest():
             df.loc[(df['ActionGeo_Lat'] < -90) | (df['ActionGeo_Lat'] > 90), 'ActionGeo_Lat'] = float('nan')
             df.loc[(df['ActionGeo_Long'] < -180) | (df['ActionGeo_Long'] > 180), 'ActionGeo_Long'] = float('nan')
 
-            # 把all缺failorerror坐标，统一流放到 "Null Island" (0.0, 0.0)
+            # 把all缺failorerror坐标，统一流放to "Null Island" (0.0, 0.0)
             df['ActionGeo_Lat'] = df['ActionGeo_Lat'].fillna(0.0)
             df['ActionGeo_Long'] = df['ActionGeo_Long'].fillna(0.0)
             
-            # 转换dateformat
+            # convertdateformat
             df['SQLDATE'] = pd.to_datetime(df['SQLDATE'], format='%Y%m%d').dt.strftime('%Y-%m-%d')
             if 'DATEADDED' in df.columns:
                 df['DATEADDED'] = pd.to_datetime(df['DATEADDED'], format='%Y%m%d%H%M%S', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -128,13 +128,13 @@ def fast_ingest():
             # 拼装 WKT 字符串column
             df['ActionGeo_Point_WKT'] = 'POINT(' + df['ActionGeo_Lat'].astype(str) + ' ' + df['ActionGeo_Long'].astype(str) + ')'
 
-            # 2. Save as temporary without any interferencefile (na_rep='\N' 是 MySQL 识别 NULL 专属标record)
+            # 2. Save as temporary without any interferencefile (na_rep='\N' yes MySQL 识别 NULL 专属标record)
             df.to_csv(temp_file, index=False, header=False, na_rep=r'\N')
             row_count = len(df)
             
             logging.info(f"   ⚡ 呼叫底层 LOAD DATA 指令灌input MySQL... ({row_count:,} row)")
             
-            # 3. 执row极速import指令
+            # 3. execrow极速import指令
             load_query = f"""
             LOAD DATA LOCAL INFILE '{temp_file}'
             IGNORE INTO TABLE events_table
@@ -165,15 +165,15 @@ def fast_ingest():
     if os.path.exists(temp_file):
         os.remove(temp_file)
     
-    # 显示statistics
+    # displaystatistics
     logging.info("-" * 60)
     logging.info(f"📊 importstatistics:")
-    logging.info(f"   this次import: {imported_count} 个file")
-    logging.info(f"   skip（alreadysave在）: {skipped_count} 个file")
+    logging.info(f"   thistimeimport: {imported_count} file")
+    logging.info(f"   skip（alreadysave在）: {skipped_count} file")
     
     cursor.execute("SELECT COUNT(*) FROM events_table")
     final_count = cursor.fetchone()[0]
-    logging.info(f"   database总计: {final_count:,} 条recordlog")
+    logging.info(f"   database总计: {final_count:,} itemrecordlog")
         
     cursor.close()
     conn.close()

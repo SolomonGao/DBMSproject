@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-database状statechecktool
-used formonitorindexusecase和query性能
+databasestatusstatechecktool
+used formonitorindexusecase和query性can
 """
 
 import sys
@@ -12,12 +12,12 @@ from app.database.pool import DatabasePool
 import asyncio
 
 async def check_status():
-    """check database状state"""
+    """check databasestatusstate"""
     await DatabasePool.initialize()
     pool = DatabasePool()
     
     print("=" * 70)
-    print("📊 GDELT database状statecheck")
+    print("📊 GDELT databasestatusstatecheck")
     print("=" * 70)
     
     # 1. tablesize和row count
@@ -67,9 +67,9 @@ async def check_status():
             COUNT(DISTINCT SQLDATE) as unique_days
         FROM events_table
     """)
-    print(f"   最早: {result['min_date']}")
-    print(f"   最晚: {result['max_date']}")
-    print(f"   天number: {result['unique_days']}")
+    print(f"   most早: {result['min_date']}")
+    print(f"   most晚: {result['max_date']}")
+    print(f"   daynumber: {result['unique_days']}")
     
     # 4. locationprocessdata覆盖
     print("\n4️⃣  locationprocessdata覆盖:")
@@ -84,7 +84,7 @@ async def check_status():
         FROM events_table
     """)
     geo_pct = result['with_geo'] / result['total'] * 100 if result['total'] > 0 else 0
-    print(f"   有locationprocess坐标: {result['with_geo']:,} / {result['total']:,} ({geo_pct:.1f}%)")
+    print(f"   haslocationprocess坐标: {result['with_geo']:,} / {result['total']:,} ({geo_pct:.1f}%)")
     
     # 5. importrecordlog
     print("\n5️⃣  CSV importrecordlog:")
@@ -99,20 +99,20 @@ async def check_status():
             for log in logs[:5]:
                 print(f"   ✅ {log['file_name']}: {log['row_count']:,} row ({log['imported_at']})")
             if len(logs) > 5:
-                print(f"   ... 还有 {len(logs) - 5} 个file")
+                print(f"   ... 还has {len(logs) - 5} file")
         else:
-            print("   暂无importrecordlog")
+            print("   暂noimportrecordlog")
     except:
         print("   importrecordlogtable不save在")
     
-    # 6. querycache状state
-    print("\n6️⃣  querycache状state:")
+    # 6. querycachestatusstate
+    print("\n6️⃣  querycachestatusstate:")
     from app.cache import query_cache
     stats = query_cache.get_stats()
-    print(f"   cache条project: {stats['size']} / {stats['maxsize']}")
-    print(f"   命中次number: {stats['hits']:,}")
-    print(f"   未命中: {stats['misses']:,}")
-    print(f"   命中率: {stats['hit_rate']}")
+    print(f"   cacheitemproject: {stats['size']} / {stats['maxsize']}")
+    print(f"   命intimenumber: {stats['hits']:,}")
+    print(f"   未命in: {stats['misses']:,}")
+    print(f"   命in率: {stats['hit_rate']}")
     
     print("\n" + "=" * 70)
     print("checkcompleted！")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""测试 API join - 尝试different Headers 伪装"""
+"""test API join - 尝试different Headers 伪装"""
 import os
 import sys
 sys.path.insert(0, '.')

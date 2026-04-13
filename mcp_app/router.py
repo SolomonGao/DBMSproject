@@ -129,7 +129,7 @@ class OllamaRouter:
             )
         
         # Simple greetings (Chinese + English)
-        greetings = ['你好', 'hello', 'hi', '在吗', '在么']
+        greetings = ['你good', 'hello', 'hi', '在吗', '在']
         if any(g in text_lower for g in greetings) and len(text) < 10:
             return RouterDecision(
                 intent="chat",
@@ -144,8 +144,8 @@ class OllamaRouter:
         # Daily brief keywords (Chinese + English)
         daily_brief_keywords = [
             'brief', 'daily report', 'daily brief', 'daily report', 'news brief',
-            '今天news', '今日brief', 'What happened today', 'newssummary',
-            'newsbrief', '每日news', 'daily news', '今日news'
+            '今daynews', '今日brief', 'What happened today', 'newssummary',
+            'newsbrief', 'each日news', 'daily news', '今日news'
         ]
         if any(kw in text_lower for kw in daily_brief_keywords):
             return RouterDecision(
@@ -309,7 +309,7 @@ Notes:
             )
         
         # Analysis & Dashboard (Chinese + English)
-        if any(kw in text_lower for kw in ['statistics', '分析', 'trends', 'dashboard', '仪table盘']):
+        if any(kw in text_lower for kw in ['statistics', 'analyze', 'trends', 'dashboard', '仪table盘']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -331,7 +331,7 @@ Notes:
             )
         
         # Time series / trends (Chinese)
-        if any(kw in text_lower for kw in ['when间序column', 'trends', 'variableization', '走势', 'time series']):
+        if any(kw in text_lower for kw in ['wheninterval序column', 'trends', 'variableization', '走势', 'time series']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -342,7 +342,7 @@ Notes:
             )
         
         # Streaming / large data (Chinese)
-        if any(kw in text_lower for kw in ['export', '全部', 'all', 'streaming', '大amountdata']):
+        if any(kw in text_lower for kw in ['export', '全部', 'all', 'streaming', 'bigamountdata']):
             return RouterDecision(
                 intent="query",
                 cleaned_input=text,

@@ -3,9 +3,9 @@ performance comparisontest：optimizationbefore vs optimizationafter
 
 testproject：
 1. serial vs androwqueryinquiry
-2. cache命中率
+2. cache命in率
 3. streamingqueryinquirymemory占use
-4. data库端aggregation vs Python 端aggregation
+4. datalibraryendaggregation vs Python endaggregation
 """
 
 import asyncio
@@ -39,7 +39,7 @@ class PerformanceBenchmark:
         """装饰handler：自动timing和memorystatistics"""
         def decorator(func):
             async def wrapper(*args, **kwargs):
-                # 开startmemorytracetrack
+                # openstartmemorytracetrack
                 tracemalloc.start()
                 start_mem = tracemalloc.get_traced_memory()[0]
                 
@@ -76,13 +76,13 @@ class PerformanceBenchmark:
         
         print("="*80)
         
-        # 计算add速比
+        # calculateadd速比
         baseline_times = {}
         for r in self.results:
             if "serial" in r['name'] or "原start" in r['name']:
                 baseline_times[r['name']] = r['time_ms']
         
-        print("\n🚀 optimization效果：")
+        print("\n🚀 optimization效result：")
         for r in self.results:
             for baseline_name, baseline_time in baseline_times.items():
                 if baseline_name.replace("serial", "").replace("原start", "") in r['name'] and r['name'] != baseline_name:
@@ -100,13 +100,13 @@ async def main():
     
     start_date, end_date = "2024-01-01", "2024-01-31"
     
-    print("开startperformance test...")
+    print("openstartperformance test...")
     print(f"testdaterange: {start_date} 至 {end_date}")
     print("-"*80)
     
     # ========== test 1: serial vs androwqueryinquiry ==========
     
-    @bench.benchmark("1a. serial执row 4 个statisticsqueryinquiry (原start)")
+    @bench.benchmark("1a. serialexecrow 4 statisticsqueryinquiry (原start)")
     async def test_serial_queries():
         results = []
         results.append(await service_old.analyze_events_by_date(start_date, end_date))
@@ -117,39 +117,39 @@ async def main():
         results.append(await service_old.execute_sql(query))
         return results
     
-    @bench.benchmark("1b. androw执row 4 个statisticsqueryinquiry (optimization)")
+    @bench.benchmark("1b. androwexecrow 4 statisticsqueryinquiry (optimization)")
     async def test_parallel_queries():
         return await service_new.get_dashboard_data(start_date, end_date)
     
     await test_serial_queries()
     await test_parallel_queries()
     
-    # ========== test 2: cache效果 ==========
+    # ========== test 2: cache效result ==========
     
     query = f"SELECT * FROM events_table WHERE SQLDATE BETWEEN '{start_date}' AND '{start_date}' LIMIT 50"
     
-    @bench.benchmark("2a. 首次queryinquiry (无cache)")
+    @bench.benchmark("2a. 首timequeryinquiry (nocache)")
     async def test_cache_miss():
         await query_cache.clear()
         return await service_new.execute_sql_cached(query, cache_ttl=60)
     
-    @bench.benchmark("2b. cache命中queryinquiry")
+    @bench.benchmark("2b. cache命inqueryinquiry")
     async def test_cache_hit():
         return await service_new.execute_sql_cached(query, cache_ttl=60)
     
     await test_cache_miss()
     await test_cache_hit()
     
-    # ========== test 3: data库端aggregation vs Python 端 ==========
+    # ========== test 3: datalibraryendaggregation vs Python end ==========
     
-    @bench.benchmark("3a. Python 端分groupaggregation (原start)")
+    @bench.benchmark("3a. Python end分groupaggregation (原start)")
     async def test_python_aggregate():
         # 原startmethodpattern：fetchoutputalldata，Python 分group
         rows = await pool.fetchall(
             f"SELECT SQLDATE, GoldsteinScale FROM events_table "
             f"WHERE SQLDATE BETWEEN '{start_date}' AND '{end_date}' LIMIT 1000"
         )
-        # Python 端aggregation
+        # Python endaggregation
         from collections import defaultdict
         result = defaultdict(lambda: {"count": 0, "sum": 0})
         for row in rows:
@@ -158,7 +158,7 @@ async def main():
             result[date]["sum"] += row['GoldsteinScale'] or 0
         return list(result.items())
     
-    @bench.benchmark("3b. data库端aggregation (optimization)")
+    @bench.benchmark("3b. datalibraryendaggregation (optimization)")
     async def test_db_aggregate():
         return await service_new.analyze_time_series_advanced(
             start_date, end_date, granularity="day"
@@ -167,9 +167,9 @@ async def main():
     await test_python_aggregate()
     await test_db_aggregate()
     
-    # ========== test 4: batchqueryinquiry vs form条queryinquiry ==========
+    # ========== test 4: batchqueryinquiry vs formitemqueryinquiry ==========
     
-    @bench.benchmark("4a. serialform条queryinquiry 10 次")
+    @bench.benchmark("4a. serialformitemqueryinquiry 10 time")
     async def test_single_queries():
         results = []
         for i in range(10):
@@ -180,9 +180,9 @@ async def main():
             results.append(row)
         return results
     
-    @bench.benchmark("4b. batchqueryinquiry 10 条")
+    @bench.benchmark("4b. batchqueryinquiry 10 item")
     async def test_batch_query():
-        ids = list(range(1000, 1010))  # 示example ID
+        ids = list(range(1000, 1010))  # showexample ID
         return await service_new.batch_fetch_by_ids(ids)
     
     await test_single_queries()

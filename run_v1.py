@@ -10,10 +10,10 @@ selectitem:
     --config               Force start configuration wizard
     --log-level {DEBUG,INFO,WARNING,ERROR}  Setloglevel
     --no-file-log          禁usefilelog
-    -h, --help             显示Help
+    -h, --help             displayHelp
 
-特性:
-    - 交互pattern LLM Provides商select择 (Kimi/Claude/Gemini)
+feature:
+    - 交互pattern LLM Provides商selectselect (Kimi/Claude/Gemini)
     - 自动detectandHintconfig
     - SupportsmultiProvides商切换
 """
@@ -23,7 +23,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-# 确保可以Import mcp_app
+# 确保可thereforeImport mcp_app
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
@@ -40,13 +40,13 @@ logger = get_logger("main")
 async def main():
     """主function"""
     
-    # 解析commandrowArgs
+    # parsecommandrowArgs
     parser = argparse.ArgumentParser(
         description="GDELT MCP Client App v1",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-  python run_v1.py                          # startApply（首次willHintconfig）
+  python run_v1.py                          # startApply（首timewillHintconfig）
   python run_v1.py --config                 # 强system重newconfig
   python run_v1.py --log-level DEBUG        # Debugmodelpattern
         """
@@ -79,9 +79,9 @@ Example:
         success = wizard.run()
         if not success:
             sys.exit(1)
-        print("\nconfigcompleted！正instartApply...\n")
+        print("\nconfigcompleted！correctinstartApply...\n")
     else:
-        # Checkconfig，如does not exist则Hint
+        # Checkconfig，ifdoes not exist则Hint
         if not wizard.check_and_prompt():
             sys.exit(1)
     
@@ -112,7 +112,7 @@ Example:
     # 3. printconfig
     print_config(config)
     
-    # 4. Initialize MCP 客户端
+    # 4. Initialize MCP 客户end
     mcp_client = MCPClient(
         server_path=config.mcp_server_path,
         transport=config.mcp_transport,
@@ -123,9 +123,9 @@ Example:
         # 5. jointo MCP Server
         connected = await mcp_client.connect()
         if not connected:
-            logger.error("unablejointo MCP Server，请check:")
+            logger.error("unablejointo MCP Server，pleasecheck:")
             logger.error("  1. MCP Server fileisNosavein")
-            logger.error("  2. Python environmentisNo正确")
+            logger.error("  2. Python environmentisNocorrect确")
             sys.exit(1)
         
         # 6. send现tool
@@ -135,7 +135,7 @@ Example:
         logger.exception(f"MCP Initializefailed: {e}")
         sys.exit(1)
     
-    # 7. Initialize LLM 客户端
+    # 7. Initialize LLM 客户end
     try:
         llm_client = LLMClient(
             provider=config.llm_provider,
@@ -145,7 +145,7 @@ Example:
             temperature=config.llm_temperature,
             max_tokens=config.llm_max_tokens
         )
-        logger.info(f"LLM 客户端Initializecompleted (Provides商: {config.llm_provider})")
+        logger.info(f"LLM 客户endInitializecompleted (Provides商: {config.llm_provider})")
     except Exception as e:
         logger.exception(f"LLM Initializefailed: {e}")
         sys.exit(1)
@@ -156,7 +156,7 @@ Example:
     # Process信号
     import signal
     def signal_handler(sig, frame):
-        logger.info(f"acceptto信号 {sig}，正inExit...")
+        logger.info(f"acceptto信号 {sig}，correctinExit...")
         asyncio.create_task(mcp_client.close())
         sys.exit(0)
     
@@ -167,10 +167,10 @@ Example:
         await cli.chat_loop()
     finally:
         # cleanup资源
-        logger.info("正incleanup资源...")
+        logger.info("correctincleanup资源...")
         await mcp_client.close()
-        if 'llm_client' in locals():      # <--- addupload这一row
-            await llm_client.close()      # <--- addupload这一row
+        if 'llm_client' in locals():      # <--- adduploadthis一row
+            await llm_client.close()      # <--- adduploadthis一row
         logger.info("ApplyalreadyExit")
 
 
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n\n👋 再见！")
+        print("\n\n👋 再view！")
         sys.exit(0)
     except Exception as e:
         logger.exception(f"程序error: {e}")

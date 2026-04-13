@@ -88,7 +88,7 @@ class QueryCache:
         """
         Generate cache key
         
-        Uses MD5 hash to ensure fixed key length, avoiding memory issues from超长 SQL.
+        Uses MD5 hash to ensure fixed key length, avoiding memory issues fromsuperlong SQL.
         """
         if params:
             # Serialize parameters
