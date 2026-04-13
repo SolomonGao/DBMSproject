@@ -1,7 +1,7 @@
 """
 GDELT MCP Server - 工具Register模块
 
-使用装饰器模式Register所has MCP 工具。
+use装饰器模式Register所has MCP 工具。
 """
 
 from fastmcp import FastMCP

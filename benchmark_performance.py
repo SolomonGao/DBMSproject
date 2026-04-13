@@ -1,11 +1,11 @@
 """
-性能对比test：optimization前 vs optimization后
+performance comparisontest：optimizationbefore vs optimizationafter
 
-test项目：
-1. 串行 vs 并行查询
-2. 缓存命中率
-3. 流式查询memory占用
-4. 数据库端聚合 vs Python 端聚合
+testproject：
+1. serial vs and行查询
+2. cache命中率
+3. streaming查询memory占用
+4. data库端aggregation vs Python 端aggregation
 """
 
 import asyncio
@@ -32,7 +32,7 @@ class PerformanceBenchmark:
     async def setup(self):
         """初始化"""
         await DatabasePool.initialize()
-        # 预热
+        # pre热
         await GDELTServiceOptimized.warmup_connections(3)
     
     def benchmark(self, name: str):
@@ -68,7 +68,7 @@ class PerformanceBenchmark:
         print("\n" + "="*80)
         print("📊 performance testreport")
         print("="*80)
-        print(f"{'test项目':<30} {'time cost(ms)':<12} {'memory(KB)':<12} {'results数':<10}")
+        print(f"{'testproject':<30} {'time cost(ms)':<12} {'memory(KB)':<12} {'results数':<10}")
         print("-"*80)
         
         for r in self.results:
@@ -79,13 +79,13 @@ class PerformanceBenchmark:
         # 计算加速比
         baseline_times = {}
         for r in self.results:
-            if "串行" in r['name'] or "原始" in r['name']:
+            if "serial" in r['name'] or "原始" in r['name']:
                 baseline_times[r['name']] = r['time_ms']
         
         print("\n🚀 optimization效果：")
         for r in self.results:
             for baseline_name, baseline_time in baseline_times.items():
-                if baseline_name.replace("串行", "").replace("原始", "") in r['name'] and r['name'] != baseline_name:
+                if baseline_name.replace("serial", "").replace("原始", "") in r['name'] and r['name'] != baseline_name:
                     speedup = baseline_time / r['time_ms'] if r['time_ms'] > 0 else 0
                     print(f"  {baseline_name} → {r['name']}: 加速 {speedup:.2f}x")
 
@@ -104,9 +104,9 @@ async def main():
     print(f"test日期范围: {start_date} 至 {end_date}")
     print("-"*80)
     
-    # ========== test 1: 串行 vs 并行查询 ==========
+    # ========== test 1: serial vs and行查询 ==========
     
-    @bench.benchmark("1a. 串行执行 4 个统计查询 (原始)")
+    @bench.benchmark("1a. serial执行 4 个统计查询 (原始)")
     async def test_serial_queries():
         results = []
         results.append(await service_old.analyze_events_by_date(start_date, end_date))
@@ -117,39 +117,39 @@ async def main():
         results.append(await service_old.execute_sql(query))
         return results
     
-    @bench.benchmark("1b. 并行执行 4 个统计查询 (optimization)")
+    @bench.benchmark("1b. and行执行 4 个统计查询 (optimization)")
     async def test_parallel_queries():
         return await service_new.get_dashboard_data(start_date, end_date)
     
     await test_serial_queries()
     await test_parallel_queries()
     
-    # ========== test 2: 缓存效果 ==========
+    # ========== test 2: cache效果 ==========
     
     query = f"SELECT * FROM events_table WHERE SQLDATE BETWEEN '{start_date}' AND '{start_date}' LIMIT 50"
     
-    @bench.benchmark("2a. 首次查询 (无缓存)")
+    @bench.benchmark("2a. 首次查询 (无cache)")
     async def test_cache_miss():
         await query_cache.clear()
         return await service_new.execute_sql_cached(query, cache_ttl=60)
     
-    @bench.benchmark("2b. 缓存命中查询")
+    @bench.benchmark("2b. cache命中查询")
     async def test_cache_hit():
         return await service_new.execute_sql_cached(query, cache_ttl=60)
     
     await test_cache_miss()
     await test_cache_hit()
     
-    # ========== test 3: 数据库端聚合 vs Python 端 ==========
+    # ========== test 3: data库端aggregation vs Python 端 ==========
     
-    @bench.benchmark("3a. Python 端分组聚合 (原始)")
+    @bench.benchmark("3a. Python 端分组aggregation (原始)")
     async def test_python_aggregate():
-        # 原始方式：取出所有数据，Python 分组
+        # 原始方式：取出alldata，Python 分组
         rows = await pool.fetchall(
             f"SELECT SQLDATE, GoldsteinScale FROM events_table "
             f"WHERE SQLDATE BETWEEN '{start_date}' AND '{end_date}' LIMIT 1000"
         )
-        # Python 端聚合
+        # Python 端aggregation
         from collections import defaultdict
         result = defaultdict(lambda: {"count": 0, "sum": 0})
         for row in rows:
@@ -158,7 +158,7 @@ async def main():
             result[date]["sum"] += row['GoldsteinScale'] or 0
         return list(result.items())
     
-    @bench.benchmark("3b. 数据库端聚合 (optimization)")
+    @bench.benchmark("3b. data库端aggregation (optimization)")
     async def test_db_aggregate():
         return await service_new.analyze_time_series_advanced(
             start_date, end_date, granularity="day"
@@ -169,7 +169,7 @@ async def main():
     
     # ========== test 4: 批量查询 vs 单条查询 ==========
     
-    @bench.benchmark("4a. 串行单条查询 10 次")
+    @bench.benchmark("4a. serial单条查询 10 次")
     async def test_single_queries():
         results = []
         for i in range(10):
@@ -191,8 +191,8 @@ async def main():
     # 打印results
     bench.print_results()
     
-    # 缓存统计
-    print("\n📦 缓存统计:")
+    # cache统计
+    print("\n📦 cache统计:")
     stats = query_cache.get_stats()
     for key, value in stats.items():
         print(f"  {key}: {value}")

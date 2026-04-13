@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-# run_v1.py - CLI v1 启动脚本（Supports交互式配置）
+# run_v1.py - CLI v1 startup script（Supportsinteractive configuration）
 """
-GDELT MCP Client App v1 - 交互式配置version
+GDELT MCP Client App v1 - interactive configurationversion
 
-使用method:
-    python run_v1.py [选item]
+usemethod:
+    python run_v1.py [selectitem]
 
-选item:
+selectitem:
     --config               强制启动配置向导
     --log-level {DEBUG,INFO,WARNING,ERROR}  Setloglevel
     --no-file-log          禁用文件log
     -h, --help             显示Help
 
 特性:
-    - 交互式 LLM Provides商选择 (Kimi/Claude/Gemini)
-    - 自动检测并Hint配置
-    - Supports多Provides商切换
+    - 交互式 LLM Provides商select择 (Kimi/Claude/Gemini)
+    - 自动检测andHint配置
+    - SupportsmultiProvides商切换
 """
 
 import argparse
@@ -125,7 +125,7 @@ Example:
         if not connected:
             logger.error("无法jointo MCP Server，请检查:")
             logger.error("  1. MCP Server 文件isNo存in")
-            logger.error("  2. Python 环境isNo正确")
+            logger.error("  2. Python environmentisNo正确")
             sys.exit(1)
         
         # 6. 发现tool

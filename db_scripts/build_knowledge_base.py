@@ -25,31 +25,31 @@ DB_CONFIG = {
 }
 
 BATCH_SIZE = 100  
-# 🎯 将目标调大，比如这次我们定个 2000 篇的小目标
+# 🎯 将目标调大，比如这次我们定个 2000 篇小目标
 TOTAL_TARGET = 300000 
 
-# 新增：用于保存progress的本地file
+# 新增：用于保存progress本地file
 PROGRESS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sync_progress.txt'))
 
 def get_last_offset():
-    """read上一次process到的databaserow count"""
+    """read上一次process到databaserow count"""
     if os.path.exists(PROGRESS_FILE):
         with open(PROGRESS_FILE, 'r') as f:
             return int(f.read().strip())
     return 0
 
 def save_offset(offset):
-    """保存当前的progress"""
+    """保存当beforeprogress"""
     with open(PROGRESS_FILE, 'w') as f:
         f.write(str(offset))
 
 # ==========================================
-# 2. 核心函数定义
+# 2. core函数定义
 # ==========================================
 def init_chromadb():
     """初始化 ChromaDB 和向量模型"""
     logging.info("🚀 初始化 ChromaDB 向量database...")
-    # 确保存放在项目根directory下的 chroma_db file夹中
+    # 确保存放在project根directory下 chroma_db file夹中
     db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../chroma_db'))
     chroma_client = chromadb.PersistentClient(path=db_path)
     
@@ -63,7 +63,7 @@ def init_chromadb():
     return collection
 
 async def fetch_urls_batch(pool, limit, offset=0):
-    """从 MySQL 中batch获取包含 SOURCEURL 的事件记录"""
+    """从 MySQL 中batch获取包含 SOURCEURL event记录"""
     query = """
         SELECT GlobalEventID, SQLDATE, SOURCEURL 
         FROM events_table 
@@ -89,7 +89,7 @@ async def scrape_article(session, event_id, date, url):
                 paragraphs = soup.find_all('p')
                 article_text = ' '.join([p.get_text(strip=True) for p in paragraphs])
                 
-                # 过滤太短的无用内容
+                # 过滤太短无用内容
                 if len(article_text) > 150:
                     return {
                         "id": str(event_id),
@@ -98,7 +98,7 @@ async def scrape_article(session, event_id, date, url):
                     }
             return None
     except Exception:
-        # ignore网络超时或抓取failed的链接
+        # ignore网络超时或抓取failed链接
         return None
 
 # ==========================================
@@ -111,9 +111,9 @@ async def main():
     total_processed = 0
     total_saved = 0
     
-    # 🌟 核心改动：从file中read上次的progress
+    # 🌟 core改动：从file中read上次progress
     current_offset = get_last_offset()
-    logging.info(f"🔄 检测到历史progress，本次将从database的第 {current_offset} 行start抓取。")
+    logging.info(f"🔄 检测到历史progress，本次将从database第 {current_offset} 行start抓取。")
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -122,10 +122,10 @@ async def main():
                 records = await fetch_urls_batch(pool, BATCH_SIZE, current_offset)
                 
                 if not records:
-                    logging.info("database中没有更多记录了，所有 URL 已process完毕！")
+                    logging.info("database中没有更multi记录了，all URL 已process完毕！")
                     break
                 
-                # create并发抓取任务
+                # createand发抓取任务
                 tasks = [scrape_article(session, r['GlobalEventID'], r['SQLDATE'], r['SOURCEURL']) for r in records]
                 scraped_results = await asyncio.gather(*tasks)
                 
@@ -138,14 +138,14 @@ async def main():
                     
                     collection.upsert(documents=texts, metadatas=metadatas, ids=ids)
                     total_saved += len(valid_docs)
-                    logging.info(f"✅ 批次completed！success抓取并向量化 {len(valid_docs)} 篇文章。(本次运行累计存入: {total_saved}/{TOTAL_TARGET})")
+                    logging.info(f"✅ 批次completed！success抓取and向量化 {len(valid_docs)} 篇文章。(本次运行累计存入: {total_saved}/{TOTAL_TARGET})")
                 else:
-                    logging.warning("⚠️ 本批次所有链接抓取failed，继续下一批。")
+                    logging.warning("⚠️ 本批次all链接抓取failed，继续下一批。")
                 
                 total_processed += len(records)
                 current_offset += BATCH_SIZE
                 
-                # 🌟 核心改动：每completed一个批次，就保存一次progress
+                # 🌟 core改动：每completed一个批次，就保存一次progress
                 save_offset(current_offset)
 
     finally:

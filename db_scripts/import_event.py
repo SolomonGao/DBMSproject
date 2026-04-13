@@ -24,7 +24,7 @@ db_config = {
     'allow_local_infile': True 
 }
 
-# 🌟 优化1：加上 sorted，按 0000 到 0075 的顺序执行
+# 🌟 优化1：加上 sorted，按 0000 到 0075 顺序执行
 csv_files = sorted(glob.glob("data/gdelt_2024_na_*.csv"))
 
 temp_file = os.path.abspath('temp_bulk_load.csv').replace('\\', '/')
@@ -85,7 +85,7 @@ def fast_ingest():
     logging.info(f"📁 找到 {len(csv_files)} 个 CSV file")
     logging.info("-" * 60)
     
-    # check已有数据量
+    # check已有data量
     cursor.execute("SELECT COUNT(*) FROM events_table")
     existing_count = cursor.fetchone()[0]
     logging.info(f"📊 database已有 {existing_count:,} 条记录")
@@ -107,7 +107,7 @@ def fast_ingest():
         
         # 🌟 优化2：增加 try-except，防止单file报错中断整体进程
         try:
-            # 1. read并clean 
+            # 1. readandclean 
             df = pd.read_csv(file, dtype={'EventCode': str, 'EventRootCode': str})
 
             df['ActionGeo_Lat'] = pd.to_numeric(df['ActionGeo_Lat'], errors='coerce')
@@ -116,7 +116,7 @@ def fast_ingest():
             df.loc[(df['ActionGeo_Lat'] < -90) | (df['ActionGeo_Lat'] > 90), 'ActionGeo_Lat'] = float('nan')
             df.loc[(df['ActionGeo_Long'] < -180) | (df['ActionGeo_Long'] > 180), 'ActionGeo_Long'] = float('nan')
 
-            # 把所有缺失或error的坐标，统一流放到 "Null Island" (0.0, 0.0)
+            # 把all缺失或error坐标，统一流放到 "Null Island" (0.0, 0.0)
             df['ActionGeo_Lat'] = df['ActionGeo_Lat'].fillna(0.0)
             df['ActionGeo_Long'] = df['ActionGeo_Long'].fillna(0.0)
             
@@ -128,7 +128,7 @@ def fast_ingest():
             # 拼装 WKT 字符串列
             df['ActionGeo_Point_WKT'] = 'POINT(' + df['ActionGeo_Lat'].astype(str) + ' ' + df['ActionGeo_Long'].astype(str) + ')'
 
-            # 2. 存为没有任何干扰的临时file (na_rep='\N' 是 MySQL 识别 NULL 的专属标记)
+            # 2. 存为没有任何干扰临时file (na_rep='\N' 是 MySQL 识别 NULL 专属标记)
             df.to_csv(temp_file, index=False, header=False, na_rep=r'\N')
             row_count = len(df)
             

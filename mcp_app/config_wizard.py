@@ -1,8 +1,8 @@
-# config_wizard.py - 交互式配置向导
+# config_wizard.py - interactive configuration wizard
 """
-交互式配置向导：
-- 引导用户选择 LLM 提供商
-- 收集 API Key 和配置
+interactive configuration wizard：
+- guide user selection LLM provider
+- collect API Key 和配置
 - 保存到 .env 文件
 """
 
@@ -18,7 +18,7 @@ logger = get_logger("config_wizard")
 
 
 class ConfigWizard:
-    """交互式配置向导"""
+    """interactive configuration wizard"""
     
     # 彩色输出
     COLORS = {
@@ -68,7 +68,7 @@ class ConfigWizard:
         self._print(f"ℹ️  {message}", 'blue')
     
     def _input_required(self, prompt: str, hide_input: bool = False) -> str:
-        """fetch必填输入"""
+        """fetch必填input"""
         while True:
             if hide_input:
                 import getpass
@@ -78,13 +78,13 @@ class ConfigWizard:
             
             if value:
                 return value
-            self._print_error("此字段不能为空，请重新输入")
+            self._print_error("此字段不能为空，请重新input")
     
     def _select_provider(self) -> ProviderConfig:
-        """步骤 1: 选择 LLM 提供商"""
-        self._print_header("步骤 1/3: 选择 LLM 提供商")
+        """步骤 1: select择 LLM provider"""
+        self._print_header("步骤 1/3: select择 LLM provider")
         
-        self._print("请选择您要使用的 AI 服务提供商：\n", bold=True)
+        self._print("请select择您要use AI 服务provider：\n", bold=True)
         
         providers = list(LLM_PROVIDERS.items())
         for idx, (key, provider) in enumerate(providers, 1):
@@ -95,23 +95,23 @@ class ConfigWizard:
         
         while True:
             try:
-                choice = input(f"请输入选item编号 (1-{len(providers)}): ").strip()
+                choice = input(f"请inputselectitem编号 (1-{len(providers)}): ").strip()
                 idx = int(choice) - 1
                 if 0 <= idx < len(providers):
                     provider_id, provider = providers[idx]
                     self.config['provider_id'] = provider_id
-                    self._print_success(f"已选择: {provider.name}")
+                    self._print_success(f"已select择: {provider.name}")
                     return provider
                 else:
-                    self._print_error(f"无效的选item，请输入 1-{len(providers)}")
+                    self._print_error(f"无效selectitem，请input 1-{len(providers)}")
             except ValueError:
-                self._print_error("请输入有效的数字")
+                self._print_error("请input有效数字")
     
     def _input_api_key(self, provider: ProviderConfig) -> str:
-        """步骤 2: 输入 API Key"""
+        """步骤 2: input API Key"""
         self._print_header("步骤 2/3: 配置 API Key")
         
-        self._print(f"提供商: {provider.name}", bold=True)
+        self._print(f"provider: {provider.name}", bold=True)
         print()
         self._print_info(provider.api_key_hint)
         print(f"格式提示: {provider.api_key_pattern}")
@@ -124,15 +124,15 @@ class ConfigWizard:
             if '|' not in existing_key and 'ERROR' not in existing_key:
                 masked = f"{existing_key[:8]}...{existing_key[-4:]}"
                 self._print_info(f"检测到已有 API Key: {masked}")
-                keep = input("是否使用已有配置? (y/n，默认 y): ").strip().lower()
+                keep = input("是否use已有配置? (y/n，默认 y): ").strip().lower()
                 if keep in ('', 'y', 'yes'):
                     self.config['api_key'] = existing_key
                     return existing_key
             else:
-                self._print_error("检测到现有 API Key 格式异常，请重新输入")
+                self._print_error("检测到现有 API Key 格式异常，请重新input")
         
         print()
-        print("请粘贴您的 API Key (输入不会显示在屏幕上):")
+        print("请粘贴您 API Key (input不会显示在屏幕上):")
         api_key = self._input_required(
             f"{provider.env_key}=", 
             hide_input=True
@@ -152,7 +152,7 @@ class ConfigWizard:
         if not api_key or len(api_key) < 10:
             return False
         
-        # 根据不同提供商verify前缀
+        # 根据不同providerverifybefore缀
         if provider.env_key == "MOONSHOT_API_KEY":
             return api_key.startswith("sk-")
         elif provider.env_key == "ANTHROPIC_API_KEY":
@@ -163,10 +163,10 @@ class ConfigWizard:
         return True
     
     def _select_model(self, provider: ProviderConfig) -> str:
-        """步骤 3: 选择模型"""
-        self._print_header("步骤 3/3: 选择模型")
+        """步骤 3: select择模型"""
+        self._print_header("步骤 3/3: select择模型")
         
-        self._print(f"提供商: {provider.name}", bold=True)
+        self._print(f"provider: {provider.name}", bold=True)
         print()
         print("可用模型列表:")
         print()
@@ -179,11 +179,11 @@ class ConfigWizard:
         print()
         
         while True:
-            choice = input(f"请选择模型 (1-{len(provider.models)}，直接回车使用默认): ").strip()
+            choice = input(f"请select择模型 (1-{len(provider.models)}，直接回车use默认): ").strip()
             
-            # 使用默认
+            # use默认
             if not choice:
-                self._print_success(f"使用默认模型: {provider.default_model}")
+                self._print_success(f"use默认模型: {provider.default_model}")
                 self.config['model'] = provider.default_model
                 return provider.default_model
             
@@ -191,19 +191,19 @@ class ConfigWizard:
                 idx = int(choice) - 1
                 if 0 <= idx < len(provider.models):
                     selected = provider.models[idx]
-                    self._print_success(f"已选择模型: {selected}")
+                    self._print_success(f"已select择模型: {selected}")
                     self.config['model'] = selected
                     return selected
                 else:
-                    self._print_error(f"无效的选item，请输入 1-{len(provider.models)}")
+                    self._print_error(f"无效selectitem，请input 1-{len(provider.models)}")
             except ValueError:
-                self._print_error("请输入有效的数字")
+                self._print_error("请input有效数字")
     
     def _advanced_options(self):
-        """高级配置选item"""
-        self._print_header("高级配置选item（可选）")
+        """高级配置selectitem"""
+        self._print_header("高级配置selectitem（可select）")
         
-        print("以下配置使用默认value即可，如需修改请输入新value，直接回车跳过:")
+        print("以下配置use默认value即可，如需修改请input新value，直接回车跳过:")
         print()
         
         # Temperature
@@ -217,7 +217,7 @@ class ConfigWizard:
         # Log Level
         print()
         print("日志级别: [1] DEBUG [2] INFO [3] WARNING [4] ERROR")
-        log_choice = input("请选择 (默认 2-INFO): ").strip()
+        log_choice = input("请select择 (默认 2-INFO): ").strip()
         log_levels = {'1': 'DEBUG', '2': 'INFO', '3': 'WARNING', '4': 'ERROR'}
         self.config['log_level'] = log_levels.get(log_choice, 'INFO')
         
@@ -232,10 +232,10 @@ class ConfigWizard:
             "# 由配置向导自动生成",
             "",
             "# ============================================",
-            "# LLM 提供商配置",
+            "# LLM provider配置",
             "# ============================================",
             "",
-            f"# 提供商: {provider.name}",
+            f"# provider: {provider.name}",
             f"LLM_PROVIDER={self.config['provider_id']}",
             "",
             f"# API Key",
@@ -318,25 +318,25 @@ class ConfigWizard:
         try:
             self._print_header("🚀 GDELT MCP Client 配置向导")
             print()
-            print("欢迎使用！这个向导将帮助您配置 AI 服务提供商。")
+            print("欢迎use！这个向导将帮助您配置 AI 服务provider。")
             print()
             
-            # 步骤 1: 选择提供商
+            # 步骤 1: select择provider
             provider = self._select_provider()
             
-            # 步骤 2: 输入 API Key
+            # 步骤 2: input API Key
             self._input_api_key(provider)
             
-            # 步骤 3: 选择模型
+            # 步骤 3: select择模型
             self._select_model(provider)
             
-            # 高级选item
+            # 高级selectitem
             print()
-            advanced = input("是否配置高级选item? (y/n，默认 n): ").strip().lower()
+            advanced = input("是否配置高级selectitem? (y/n，默认 n): ").strip().lower()
             if advanced in ('y', 'yes'):
                 self._advanced_options()
             else:
-                # 使用默认value
+                # use默认value
                 self.config['temperature'] = 0.7
                 self.config['max_tokens'] = 4096
                 self.config['log_level'] = 'INFO'
@@ -377,7 +377,7 @@ class ConfigWizard:
         else:
             load_dotenv()
         
-        # 检查是否有任何提供商的 API Key
+        # 检查是否有任何provider API Key
         has_config = any(
             os.getenv(provider.env_key)
             for provider in LLM_PROVIDERS.values()
@@ -388,7 +388,7 @@ class ConfigWizard:
         
         # 没有配置，启动向导
         print()
-        self._print("⚠️  未检测到有效的 API Key 配置", 'yellow', bold=True)
+        self._print("⚠️  未检测到有效 API Key 配置", 'yellow', bold=True)
         print()
         
         response = input("是否启动配置向导? (y/n，默认 y): ").strip().lower()

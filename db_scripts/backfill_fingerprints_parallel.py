@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-parallel补全事件fingerprint
-使用多线程parallelprocess多天的ETL
+parallel补全eventfingerprint
+usemulti线程parallelprocessmulti天ETL
 
 usage:
     python backfill_fingerprints_parallel.py --workers 8
@@ -19,7 +19,7 @@ import json
 
 
 def get_dates_to_process(start_date: str, end_date: str) -> List[str]:
-    """generate需要process的date列table"""
+    """generateneedprocessdate列table"""
     dates = []
     start = datetime.strptime(start_date, '%Y-%m-%d')
     end = datetime.strptime(end_date, '%Y-%m-%d')
@@ -33,9 +33,9 @@ def get_dates_to_process(start_date: str, end_date: str) -> List[str]:
 
 
 def check_date_status(date: str) -> Tuple[str, int, int]:
-    """check某天的fingerprint状态"""
+    """check某天fingerprint状态"""
     try:
-        # fetch事件数
+        # fetchevent数
         evt_result = subprocess.run(
             ["docker", "exec", "gdelt_mysql", "mysql", "-u", "root", "-prootpassword", 
              "-N", "-e", f"SELECT COUNT(*) FROM gdelt.events_table WHERE SQLDATE = '{date}'"],
@@ -54,7 +54,7 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
         
         # debug输出
         if fp_count > 0 or evt_count > 0:
-            print(f"  [check] {date}: {fp_count} fingerprint / {evt_count} 事件")
+            print(f"  [check] {date}: {fp_count} fingerprint / {evt_count} event")
         
         return (date, fp_count, evt_count)
     except Exception as e:
@@ -63,7 +63,7 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
 
 
 def process_date(date: str) -> Tuple[str, bool, str]:
-    """process单天的ETL"""
+    """process单天ETL"""
     try:
         # 先check状态
         date_str, fp_count, evt_count = check_date_status(date)
@@ -71,9 +71,9 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         if fp_count >= evt_count:
             return (date, True, f"已完整 ({fp_count}/{evt_count})")
         
-        print(f"  [{date}] startETL，当前 {fp_count}/{evt_count}...")
+        print(f"  [{date}] startETL，当before {fp_count}/{evt_count}...")
         
-        # 运行ETL（增加超时到10minute，因为一天可能有2-5万事件）
+        # 运行ETL（增加超时到10minute，因为一天可能有2-5万event）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
@@ -99,7 +99,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='parallel补全事件fingerprint')
+    parser = argparse.ArgumentParser(description='parallel补全eventfingerprint')
     parser.add_argument('--start', default='2024-01-01', help='startdate (YYYY-MM-DD)')
     parser.add_argument('--end', default='2024-12-31', help='enddate (YYYY-MM-DD)')
     parser.add_argument('--workers', type=int, default=8, help='parallel工作线程数 (default: 8)')
@@ -108,7 +108,7 @@ def main():
     args = parser.parse_args()
     
     print("=" * 60)
-    print("🔧 parallel补全事件fingerprint")
+    print("🔧 parallel补全eventfingerprint")
     print("=" * 60)
     print(f"date范围: {args.start} ~ {args.end}")
     print(f"parallel度: {args.workers} 线程")
@@ -116,11 +116,11 @@ def main():
     
     # generatedate列table
     dates = get_dates_to_process(args.start, args.end)
-    print(f"总共 {len(dates)} 天需要process")
+    print(f"总共 {len(dates)} 天needprocess")
     print()
     
-    # 先check所有date状态
-    print("📊 check当前状态...")
+    # 先checkalldate状态
+    print("📊 check当before状态...")
     status_list = []
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {executor.submit(check_date_status, date): date for date in dates}
@@ -129,11 +129,11 @@ def main():
             status_list.append((date, fp, evt))
     
     # statistics
-    # 完整: fingerprint数 >= 事件数（package括事件数为0的情况）
+    # 完整: fingerprint数 >= event数（package括event数为0情况）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
     # 部分: 有fingerprint但未完整
     partial = sum(1 for _, fp, evt in status_list if 0 < fp < evt)
-    # 空缺: 有事件但无fingerprint
+    # 空缺: 有event但无fingerprint
     empty = sum(1 for _, fp, evt in status_list if fp == 0 and evt > 0)
     # error: queryfailed
     error = sum(1 for _, fp, evt in status_list if fp < 0 or evt < 0)
@@ -150,11 +150,11 @@ def main():
         print("📝 干运行模式，不执行ETL")
         return
     
-    # 筛选需要process的date
+    # 筛selectneedprocessdate
     need_process = [date for date, fp, evt in status_list if fp < evt]
     
     if not need_process:
-        print("✅ 所有date已完整，无需process")
+        print("✅ alldate已完整，无需process")
         return
     
     print(f"🚀 startprocess {len(need_process)} 天...")

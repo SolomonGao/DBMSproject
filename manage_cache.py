@@ -7,7 +7,7 @@ Usage:
     python manage_cache.py clear          # 清空所hascache
     python manage_cache.py cleanup        # cleanupexpired条目
     python manage_cache.py clear-pattern <pattern>  # 按模式清除
-    python manage_cache.py monitor        # 实时监控模式
+    python manage_cache.py monitor        # real-time监控模式
 """
 
 import sys
@@ -58,7 +58,7 @@ async def cmd_stats():
 async def cmd_clear():
     """清空所hascache"""
     print("⚠️  OK要清空所hascache吗？这会导致下次query变慢。")
-    confirm = input("输入 'yes' Confirm: ")
+    confirm = input("input 'yes' Confirm: ")
     
     if confirm.lower() == 'yes':
         count = await query_cache.clear()
@@ -73,7 +73,7 @@ async def cmd_cleanup():
     if count > 0:
         print(f"🧹 cleanup {count} 个expired条目")
     else:
-        print("🤷 没hasexpired条目需要cleanup")
+        print("🤷 没hasexpired条目needcleanup")
 
 
 async def cmd_clear_pattern(pattern: str):
@@ -83,7 +83,7 @@ async def cmd_clear_pattern(pattern: str):
 
 
 async def cmd_monitor(interval: int = 5):
-    """实时监控模式"""
+    """real-time监控模式"""
     print(f"🔍 开始监控cache（每 {interval} 秒Refresh，按 Ctrl+C 停止）...")
     print("-" * 60)
     
@@ -94,7 +94,7 @@ async def cmd_monitor(interval: int = 5):
         while True:
             stats = query_cache.get_stats()
             
-            # 计算实时 QPS
+            # 计算real-time QPS
             total_reqs = stats['hits'] + stats['misses']
             last_total = last_hits + last_misses
             qps = (total_reqs - last_total) / interval
@@ -148,7 +148,7 @@ Example:
     pattern_parser.add_argument('pattern', help='匹配模式（如 2024-01-01）')
     
     # monitor
-    monitor_parser = subparsers.add_parser('monitor', help='实时监控模式')
+    monitor_parser = subparsers.add_parser('monitor', help='real-time监控模式')
     monitor_parser.add_argument('--interval', '-i', type=int, default=5, help='Refresh间隔（秒）')
     
     args = parser.parse_args()

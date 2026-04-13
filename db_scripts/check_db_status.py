@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 database状态check工具
-用于监控索引使用情况和query性能
+用于监控索引use情况和query性能
 """
 
 import sys
@@ -33,7 +33,7 @@ async def check_status():
           AND table_name = 'events_table'
     """)
     print(f"   总row count: {result['table_rows']:,}")
-    print(f"   数据size: {result['data_gb']} GB")
+    print(f"   datasize: {result['data_gb']} GB")
     print(f"   索引size: {result['index_gb']} GB")
     print(f"   总计: {result['total_gb']} GB")
     
@@ -59,7 +59,7 @@ async def check_status():
         print(f"      └─ {idx['COLUMN_NAME']}")
     
     # 3. date范围
-    print("\n3️⃣  数据time范围:")
+    print("\n3️⃣  datatime范围:")
     result = await pool.fetchone("""
         SELECT 
             MIN(SQLDATE) as min_date,
@@ -71,8 +71,8 @@ async def check_status():
     print(f"   最晚: {result['max_date']}")
     print(f"   天数: {result['unique_days']}")
     
-    # 4. 地理数据覆盖
-    print("\n4️⃣  地理数据覆盖:")
+    # 4. 地理data覆盖
+    print("\n4️⃣  地理data覆盖:")
     result = await pool.fetchone("""
         SELECT 
             COUNT(*) as total,
@@ -105,11 +105,11 @@ async def check_status():
     except:
         print("   import记录table不存在")
     
-    # 6. query缓存状态
-    print("\n6️⃣  query缓存状态:")
+    # 6. querycache状态
+    print("\n6️⃣  querycache状态:")
     from app.cache import query_cache
     stats = query_cache.get_stats()
-    print(f"   缓存条目: {stats['size']} / {stats['maxsize']}")
+    print(f"   cache条目: {stats['size']} / {stats['maxsize']}")
     print(f"   命中次数: {stats['hits']:,}")
     print(f"   未命中: {stats['misses']:,}")
     print(f"   命中率: {stats['hit_rate']}")

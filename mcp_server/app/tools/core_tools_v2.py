@@ -35,7 +35,7 @@ class SearchEventsInput(BaseModel):
     """Search events - supports natural language queries"""
     query: str = Field(
         ...,
-        description="Natural language query，e.g.'1monthWashington protests'、'in东最近conflict'"
+        description="Natural language query，e.g.'1monthWashington protests'、'inEast recentconflict'"
     )
     time_hint: Optional[str] = Field(
         None,
@@ -201,7 +201,7 @@ class StreamQueryInput(BaseModel):
 
 
 class DashboardInput(BaseModel):
-    """DashboardData输入"""
+    """DashboardDatainput"""
     start_date: str = Field(
         ...,
         description="Start date，Format: YYYY-MM-DD",
@@ -215,7 +215,7 @@ class DashboardInput(BaseModel):
 
 
 class TimeSeriesInput(BaseModel):
-    """Timeseriesanalysis输入"""
+    """Timeseriesanalysisinput"""
     start_date: str = Field(
         ...,
         description="Start date，Format: YYYY-MM-DD",
@@ -228,12 +228,12 @@ class TimeSeriesInput(BaseModel):
     )
     granularity: Literal['day', 'week', 'month'] = Field(
         default='day',
-        description="Time粒degree: day(day), week(周), month(month)"
+        description="Timegranularitydegree: day(day), week(week), month(month)"
     )
 
 
 class GeoHeatmapInput(BaseModel):
-    """placeheatmapmap输入"""
+    """placeheatmapmapinput"""
     start_date: str = Field(
         ...,
         description="Start date，Format: YYYY-MM-DD",
@@ -257,7 +257,7 @@ class GeoHeatmapInput(BaseModel):
 # ============================================================================
 
 def register_core_tools(mcp: FastMCP):
-    """Note册核心toolV2toMCP服务器"""
+    """Note册coretoolV2toMCP服务器"""
     
     @mcp.tool()
     async def search_events(params: SearchEventsInput) -> str:
@@ -790,7 +790,7 @@ def register_core_tools(mcp: FastMCP):
                     if params.region_filter:
                         region_input = params.region_filter.strip()
                         
-                        # intelligentparse用户输入
+                        # intelligentparse用户input
                         parsed_regions = _parse_region_input(region_input)
                         
                         # Buildindex-friendlymatchitem(s)item
@@ -952,7 +952,7 @@ def register_core_tools(mcp: FastMCP):
             pool = await get_db_pool()
             async with pool.acquire() as conn:
                 async with conn.cursor() as cursor:
-                    # tryfrom预calculatetableGet
+                    # tryfromprecalculatetableGet
                     await cursor.execute("""
                         SELECT *
                         FROM daily_summary
@@ -1204,7 +1204,7 @@ def register_core_tools(mcp: FastMCP):
                 
                 count += 1
                 if count >= params.max_results:
-                    output.append("| ... | (更多Result...) | ... | ... | ... | ... |")
+                    output.append("| ... | (更multiResult...) | ... | ... | ... | ... |")
                     break
             
             output.append(f"\n*Total returned {count} item(s)Result (streaming read)*")
@@ -1282,12 +1282,12 @@ def register_core_tools(mcp: FastMCP):
         """
         【optization】advancedTimeseriesanalysis - Datalibrary端aggregate
         
-        supportday/周/month粒degreeTimeTrendanalysis，All aggregation completed on database side，
-        only传输Result，极大减少网络开销。
+        supportday/week/monthgranularitydegreeTimeTrendanalysis，All aggregation completed on database side，
+        only传输Result，极大reduce网络开销。
         
         Applicable scenarios:
         - analysisEvent随Time变izationTrend
-        - tothandifferentTime粒degree模format
+        - tothandifferentTimegranularitydegree模format
         - Identify periodic patterns
         """
         try:
@@ -1304,7 +1304,7 @@ def register_core_tools(mcp: FastMCP):
             lines.append(f"**Data points**: {len(results)} ")
             lines.append("")
             
-            for row in results[:20]:  # 最多显示20
+            for row in results[:20]:  # 最multi显示20
                 period = row.get("period")
                 lines.append(f"### {period}")
                 lines.append(f"- Eventdata: {row.get('event_count', 0):,}")
@@ -1314,7 +1314,7 @@ def register_core_tools(mcp: FastMCP):
                 lines.append("")
             
             if len(results) > 20:
-                lines.append(f"_... also have {len(results) - 20} Time周期_")
+                lines.append(f"_... also have {len(results) - 20} Timeweek期_")
             
             return "\n".join(lines)
             
@@ -1369,7 +1369,7 @@ def register_core_tools(mcp: FastMCP):
 *completeData共 {len(heatmap_data)} item(s)*
 
 **Description**: 
-- `intensity`: 该网格withinEventdataamount
+- `intensity`: 该gridwithinEventdataamount
 - `avg_conflict`: Average conflict index (GoldsteinScale)
 - Use `lat` and `lng` can mark hotspots on map
 """
@@ -1387,7 +1387,7 @@ def register_core_tools(mcp: FastMCP):
         Can handle regardless of data volume。
         
         Applicable scenarios:
-        - need导出大amountEvent
+        - needexport大amountEvent
         - Large data volume statistical analysis
         - Memory-sensitive environment
         
@@ -1418,7 +1418,7 @@ def register_core_tools(mcp: FastMCP):
                 
                 count += 1
                 if count >= params.max_results:
-                    lines.append("| ... | (更多Result截断) | ... | ... | ... | ... |")
+                    lines.append("| ... | (更multiResult截断) | ... | ... | ... | ... |")
                     break
             
             lines.append(f"\n*Total returned {count} item(s)Result (streaming read)*")
@@ -1557,7 +1557,7 @@ def _parse_region_input(region_input: str) -> list:
         'New Jersey': ['New Jersey', 'NJ'],
         '马萨诸塞': ['Massachusetts', 'MA'],
         '亚利桑那': ['Arizona', 'AZ'],
-        '科罗拉多': ['Colorado', 'CO'],
+        '科罗拉multi': ['Colorado', 'CO'],
         '犹他': ['Utah', 'UT'],
         'within华达': ['Nevada', 'NV'],
         '俄勒冈': ['Oregon', 'OR'],
@@ -1703,7 +1703,7 @@ def _format_regional_overview_precomputed(rows: list, region: str,
                                           start_date, end_date,
                                           include_trend: bool, 
                                           include_risks: bool) -> str:
-    """Formatization预calculatedistrict域Overview"""
+    """Formatizationprecalculatedistrict域Overview"""
     output = []
     output.append(f"# 🌍 {region} Regional Situation (pre-computed data)")
     output.append(f"**Timerange**: {start_date} ~ {end_date}")

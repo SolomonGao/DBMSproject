@@ -41,7 +41,7 @@ async def test_cache():
     print(f"   结果长度: {len(result1)} 字符")
     
     # 查看cache状态
-    print("\n📊 第一次query后cache状态:")
+    print("\n📊 第一次queryaftercache状态:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
@@ -55,7 +55,7 @@ async def test_cache():
     print(f"   结果长度: {len(result2)} 字符")
     
     # 查看cache状态
-    print("\n📊 第二次query后cache状态:")
+    print("\n📊 第二次queryaftercache状态:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")

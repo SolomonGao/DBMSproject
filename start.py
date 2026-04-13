@@ -16,7 +16,7 @@ def main():
     ]
     
     try:
-        # 使用 subprocess 执row命令，不捕获输出，直接jointo当前终端
+        # use subprocess 执row命令，不捕获输出，直接jointo当before终端
         subprocess.run(command, check=True)
     except subprocess.CalledProcessError as e:
         print(f"\n❌ 运row出错，Exit码: {e.returncode}")

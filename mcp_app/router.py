@@ -342,7 +342,7 @@ Notes:
             )
         
         # Streaming / large data (Chinese)
-        if any(kw in text_lower for kw in ['导出', '全部', '所有', '流式', '大量数据']):
+        if any(kw in text_lower for kw in ['export', '全部', 'all', 'streaming', '大量data']):
             return RouterDecision(
                 intent="query",
                 cleaned_input=text,

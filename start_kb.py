@@ -22,7 +22,7 @@ def run_knowledge_base_builder():
     
     while retry_count < max_retries:
         try:
-            # 启动 Docker 命令，并将输出实时打印to终端
+            # 启动 Docker 命令，and将输出real-time打印to终端
             process = subprocess.Popen(command)
             
             # etc.待进程结束
@@ -30,12 +30,12 @@ def run_knowledge_base_builder():
             
             # CheckExit状态码
             if process.returncode == 0:
-                logging.info("🎉 知识库构建脚本normal执row完毕！(达to目标or已无数据)")
+                logging.info("🎉 知识库构建脚本normal执row完毕！(达to目标or已无data)")
                 break
             else:
                 retry_count += 1
                 logging.warning(f"⚠️ 脚本exceptionExit (Returns码: {process.returncode})。可能is网络波动。")
-                logging.info(f"⏳ 正in进row第 {retry_count} 次自动重启，5秒后继续接力...")
+                logging.info(f"⏳ 正in进row第 {retry_count} 次自动重启，5秒after继续接力...")
                 time.sleep(5)
                 print("-" * 60)
                 
