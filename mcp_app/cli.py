@@ -388,7 +388,12 @@ When you see "[System hint: suggested tools: ...]", consider these recommendatio
                         if router_decision.skip_llm:
                             if router_decision.direct_response:
                                 print(f"{self.EMOJI['ai']} AI: {router_decision.direct_response}\n")
-                            continue
+                                continue
+                            # Do not skip if there are suggested tools but no direct response
+                            if router_decision.suggested_tools:
+                                logger.warning(f"Router skip_llm=True but no direct_response and has tools: {router_decision.suggested_tools}. Proceeding to LLM.")
+                            else:
+                                continue
                         
                         # Show routing info (for debugging, can be commented out)
                         if router_decision.intent == "chat":

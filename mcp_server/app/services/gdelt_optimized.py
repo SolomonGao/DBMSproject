@@ -214,57 +214,68 @@ class GDELTServiceOptimized:
         """
         # according togranularityscheduleselectselectgroupmethodpattern
         if granularity == "week":
-            date_group = "YEARWEEK(SQLDATE)"
-            date_select = "STR_TO_DATE(CONCAT(YEARWEEK(SQLDATE), ' Sunday'), '%X%V %W') as period"
+            period_expr = "STR_TO_DATE(CONCAT(YEARWEEK(SQLDATE), ' Sunday'), '%%X%%V %%W')"
         elif granularity == "month":
-            date_group = "DATE_FORMAT(SQLDATE, '%Y-%m')"
-            date_select = "DATE_FORMAT(SQLDATE, '%Y-%m-01') as period"
+            period_expr = "DATE_FORMAT(SQLDATE, '%%Y-%%m-01')"
         else:  # day
-            date_group = "SQLDATE"
-            date_select = "SQLDATE as period"
+            period_expr = "SQLDATE"
+        
+        date_select = f"{period_expr} as period"
         
         query = f"""
-        SELECT 
-            {date_select},
-            COUNT(*) as event_count,
-            -- conflict/combinejobcompareexample（databaseendcalculate）
-            ROUND(
-                SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
-                2
-            ) as conflict_pct,
-            ROUND(
-                SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
-                2
-            ) as cooperation_pct,
-            -- statisticsfingermark
-            ROUND(AVG(GoldsteinScale), 2) as avg_goldstein,
-            ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
-            ROUND(AVG(AvgTone), 2) as avg_tone,
-            ROUND(STDDEV(AvgTone), 2) as std_tone,
-            -- mostactiveparamandmethod（JSON aggregate）
-            (
-                SELECT JSON_ARRAYAGG(
+        WITH stats AS (
+            SELECT 
+                {date_select},
+                COUNT(*) as event_count,
+                -- conflict/combinejobcompareexample（databaseendcalculate）
+                ROUND(
+                    SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+                    2
+                ) as conflict_pct,
+                ROUND(
+                    SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+                    2
+                ) as cooperation_pct,
+                -- statisticsfingermark
+                ROUND(AVG(GoldsteinScale), 2) as avg_goldstein,
+                ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
+                ROUND(AVG(AvgTone), 2) as avg_tone,
+                ROUND(STDDEV(AvgTone), 2) as std_tone
+            FROM {self.DEFAULT_TABLE}
+            WHERE SQLDATE BETWEEN %s AND %s
+            GROUP BY {period_expr}
+        ),
+        actors AS (
+            SELECT 
+                {date_select},
+                JSON_ARRAYAGG(
                     JSON_OBJECT('actor', Actor1Name, 'count', cnt)
-                )
-                FROM (
-                    SELECT Actor1Name, COUNT(*) as cnt
-                    FROM {self.DEFAULT_TABLE} t2
-                    WHERE t2.SQLDATE = t1.SQLDATE
-                    GROUP BY Actor1Name
-                    ORDER BY cnt DESC
-                    LIMIT 3
-                ) top_actors
-            ) as top_actors_json
-        FROM {self.DEFAULT_TABLE} t1
-        WHERE SQLDATE BETWEEN %s AND %s
-        GROUP BY {date_group}
-        ORDER BY period
+                ) as top_actors_json
+            FROM (
+                SELECT 
+                    {date_select},
+                    Actor1Name,
+                    COUNT(*) as cnt,
+                    ROW_NUMBER() OVER (PARTITION BY {period_expr} ORDER BY COUNT(*) DESC) as rn
+                FROM {self.DEFAULT_TABLE}
+                WHERE SQLDATE BETWEEN %s AND %s
+                GROUP BY {period_expr}, Actor1Name
+            ) ranked
+            WHERE rn <= 3
+            GROUP BY {period_expr}
+        )
+        SELECT 
+            s.*,
+            a.top_actors_json
+        FROM stats s
+        LEFT JOIN actors a ON s.period = a.period
+        ORDER BY s.period
         """
         
         # uselongcachewheninterval（statisticsdatavariableizationfew）
         return await self.execute_sql_cached(
             query, 
-            (start_date, end_date),
+            (start_date, end_date, start_date, end_date),
             cache_ttl=1800  # 30 minute
         )
     

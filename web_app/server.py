@@ -199,42 +199,27 @@ class WebChatService:
                         "reasoning": router_decision.reasoning,
                     })
 
-                    # Force direct tool execution for get_event_detail with fingerprint (bypass LLM laziness)
-                    if router_decision and "get_event_detail" in router_decision.suggested_tools:
-                        fp_match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', prompt)
-                        if fp_match:
-                            fingerprint = fp_match.group(0)
-                            self.logger.info(f"Directly executing get_event_detail({fingerprint})")
-                            thinking_steps.append({
-                                "type": "direct_tool_execution",
-                                "tool": "get_event_detail",
-                                "fingerprint": fingerprint,
-                            })
-                            try:
-                                result = await mcp_client.call_tool(
-                                    "get_event_detail",
-                                    {"params": {"fingerprint": fingerprint, "include_causes": True}}
-                                )
-                                return {
-                                    "reply": result,
-                                    "provider": self.config.llm_provider,
-                                    "model": self.config.llm_model,
-                                    "tool_names": tool_names,
-                                    "thinking_process": thinking_steps,
-                                }
-                            except Exception as exc:
-                                self.logger.exception(f"Direct get_event_detail failed: {exc}")
+                    # Pre-LLM direct bypass for tools with obvious/inferable arguments
+                    direct_reply = await self._direct_tool_bypass(
+                        mcp_client, prompt, router_decision.suggested_tools, thinking_steps, tool_names
+                    )
+                    if direct_reply is not None:
+                        return direct_reply
 
                     # If Router suggests skipping LLM (e.g., safety filter, direct response)
                     if router_decision.skip_llm:
                         direct = router_decision.direct_response or ""
-                        return {
-                            "reply": direct,
-                            "provider": self.config.llm_provider,
-                            "model": self.config.llm_model,
-                            "tool_names": tool_names,
-                            "thinking_process": thinking_steps,
-                        }
+                        if direct or not router_decision.suggested_tools:
+                            return {
+                                "reply": direct,
+                                "provider": self.config.llm_provider,
+                                "model": self.config.llm_model,
+                                "tool_names": tool_names,
+                                "thinking_process": thinking_steps,
+                            }
+                        self.logger.warning(
+                            f"Router skip_llm=True but no direct_response and has tools: {router_decision.suggested_tools}. Proceeding to LLM."
+                        )
                 except Exception as e:
                     self.logger.error(f"Router error: {e}")
                     thinking_steps.append({"type": "router_error", "error": str(e)})
@@ -287,30 +272,13 @@ User input: {prompt}"""
                 on_step=on_step,
             )
 
-            # Server-side fallback for get_event_detail empty responses
-            if not reply.strip() and router_decision and "get_event_detail" in router_decision.suggested_tools:
-                fp_match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', prompt)
-                if fp_match:
-                    fingerprint = fp_match.group(0)
-                    self.logger.warning(f"Server forcing get_event_detail({fingerprint})")
-                    thinking_steps.append({
-                        "type": "server_force_execution",
-                        "tool": "get_event_detail",
-                        "fingerprint": fingerprint,
-                    })
-                    try:
-                        tool_result = await mcp_client.call_tool(
-                            "get_event_detail",
-                            {"params": {"fingerprint": fingerprint, "include_causes": True}}
-                        )
-                        llm_client.add_assistant_message(f"Retrieved event details for {fingerprint}.")
-                        llm_client.add_user_message(
-                            f"Raw data:\n{tool_result}\n\nSummarize clearly."
-                        )
-                        reply = await llm_client.chat(tools=None, tool_executor=None, on_step=on_step)
-                    except Exception as exc:
-                        self.logger.exception(f"Server forced execution failed: {exc}")
-                        reply = f"Failed to retrieve details: {exc}"
+            # Server-side fallback for empty responses when tools were expected
+            if not reply.strip() and router_decision and router_decision.suggested_tools:
+                force_reply = await self._server_force_tool_execution(
+                    mcp_client, llm_client, prompt, router_decision.suggested_tools, thinking_steps, on_step
+                )
+                if force_reply:
+                    reply = force_reply
 
             return {
                 "reply": reply,
@@ -322,6 +290,169 @@ User input: {prompt}"""
         finally:
             await mcp_client.close()
             await llm_client.close()
+
+    async def _direct_tool_bypass(
+        self,
+        mcp_client: MCPClient,
+        prompt: str,
+        suggested_tools: list[str],
+        thinking_steps: list[dict[str, Any]],
+        tool_names: list[str],
+    ) -> dict[str, Any] | None:
+        """Pre-LLM bypass: directly call obvious tools and return raw result."""
+        for target in ["get_event_detail", "get_daily_brief", "get_hot_events",
+                       "search_news_context", "get_regional_overview", "get_top_events"]:
+            if target not in suggested_tools:
+                continue
+
+            args: dict[str, Any] | None = None
+            if target == "get_event_detail":
+                match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', prompt)
+                if match:
+                    args = {"fingerprint": match.group(0), "include_causes": True}
+            elif target in ("get_daily_brief", "get_hot_events"):
+                args = {}
+            elif target == "search_news_context":
+                if prompt.strip():
+                    args = {"query": prompt.strip()[:200], "n_results": 3}
+            elif target == "get_regional_overview":
+                region = self._extract_region(prompt)
+                if region:
+                    args = {"region": region}
+            elif target == "get_top_events":
+                dates = self._extract_year_range(prompt)
+                if dates:
+                    args = {"start_date": dates[0], "end_date": dates[1]}
+
+            if args is None:
+                continue
+
+            self.logger.info(f"Directly executing {target} with args {args}")
+            thinking_steps.append({
+                "type": "direct_tool_execution",
+                "tool": target,
+                "inferred_args": args,
+            })
+            try:
+                result = await mcp_client.call_tool(target, {"params": args})
+                return {
+                    "reply": result,
+                    "provider": self.config.llm_provider,
+                    "model": self.config.llm_model,
+                    "tool_names": tool_names,
+                    "thinking_process": thinking_steps,
+                }
+            except Exception as exc:
+                self.logger.exception(f"Direct {target} failed: {exc}")
+                continue
+        return None
+
+    async def _server_force_tool_execution(
+        self,
+        mcp_client: MCPClient,
+        llm_client: LLMClient,
+        prompt: str,
+        suggested_tools: list[str],
+        thinking_steps: list[dict[str, Any]],
+        on_step: Any,
+    ) -> str | None:
+        """Try to infer arguments and force-execute a tool when LLM returns empty."""
+        for target in ["get_event_detail", "get_daily_brief", "get_hot_events",
+                       "search_news_context", "get_regional_overview", "get_top_events"]:
+            if target not in suggested_tools:
+                continue
+
+            args: dict[str, Any] | None = None
+
+            if target == "get_event_detail":
+                match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', prompt)
+                if match:
+                    args = {"fingerprint": match.group(0), "include_causes": True}
+
+            elif target in ("get_daily_brief", "get_hot_events"):
+                args = {}
+
+            elif target == "search_news_context":
+                if prompt.strip():
+                    args = {"query": prompt.strip()[:200], "n_results": 3}
+
+            elif target == "get_regional_overview":
+                region = self._extract_region(prompt)
+                if region:
+                    args = {"region": region}
+
+            elif target == "get_top_events":
+                dates = self._extract_year_range(prompt)
+                if dates:
+                    args = {"start_date": dates[0], "end_date": dates[1]}
+
+            if args is None:
+                continue
+
+            self.logger.warning(f"Server forcing {target} with args {args}")
+            thinking_steps.append({
+                "type": "server_force_execution",
+                "tool": target,
+                "inferred_args": args,
+            })
+            try:
+                tool_result = await mcp_client.call_tool(target, {"params": args})
+                llm_client.add_assistant_message(f"Executed {target} for the user.")
+                llm_client.add_user_message(
+                    f"Raw data:\n{tool_result}\n\nSummarize clearly."
+                )
+                return await llm_client.chat(tools=None, tool_executor=None, on_step=on_step)
+            except Exception as exc:
+                self.logger.exception(f"Server forced {target} failed: {exc}")
+                continue
+        return None
+
+    @staticmethod
+    def _extract_region(text: str) -> str | None:
+        text_lower = text.lower()
+        regions = [
+            ("middle east", "Middle East"),
+            ("new york", "New York"),
+            ("washington", "Washington"),
+            ("california", "California"),
+            ("texas", "Texas"),
+            ("florida", "Florida"),
+            ("china", "China"),
+            ("russia", "Russia"),
+            ("ukraine", "Ukraine"),
+            ("israel", "Israel"),
+            ("palestine", "Palestine"),
+            ("europe", "Europe"),
+            ("asia", "Asia"),
+            ("africa", "Africa"),
+            ("north america", "North America"),
+            ("south america", "South America"),
+            ("mexico", "Mexico"),
+            ("canada", "Canada"),
+            ("united states", "United States"),
+            ("usa", "USA"),
+            ("us", "US"),
+            ("uk", "UK"),
+            ("britain", "UK"),
+            ("france", "France"),
+            ("germany", "Germany"),
+            ("japan", "Japan"),
+            ("india", "India"),
+            ("brazil", "Brazil"),
+            ("australia", "Australia"),
+        ]
+        for keyword, region_name in regions:
+            if keyword in text_lower:
+                return region_name
+        return None
+
+    @staticmethod
+    def _extract_year_range(text: str) -> tuple[str, str] | None:
+        match = re.search(r'\b(20\d{2})\b', text)
+        if match:
+            year = match.group(1)
+            return (f"{year}-01-01", f"{year}-12-31")
+        return None
 
     def _build_llm_client(self) -> LLMClient:
         return LLMClient(

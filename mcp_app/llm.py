@@ -205,36 +205,19 @@ class LLMClient:
                 if not content.strip():
                     content = message.reasoning_content
             
-            # Backend force execution for get_event_detail when LLM returns empty
+            # Backend force execution for high-likelihood tools when LLM returns empty
             if not content.strip() and tools and tool_executor:
-                fingerprint = None
+                recent_user_msg = ""
                 for msg in reversed(self.messages):
                     if msg.get("role") == "user":
-                        match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', msg.get("content", ""))
-                        if match:
-                            fingerprint = match.group(0)
-                            break
+                        recent_user_msg = msg.get("content", "")
+                        break
                 
-                has_event_detail = any(
-                    t.get("function", {}).get("name") == "get_event_detail"
-                    for t in tools
+                force_result = await self._try_force_tool_execution(
+                    tools, tool_executor, recent_user_msg, on_step
                 )
-                
-                if fingerprint and has_event_detail:
-                    logger.warning(f"Backend forcing get_event_detail({fingerprint})")
-                    if on_step:
-                        on_step("backend_force_execution", {"tool": "get_event_detail", "fingerprint": fingerprint})
-                    try:
-                        result = await tool_executor("get_event_detail", {"params": {"fingerprint": fingerprint, "include_causes": True}})
-                        self.add_assistant_message(f"I have retrieved the event details for {fingerprint}.")
-                        self.add_user_message(
-                            f"Here is the raw data:\n{result}\n\n"
-                            "Please summarize this event in a clear, concise way for the user."
-                        )
-                        return await self.chat(tools=None, tool_executor=None, on_step=on_step)
-                    except Exception as exc:
-                        logger.exception(f"Forced tool execution failed: {exc}")
-                        content = f"Failed to retrieve event details: {exc}"
+                if force_result:
+                    return force_result
             
             # Final fallback for completely empty responses
             if not content.strip():
@@ -347,6 +330,119 @@ class LLMClient:
         if not final_reply.strip():
             final_reply = "(The model returned an empty response after tool execution. Please try again.)"
         return final_reply
+    
+    async def _try_force_tool_execution(
+        self,
+        tools: List[Dict],
+        tool_executor: Callable[[str, Dict], Awaitable[str]],
+        user_input: str,
+        on_step: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> Optional[str]:
+        """Try to force-execute a tool when LLM returns empty response.
+        
+        Returns the final LLM-generated summary if successful, None otherwise.
+        """
+        tool_names = [t.get("function", {}).get("name") for t in tools if t.get("function", {}).get("name")]
+        
+        # Priority order: easy-to-infer args first
+        for target in ["get_event_detail", "get_daily_brief", "get_hot_events", 
+                       "search_news_context", "get_regional_overview", "get_top_events"]:
+            if target not in tool_names:
+                continue
+            
+            args: Optional[Dict] = None
+            
+            if target == "get_event_detail":
+                match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', user_input)
+                if match:
+                    args = {"fingerprint": match.group(0), "include_causes": True}
+            
+            elif target in ("get_daily_brief", "get_hot_events"):
+                args = {}  # all optional
+            
+            elif target == "search_news_context":
+                if user_input.strip():
+                    args = {"query": user_input.strip()[:200], "n_results": 3}
+            
+            elif target == "get_regional_overview":
+                region = self._extract_region(user_input)
+                if region:
+                    args = {"region": region}
+            
+            elif target == "get_top_events":
+                dates = self._extract_year_range(user_input)
+                if dates:
+                    args = {"start_date": dates[0], "end_date": dates[1]}
+            
+            if args is None:
+                continue
+            
+            logger.warning(f"Backend forcing {target} with args {args}")
+            if on_step:
+                on_step("backend_force_execution", {"tool": target, "inferred_args": args})
+            try:
+                result = await tool_executor(target, {"params": args})
+                self.add_assistant_message(f"I have executed {target} for you.")
+                self.add_user_message(
+                    f"Here is the raw result:\n{result}\n\n"
+                    "Please summarize this in a clear, concise way for the user."
+                )
+                return await self.chat(tools=None, tool_executor=None, on_step=on_step)
+            except Exception as exc:
+                logger.exception(f"Forced {target} execution failed: {exc}")
+                # Try next tool instead of giving up immediately
+                continue
+        
+        return None
+    
+    @staticmethod
+    def _extract_region(text: str) -> Optional[str]:
+        """Extract common region names from user input."""
+        text_lower = text.lower()
+        regions = [
+            ("middle east", "Middle East"),
+            ("new york", "New York"),
+            ("washington", "Washington"),
+            ("california", "California"),
+            ("texas", "Texas"),
+            ("florida", "Florida"),
+            ("china", "China"),
+            ("russia", "Russia"),
+            ("ukraine", "Ukraine"),
+            ("israel", "Israel"),
+            ("palestine", "Palestine"),
+            ("europe", "Europe"),
+            ("asia", "Asia"),
+            ("africa", "Africa"),
+            ("north america", "North America"),
+            ("south america", "South America"),
+            ("mexico", "Mexico"),
+            ("canada", "Canada"),
+            ("united states", "United States"),
+            ("usa", "USA"),
+            ("us", "US"),
+            ("uk", "UK"),
+            ("britain", "UK"),
+            ("france", "France"),
+            ("germany", "Germany"),
+            ("japan", "Japan"),
+            ("india", "India"),
+            ("brazil", "Brazil"),
+            ("australia", "Australia"),
+        ]
+        for keyword, region_name in regions:
+            if keyword in text_lower:
+                return region_name
+        return None
+    
+    @staticmethod
+    def _extract_year_range(text: str) -> Optional[tuple[str, str]]:
+        """Extract year and return full date range."""
+        match = re.search(r'\b(20\d{2})\b', text)
+        if match:
+            year = match.group(1)
+            return (f"{year}-01-01", f"{year}-12-31")
+        return None
     
     async def close(self):
         """Close LLM client connection"""

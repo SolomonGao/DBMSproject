@@ -183,9 +183,8 @@ Available Tools (merge-optimized complete toolset):
 
 [Analysis & Statistics Tools]
 - get_dashboard: Dashboard data - 5 queries in parallel, fast multi-dimensional stats
-- analyze_time_series: Time series analysis - supports day/week/month granularity trend analysis
+- analyze_time_series: Time series analysis - supports day/week/month granularity trend analysis, includes conflict/cooperation trends
 - get_geo_heatmap: Geographic heatmap - grid aggregation showing event density
-- analyze_conflict_cooperation: Conflict/cooperation trend analysis
 - get_regional_overview: Regional situation overview (e.g., "Middle East situation")
 
 [Event Discovery Tools]
@@ -195,9 +194,7 @@ Available Tools (merge-optimized complete toolset):
 
 [Advanced Query Tools]
 - stream_events: Stream query - handles large data volumes, memory-friendly
-- query_by_time_range: Query by time range
-- query_by_actor: Query by actor name
-- query_by_location: Query by geographic location (supports spatial index)
+- stream_query_events: Optimized streaming query by actor name
 
 [Diagnostic Tools]
 - get_cache_stats: View query cache statistics
@@ -207,18 +204,18 @@ Tool Selection Guide:
 - User says "search", "find", "look up" -> search_events
 - User mentions "details", "tell me more" + fingerprint ID -> get_event_detail
 - User asks "why", "demands", "details" -> search_news_context (RAG)
-- User asks "statistics", "trends", "analysis" -> get_dashboard or analyze_time_series
+- User asks "statistics", "trends", "analysis", "conflict trends", "cooperation trends" -> get_dashboard or analyze_time_series
 - User asks "map", "distribution", "heat" -> get_geo_heatmap
 - User asks "situation", "status", "how is" -> get_regional_overview
 - User asks "hot", "news", "what happened" (single day) -> get_hot_events
 - User asks "hottest", "Top", "ranking" (cross-time) -> get_top_events
 - User wants "brief", "daily report", "summary" -> get_daily_brief
-- User says "large data", "export all" -> stream_events
+- User says "large data", "export all" -> stream_events or stream_query_events
 
 Tool Combination Suggestions:
 - Deep event analysis: search_events -> get_event_detail -> search_news_context
 - Regional situation: get_regional_overview + get_geo_heatmap
-- Time trends: analyze_time_series + analyze_conflict_cooperation
+- Time trends: analyze_time_series + get_dashboard
 
 Output Format (strict JSON):
 {
@@ -280,12 +277,18 @@ Notes:
                     else:
                         result = json.loads(content)
                     
+                    # Fix: if suggested_tools is non-empty, MUST need LLM to execute them
+                    needs_llm = result.get("needs_llm", True)
+                    suggested_tools = result.get("suggested_tools", [])
+                    if suggested_tools:
+                        needs_llm = True
+                    
                     return RouterDecision(
                         intent=result.get("intent", "query"),
                         cleaned_input=text,
                         confidence=result.get("confidence", 0.7),
-                        suggested_tools=result.get("suggested_tools", []),
-                        skip_llm=not result.get("needs_llm", True),
+                        suggested_tools=suggested_tools,
+                        skip_llm=not needs_llm,
                         reasoning=result.get("reasoning", "")
                     )
                 except json.JSONDecodeError:
