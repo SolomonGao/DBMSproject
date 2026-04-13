@@ -33,7 +33,7 @@ def get_dates_to_process(start_date: str, end_date: str) -> List[str]:
 
 
 def check_date_status(date: str) -> Tuple[str, int, int]:
-    """check某天fingerprint状态"""
+    """check某天fingerprint状state"""
     try:
         # fetcheventnumber
         evt_result = subprocess.run(
@@ -43,7 +43,7 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
         )
         evt_count = int(evt_result.stdout.strip()) if evt_result.returncode == 0 else 0
         
-        # fetchfingerprintnumber（fingerprint格式: US-20240101-WDC-PROTEST-001）
+        # fetchfingerprintnumber（fingerprintgridpattern: US-20240101-WDC-PROTEST-001）
         date_no_dash = date.replace('-', '')
         fp_result = subprocess.run(
             ["docker", "exec", "gdelt_mysql", "mysql", "-u", "root", "-prootpassword",
@@ -52,28 +52,28 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
         )
         fp_count = int(fp_result.stdout.strip()) if fp_result.returncode == 0 else 0
         
-        # 调试输出
+        # callback试transportoutput
         if fp_count > 0 or evt_count > 0:
             print(f"  [check] {date}: {fp_count} fingerprint / {evt_count} event")
         
         return (date, fp_count, evt_count)
     except Exception as e:
-        print(f"  [error] check {date} 失败: {e}")
+        print(f"  [error] check {date} failed: {e}")
         return (date, -1, -1)
 
 
 def process_date(date: str) -> Tuple[str, bool, str]:
-    """处理单天ETL"""
+    """处processform天ETL"""
     try:
-        # 先check状态
+        # 先check状state
         date_str, fp_count, evt_count = check_date_status(date)
         
         if fp_count >= evt_count:
-            return (date, True, f"already完整 ({fp_count}/{evt_count})")
+            return (date, True, f"alreadycomplete整 ({fp_count}/{evt_count})")
         
-        print(f"  [{date}] 开始ETL，whenbefore {fp_count}/{evt_count}...")
+        print(f"  [{date}] 开startETL，whenbefore {fp_count}/{evt_count}...")
         
-        # runETL（增加超when到10分钟，Because one day may have2-5万event）
+        # runETL（增add超when到10分钟，Because one day may have2-5万event）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
@@ -85,25 +85,25 @@ def process_date(date: str) -> Tuple[str, bool, str]:
             _, new_fp, evt = check_date_status(date)
             added = new_fp - fp_count
             if new_fp >= evt:
-                return (date, True, f"完成 (+{added}, {new_fp}/{evt})")
+                return (date, True, f"completefinish (+{added}, {new_fp}/{evt})")
             else:
                 return (date, True, f"部分 (+{added}, {new_fp}/{evt})")
         else:
             error_msg = result.stderr[:200] if result.stderr else "unknownerror"
-            return (date, False, f"失败: {error_msg}")
+            return (date, False, f"failed: {error_msg}")
             
     except subprocess.TimeoutExpired:
         return (date, False, "超when(10分钟)")
     except Exception as e:
-        return (date, False, f"异常: {str(e)}")
+        return (date, False, f"asyncconstant: {str(e)}")
 
 
 def main():
     parser = argparse.ArgumentParser(description='androw补全eventfingerprint')
-    parser.add_argument('--start', default='2024-01-01', help='开始date (YYYY-MM-DD)')
-    parser.add_argument('--end', default='2024-12-31', help='结束date (YYYY-MM-DD)')
+    parser.add_argument('--start', default='2024-01-01', help='开startdate (YYYY-MM-DD)')
+    parser.add_argument('--end', default='2024-12-31', help='result束date (YYYY-MM-DD)')
     parser.add_argument('--workers', type=int, default=8, help='androwworkthreadnumber (默认: 8)')
-    parser.add_argument('--dry-run', action='store_true', help='只check状态，不执rowETL')
+    parser.add_argument('--dry-run', action='store_true', help='只check状state，不执rowETL')
     
     args = parser.parse_args()
     
@@ -111,16 +111,16 @@ def main():
     print("🔧 androw补全eventfingerprint")
     print("=" * 60)
     print(f"daterange: {args.start} ~ {args.end}")
-    print(f"androw度: {args.workers} thread")
+    print(f"androwschedule: {args.workers} thread")
     print()
     
     # generatedatelist
     dates = get_dates_to_process(args.start, args.end)
-    print(f"总共 {len(dates)} 天need处理")
+    print(f"总共 {len(dates)} 天need处process")
     print()
     
-    # 先checkalldate状态
-    print("📊 checkwhenbefore状态...")
+    # 先checkalldate状state
+    print("📊 checkwhenbefore状state...")
     status_list = []
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {executor.submit(check_date_status, date): date for date in dates}
@@ -129,17 +129,17 @@ def main():
             status_list.append((date, fp, evt))
     
     # statistics
-    # 完整: fingerprintnumber >= eventnumber（package括eventnumber为0case）
+    # complete整: fingerprintnumber >= eventnumber（package括eventnumber为0case）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
-    # 部分: 有fingerprintbut未完整
+    # 部分: 有fingerprintbut未complete整
     partial = sum(1 for _, fp, evt in status_list if 0 < fp < evt)
     # 空缺: 有eventbut无fingerprint
     empty = sum(1 for _, fp, evt in status_list if fp == 0 and evt > 0)
-    # error: 查询失败
+    # error: queryinquiryfailed
     error = sum(1 for _, fp, evt in status_list if fp < 0 or evt < 0)
     
-    print(f"状态statistics:")
-    print(f"  ✅ 完整: {complete} 天")
+    print(f"状statestatistics:")
+    print(f"  ✅ complete整: {complete} 天")
     print(f"  ⚠️  部分: {partial} 天")
     print(f"  ❌ 空缺: {empty} 天")
     if error > 0:
@@ -147,17 +147,17 @@ def main():
     print()
     
     if args.dry_run:
-        print("📝 干run模式，不执rowETL")
+        print("📝 干runmodelpattern，不执rowETL")
         return
     
-    # 筛selectneed处理date
+    # 筛selectneed处processdate
     need_process = [date for date, fp, evt in status_list if fp < evt]
     
     if not need_process:
-        print("✅ alldatealready完整，无需处理")
+        print("✅ alldatealreadycomplete整，无需处process")
         return
     
-    print(f"🚀 开始处理 {len(need_process)} 天...")
+    print(f"🚀 开start处process {len(need_process)} 天...")
     print()
     
     # parallel processing
@@ -176,16 +176,16 @@ def main():
     
     print()
     print("=" * 60)
-    print("✅ 处理完成")
+    print("✅ 处processcompletefinish")
     print("=" * 60)
     
-    # 最终statistics
+    # 最endstatistics
     final_result = subprocess.run(
         ["docker", "exec", "gdelt_mysql", "mysql", "-u", "root", "-prootpassword",
          "-e", "SELECT 'events_table', COUNT(*) FROM events_table WHERE SQLDATE BETWEEN '2024-01-01' AND '2024-12-31' UNION ALL SELECT 'fingerprints', COUNT(*) FROM event_fingerprints"],
         capture_output=True, text=True
     )
-    print("最终statistics:")
+    print("最endstatistics:")
     print(final_result.stdout)
 
 

@@ -22,12 +22,12 @@ class GDELTServiceOptimized:
     """
     optimized version GDELT 服务
     
-    优化点：
-    1. query结果cache (TTL + LRU)
+    优ization点：
+    1. queryresult果cache (TTL + LRU)
     2. androwaggregatequery
     3. streamingquerySupports大data
     4. precompilestatementreuse
-    5. database端计算reduce传输
+    5. database端计算reducetransmittransport
     """
     
     DEFAULT_TABLE = "events_table"
@@ -48,7 +48,7 @@ class GDELTServiceOptimized:
             self._parallel = ParallelQuery(self._pool, max_concurrent=5)
         return self._pool
     
-    # ==================== core优化：cachequery ====================
+    # ==================== core优ization：cachequery ====================
     
     async def execute_sql_cached(
         self,
@@ -59,7 +59,7 @@ class GDELTServiceOptimized:
         """
         带cache SQL 执row
         
-        自动cachequery结果，避免duplicate执rowsamequery。
+        自动cachequeryresult果，避免duplicate执rowsamequery。
         """
         pool = await self._get_pool()
         
@@ -70,7 +70,7 @@ class GDELTServiceOptimized:
             ttl=cache_ttl
         )
     
-    # ==================== core优化：androw仪表盘 ====================
+    # ==================== core优ization：androw仪table盘 ====================
     
     async def get_dashboard_data(
         self,
@@ -78,9 +78,9 @@ class GDELTServiceOptimized:
         end_date: str
     ) -> Dict[str, Any]:
         """
-        仪表盘data - 5 个queryand发执row
+        仪table盘data - 5 个queryandsend执row
         
-        原来串rowneed ~2s，现in只need ~0.5s（取决于最慢query）
+        原来串rowneed ~2s，现in只need ~0.5s（fetch决于最慢query）
         """
         await self._get_pool()
         
@@ -96,7 +96,7 @@ class GDELTServiceOptimized:
                 GROUP BY SQLDATE ORDER BY SQLDATE
             """, (start_date, end_date), "daily_trend"),
             
-            # 2. Top 10 参and方
+            # 2. Top 10 paramandmethod
             (f"""
                 SELECT Actor1Name, COUNT(*) as cnt
                 FROM {self.DEFAULT_TABLE}
@@ -104,7 +104,7 @@ class GDELTServiceOptimized:
                 GROUP BY Actor1Name ORDER BY cnt DESC LIMIT 10
             """, (start_date, end_date), "top_actors"),
             
-            # 3. 地理distribution（Top 10 国家）
+            # 3. locationprocessdistribution（Top 10 国家）
             (f"""
                 SELECT ActionGeo_CountryCode, COUNT(*) as cnt
                 FROM {self.DEFAULT_TABLE}
@@ -147,10 +147,10 @@ class GDELTServiceOptimized:
             """, (start_date, end_date), "summary_stats"),
         ]
         
-        # and发执row
+        # andsend执row
         results = await self._parallel.execute_many(queries)
         
-        # 组装结果
+        # group装result果
         dashboard = {}
         for result in results:
             name = result["name"]
@@ -165,7 +165,7 @@ class GDELTServiceOptimized:
         
         return dashboard
     
-    # ==================== core优化：streaming大dataquery ====================
+    # ==================== core优ization：streaming大dataquery ====================
     
     async def stream_events_by_actor(
         self,
@@ -176,7 +176,7 @@ class GDELTServiceOptimized:
         """
         streamingquery - process large amountseventdata
         
-        stable memory usage，regardless ofdata量multi大。
+        stable memory usage，regardless ofdataamountmulti大。
         """
         await self._get_pool()
         
@@ -199,7 +199,7 @@ class GDELTServiceOptimized:
         async for row in self._streaming.stream(query, tuple(params)):
             yield row
     
-    # ==================== core优化：database端aggregate ====================
+    # ==================== core优ization：database端aggregate ====================
     
     async def analyze_time_series_advanced(
         self,
@@ -210,9 +210,9 @@ class GDELTServiceOptimized:
         """
         advancedwhen间序column分析 - 全部indatabasecompleted
         
-        只传输aggregateafter结果，极大reducenetwork开销。
+        只transmittransportaggregateafterresult果，极大reducenetwork开销。
         """
-        # 根据granularity度select择group方式
+        # 根据granularityscheduleselect择groupmethodpattern
         if granularity == "week":
             date_group = "YEARWEEK(SQLDATE)"
             date_select = "STR_TO_DATE(CONCAT(YEARWEEK(SQLDATE), ' Sunday'), '%X%V %W') as period"
@@ -227,7 +227,7 @@ class GDELTServiceOptimized:
         SELECT 
             {date_select},
             COUNT(*) as event_count,
-            -- conflict/合作比例（database端计算）
+            -- conflict/合作比example（database端计算）
             ROUND(
                 SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
                 2
@@ -241,7 +241,7 @@ class GDELTServiceOptimized:
             ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
             ROUND(AVG(AvgTone), 2) as avg_tone,
             ROUND(STDDEV(AvgTone), 2) as std_tone,
-            -- 最活跃参and方（JSON aggregate）
+            -- 最活跃paramandmethod（JSON aggregate）
             (
                 SELECT JSON_ARRAYAGG(
                     JSON_OBJECT('actor', Actor1Name, 'count', cnt)
@@ -261,23 +261,23 @@ class GDELTServiceOptimized:
         ORDER BY period
         """
         
-        # use长cachewhen间（statisticsdata变化少）
+        # use长cachewhen间（statisticsdatavariableization少）
         return await self.execute_sql_cached(
             query, 
             (start_date, end_date),
             cache_ttl=1800  # 30 分钟
         )
     
-    # ==================== core优化：地理heatgraph ====================
+    # ==================== core优ization：locationprocessheatgraph ====================
     
     async def get_geo_heatmap(
         self,
         start_date: str,
         end_date: str,
-        precision: int = 2  # 小number位number，越大精度越高
+        precision: int = 2  # 小number位number，越大精schedule越高
     ) -> List[Dict[str, Any]]:
         """
-        地理heatgraphdata - gridaggregate
+        locationprocessheatgraphdata - gridaggregate
         
         将相近坐标aggregatetogrid，reducebefore端渲染压力。
         """
@@ -307,7 +307,7 @@ class GDELTServiceOptimized:
             cache_ttl=600
         )
     
-    # ==================== core优化：precompilebatchoperation ====================
+    # ==================== core优ization：precompilebatchoperation ====================
     
     async def batch_fetch_by_ids(
         self,
@@ -316,14 +316,14 @@ class GDELTServiceOptimized:
         """
         batch ID query - useprecompilestatement
         
-        比multi次单条query快 10x 以上。
+        比multi次form条query快 10x 以upload。
         """
         if not event_ids:
             return []
         
         pool = await self._get_pool()
         
-        # 分批处理（避免 SQL 过长）
+        # 分批处process（避免 SQL 过长）
         batch_size = 500
         all_results = []
         
@@ -339,7 +339,7 @@ class GDELTServiceOptimized:
         
         return all_results
     
-    # ==================== core优化：快速check ====================
+    # ==================== core优ization：快速check ====================
     
     async def quick_count(
         self,
@@ -354,7 +354,7 @@ class GDELTServiceOptimized:
         pool = await self._get_pool()
         
         if actor:
-            # 这种queryunableuseindex，need优化
+            # 这种queryunableuseindex，need优ization
             query = f"""
                 SELECT COUNT(*) as cnt FROM {self.DEFAULT_TABLE}
                 WHERE SQLDATE = %s 
@@ -383,9 +383,9 @@ class GDELTServiceOptimized:
         cache_ttl: int = 300
     ) -> str:
         """
-        按参and方queryevent（带cache）
+        按paramandmethodqueryevent（带cache）
         
-        cache key 基于queryArgs，sameArgswilldirectReturnscache结果。
+        cache key 基于queryArgs，sameArgswilldirectReturnscacheresult果。
         """
         date_filter = ""
         params = [f"%{actor_name}%", f"%{actor_name}%"]
@@ -394,7 +394,7 @@ class GDELTServiceOptimized:
             date_filter = "AND SQLDATE BETWEEN %s AND %s"
             params.extend([start_date, end_date])
         
-        # useArgs化query确保 SQL 模板一致
+        # useArgsizationquery确保 SQL model板一致
         query = f"""
         SELECT SQLDATE, Actor1Name, Actor1CountryCode, 
                Actor2Name, Actor2CountryCode, EventCode,
@@ -412,7 +412,7 @@ class GDELTServiceOptimized:
         if not rows:
             return f"not found涉and '{actor_name}' event"
         
-        # format化for Markdown 表格
+        # formatizationfor Markdown tablegrid
         columns = list(rows[0].keys())
         row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
         return self._format_markdown(columns, row_tuples)
@@ -480,7 +480,7 @@ class GDELTServiceOptimized:
         top_n: int = 10,
         cache_ttl: int = 600
     ) -> str:
-        """statistics最活跃参and方（带cache）"""
+        """statistics最活跃paramandmethod（带cache）"""
         query = f"""
         SELECT Actor1Name as actor, COUNT(*) as event_count
         FROM {self.DEFAULT_TABLE}
@@ -502,10 +502,10 @@ class GDELTServiceOptimized:
         return self._format_markdown(columns, row_tuples)
     
     
-    # ==================== format化tool ====================
+    # ==================== formatizationtool ====================
     
     def _format_markdown(self, columns: List[str], rows: List[tuple], max_display_rows: int = 20) -> str:
-        """format化for Markdown 表格"""
+        """formatizationfor Markdown tablegrid"""
         if not rows:
             return "querysuccess，butnot foundmeetconditionmaterialrecord。"
         
@@ -532,12 +532,12 @@ class GDELTServiceOptimized:
         return result
     
     
-    # ==================== core优化：joinpre热 ====================
+    # ==================== core优ization：joinpre热 ====================
     
     @staticmethod
     async def warmup_connections(count: int = 5):
         """
-        join池pre热 - startwhen建立join
+        join池pre热 - startwhenbuild立join
         
         Avoid cold start latency on first request。
         """
@@ -548,7 +548,7 @@ class GDELTServiceOptimized:
                 async with conn.cursor() as cur:
                     await cur.execute("SELECT 1")
         
-        # and发pre热
+        # andsendpre热
         await asyncio.gather(*[ping() for _ in range(count)])
         print(f"[warmup] pre热completed: {count} 个join")
 
@@ -556,7 +556,7 @@ class GDELTServiceOptimized:
         """延迟Initialize ChromaDB (Avoid lag at startup)"""
         if self._chroma_collection is None:
             try:
-                # 定位toitem目根目录under chroma_db 文件夹
+                # 定位toitemproject根projectlogunder chroma_db filefolder
                 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
                 db_path = os.path.join(project_root, 'chroma_db')
                 
@@ -571,7 +571,7 @@ class GDELTServiceOptimized:
                 logging.error(f"❌ ChromaDB Initializefailed: {e}")
         return self._chroma_collection
 
-    # ==================== core优化：RAG 语义检索 ====================
+    # ==================== core优ization：RAG 语义检索 ====================
     
     async def search_news_context(self, query: str, n_results: int = 3) -> str:
         """执rowvectordatabase语义检索 (Agent 右脑)"""
@@ -580,7 +580,7 @@ class GDELTServiceOptimized:
             return "Error: vectordatabase未Initializeorunablejoin。"
 
         try:
-            # ChromaDB Local retrieval is very fast，direct调用
+            # ChromaDB Local retrieval is very fast，directcallbackuse
             results = collection.query(
                 query_texts=[query],
                 n_results=n_results
@@ -596,7 +596,7 @@ class GDELTServiceOptimized:
                 url = results['metadatas'][0][i].get('source_url', 'Unknown URL')
                 date = results['metadatas'][0][i].get('date', 'Unknown Date')
                 
-                # 截取before 1000 个字符，防止 Token 超载
+                # 截fetchbefore 1000 个字符，防stop Token 超load
                 snippet = doc_text[:1000] + "..." if len(doc_text) > 1000 else doc_text
                 
                 formatted_result += f"--- Result {i+1} ---\n"
@@ -607,7 +607,7 @@ class GDELTServiceOptimized:
                 
             return formatted_result
         except Exception as e:
-            return f"检索知识librarywhenoccurerror: {str(e)}"
+            return f"检索inform识librarywhenoccurerror: {str(e)}"
 
 
 # 便捷function

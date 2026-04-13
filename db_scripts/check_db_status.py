@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-database状态checktool
+database状statechecktool
 used formonitorindexusecase和query性能
 """
 
@@ -12,12 +12,12 @@ from app.database.pool import DatabasePool
 import asyncio
 
 async def check_status():
-    """checkdatabase状态"""
+    """check database状state"""
     await DatabasePool.initialize()
     pool = DatabasePool()
     
     print("=" * 70)
-    print("📊 GDELT database状态check")
+    print("📊 GDELT database状statecheck")
     print("=" * 70)
     
     # 1. tablesize和row count
@@ -37,8 +37,8 @@ async def check_status():
     print(f"   indexsize: {result['index_gb']} GB")
     print(f"   总计: {result['total_gb']} GB")
     
-    # 2. index列table
-    print("\n2️⃣  index列table:")
+    # 2. indexcolumntable
+    print("\n2️⃣  indexcolumntable:")
     indexes = await pool.fetchall("""
         SELECT 
             INDEX_NAME,
@@ -71,8 +71,8 @@ async def check_status():
     print(f"   最晚: {result['max_date']}")
     print(f"   天number: {result['unique_days']}")
     
-    # 4. 地理data覆盖
-    print("\n4️⃣  地理data覆盖:")
+    # 4. locationprocessdata覆盖
+    print("\n4️⃣  locationprocessdata覆盖:")
     result = await pool.fetchone("""
         SELECT 
             COUNT(*) as total,
@@ -84,10 +84,10 @@ async def check_status():
         FROM events_table
     """)
     geo_pct = result['with_geo'] / result['total'] * 100 if result['total'] > 0 else 0
-    print(f"   有地理坐标: {result['with_geo']:,} / {result['total']:,} ({geo_pct:.1f}%)")
+    print(f"   有locationprocess坐标: {result['with_geo']:,} / {result['total']:,} ({geo_pct:.1f}%)")
     
-    # 5. import记录
-    print("\n5️⃣  CSV import记录:")
+    # 5. importrecordlog
+    print("\n5️⃣  CSV importrecordlog:")
     try:
         logs = await pool.fetchall("""
             SELECT file_name, imported_at, row_count 
@@ -101,15 +101,15 @@ async def check_status():
             if len(logs) > 5:
                 print(f"   ... 还有 {len(logs) - 5} 个file")
         else:
-            print("   暂无import记录")
+            print("   暂无importrecordlog")
     except:
-        print("   import记录table不存在")
+        print("   importrecordlogtable不save在")
     
-    # 6. querycache状态
-    print("\n6️⃣  querycache状态:")
+    # 6. querycache状state
+    print("\n6️⃣  querycache状state:")
     from app.cache import query_cache
     stats = query_cache.get_stats()
-    print(f"   cache条目: {stats['size']} / {stats['maxsize']}")
+    print(f"   cache条project: {stats['size']} / {stats['maxsize']}")
     print(f"   命中次number: {stats['hits']:,}")
     print(f"   未命中: {stats['misses']:,}")
     print(f"   命中率: {stats['hit_rate']}")

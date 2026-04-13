@@ -26,8 +26,8 @@ async def test_cache():
     
     service = GDELTService()
     
-    # 查看初始cache状态
-    print("\n📊 初始cache状态:")
+    # query看initialstartcache状state
+    print("\n📊 initialstartcache状state:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
@@ -38,10 +38,10 @@ async def test_cache():
     result1 = await service.query_by_actor("Virginia", limit=10)
     elapsed1 = asyncio.get_event_loop().time() - start
     print(f"   耗when: {elapsed1:.3f}s")
-    print(f"   结果长度: {len(result1)} 字符")
+    print(f"   result果长schedule: {len(result1)} 字符")
     
-    # 查看cache状态
-    print("\n📊 第一次queryaftercache状态:")
+    # query看cache状state
+    print("\n📊 第一次queryaftercache状state:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
@@ -52,18 +52,18 @@ async def test_cache():
     result2 = await service.query_by_actor("Virginia", limit=10)
     elapsed2 = asyncio.get_event_loop().time() - start
     print(f"   耗when: {elapsed2:.3f}s")
-    print(f"   结果长度: {len(result2)} 字符")
+    print(f"   result果长schedule: {len(result2)} 字符")
     
-    # 查看cache状态
-    print("\n📊 第二次queryaftercache状态:")
+    # query看cache状state
+    print("\n📊 第二次queryaftercache状state:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
     
-    # 计算加速比
+    # 计算add速比
     if elapsed1 > 0:
         speedup = elapsed1 / elapsed2
-        print(f"\n🚀 加速比: {speedup:.1f}x")
+        print(f"\n🚀 add速比: {speedup:.1f}x")
         
         if speedup > 10:
             print("✅ cacheworknormal！")

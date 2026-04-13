@@ -257,7 +257,7 @@ class GeoHeatmapInput(BaseModel):
 # ============================================================================
 
 def register_core_tools(mcp: FastMCP):
-    """Note册coretoolV2toMCP服务器"""
+    """Note册coretoolV2toMCP服务handler"""
     
     @mcp.tool()
     async def search_events(params: SearchEventsInput) -> str:
@@ -269,7 +269,7 @@ def register_core_tools(mcp: FastMCP):
         - "in东militaryconflict" → location_hint=Middle East, event_type=conflict
         - "inUSeconomic往来" → query="China US economic"
         """
-        # parseTimeHint（e.g.果没有provide，tryfrom query 提取）
+        # parseTimeHint（e.g.果没有provide，tryfrom query 提fetch）
         time_hint = params.time_hint
         if not time_hint and params.query:
             # Extract time keywords from query
@@ -520,7 +520,7 @@ def register_core_tools(mcp: FastMCP):
                             
                             return "\n".join(output)
                         else:
-                            # try用fingerprintas GID directquery
+                            # tryusefingerprintas GID directquery
                             try:
                                 await cursor.execute(f"""
                                     SELECT * FROM {DEFAULT_TABLE}
@@ -696,7 +696,7 @@ def register_core_tools(mcp: FastMCP):
                             region_condition = "AND (e.ActionGeo_CountryCode = %s OR e.ActionGeo_FullName LIKE %s)"
                             query_params.extend([params.region_filter.upper(), f'%{params.region_filter}%'])
                         
-                        # 先查real-timehot，然afterLEFT JOINfingerprinttableGetStandard fingerprint
+                        # 先queryreal-timehot，然afterLEFT JOINfingerprinttableGetStandard fingerprint
                         await cursor.execute(f"""
                             SELECT 
                                 COALESCE(f.fingerprint, CONCAT('EVT-', e.SQLDATE, '-', CAST(e.GlobalEventID AS CHAR))) as fingerprint,
@@ -733,7 +733,7 @@ def register_core_tools(mcp: FastMCP):
                     for i, evt in enumerate(events, 1):
                         fingerprint = evt[0]
                         raw_headline = evt[1]
-                        # 改进 headline 显示
+                        # change进 headline 显示
                         if raw_headline and raw_headline not in ['One party vs Other party', ' vs ', 'NULL vs NULL']:
                             headline = raw_headline
                         else:
@@ -745,7 +745,7 @@ def register_core_tools(mcp: FastMCP):
                         num_articles = evt[7] or 0
                         fp_type = evt[9] if len(evt) > 9 else 'unknown'
                         
-                        # standard记fingerprintType
+                        # standardrecordfingerprintType
                         fp_badge = "📌" if fp_type == 'standard' else "📝"
                         
                         output.append(f"## {i}. {headline}")
@@ -790,7 +790,7 @@ def register_core_tools(mcp: FastMCP):
                     if params.region_filter:
                         region_input = params.region_filter.strip()
                         
-                        # intelligentparse用户input
+                        # intelligentparseuse户input
                         parsed_regions = _parse_region_input(region_input)
                         
                         # Buildindex-friendlymatchitem(s)item
@@ -897,7 +897,7 @@ def register_core_tools(mcp: FastMCP):
                         # 简izationTitle
                         title = f"{actor1[:10]} vs {actor2[:10]}"
                         
-                        # table格row
+                        # tablegridrow
                         output.append(f"| {i} | `{temp_fp}` | {title} [{event_label}] | {hot_score:.0f} | {date} | {location_short} |")
                         
                         # Detailed Information（used forafter续expand）
@@ -1065,7 +1065,7 @@ def register_core_tools(mcp: FastMCP):
     @mcp.tool()
     async def search_news_context(params: NewsSearchInput) -> str:
         """
-        【RAG semanticsearch】querynewsknow识libraryGet真实articlesdetails
+        【RAG semanticsearch】querynewsknow识libraryGet真realarticlesdetails
         
         When users need to know:
         - Eventspecificoccurrence因
@@ -1123,7 +1123,7 @@ def register_core_tools(mcp: FastMCP):
                 url = results['metadatas'][0][i].get('source_url', 'Unknown')
                 date = results['metadatas'][0][i].get('date', 'Unknown')
                 
-                # 截取before1000字符
+                # 截fetchbefore1000字符
                 snippet = doc_text[:1000] + "..." if len(doc_text) > 1000 else doc_text
                 
                 output.append(f"## 📰 Result {i+1}")
@@ -1148,9 +1148,9 @@ def register_core_tools(mcp: FastMCP):
     @mcp.tool()
     async def stream_events(params: StreamQueryInput) -> str:
         """
-        【streamingquery】处理大amountEventData，withinmemory-friendly
+        【streamingquery】处process大amountEventData，withinmemory-friendly
         
-        whenneed处理大amountEventwhenUse（e.g."analysis全yearallprotestEvent"），
+        whenneed处process大amountEventwhenUse（e.g."analysis全yearallprotestEvent"），
         Streaming read avoids loading everything into memory at once。
         
         Applicable scenarios:
@@ -1204,7 +1204,7 @@ def register_core_tools(mcp: FastMCP):
                 
                 count += 1
                 if count >= params.max_results:
-                    output.append("| ... | (更multiResult...) | ... | ... | ... | ... |")
+                    output.append("| ... | (updatemultiResult...) | ... | ... | ... | ... |")
                     break
             
             output.append(f"\n*Total returned {count} item(s)Result (streaming read)*")
@@ -1215,7 +1215,7 @@ def register_core_tools(mcp: FastMCP):
             return f"❌ streamingQuery failed: {str(e)}"
 
     # =======================================================================
-    # optizationanalysistool (androwquery + streaming处理)
+    # optizationanalysistool (androwquery + streaming处process)
     # =======================================================================
     
     @mcp.tool()
@@ -1223,7 +1223,7 @@ def register_core_tools(mcp: FastMCP):
         """
         [Optimized] Dashboard data - concurrent multi-dimensional statistics
         
-        simultaneouslyreturn：dailyTrend、Top Actors、place理distribution、Event typedistribution、综合statistics
+        simultaneouslyreturn：dailyTrend、Top Actors、placeprocessdistribution、Event typedistribution、综合statistics
         3-5x faster than serial queries。
         
         Applicable scenarios:
@@ -1283,11 +1283,11 @@ def register_core_tools(mcp: FastMCP):
         【optization】advancedTimeseriesanalysis - Datalibrary端aggregate
         
         supportday/week/monthgranularitydegreeTimeTrendanalysis，All aggregation completed on database side，
-        only传输Result，极大reducenetwork开销。
+        onlytransmittransportResult，极大reducenetwork开销。
         
         Applicable scenarios:
-        - analysisEvent随Time变izationTrend
-        - tothandifferentTimegranularitydegree模format
+        - analysisEvent随TimevariableizationTrend
+        - tothandifferentTimegranularitydegreemodelformat
         - Identify periodic patterns
         """
         try:
@@ -1343,7 +1343,7 @@ def register_core_tools(mcp: FastMCP):
             )
             
             if not results:
-                return "📭 notFoundplace理Data"
+                return "📭 notFoundplaceprocessData"
             
             heatmap_data = [
                 {
@@ -1383,7 +1383,7 @@ def register_core_tools(mcp: FastMCP):
         """
         [Optimized] Streaming query - process large data
         
-        Use服务器端游standardstreaming readData，withinmemory usage稳定，
+        Use服务handler端游standardstreaming readData，withinmemory usage稳定，
         Can handle regardless of data volume。
         
         Applicable scenarios:
@@ -1392,7 +1392,7 @@ def register_core_tools(mcp: FastMCP):
         - Memory-sensitive environment
         
         With `stream_events` difference:
-        - thistool按Actors名称search
+        - thistool按Actorsnametitlesearch
         - supports fuzzy matching Actor1Name and Actor2Name
         """
         try:
@@ -1406,7 +1406,7 @@ def register_core_tools(mcp: FastMCP):
             async for row in service.stream_events_by_actor(
                 params.actor_name, params.start_date, params.end_date
             ):
-                # Use sanitize_text 防止 Markdown table格by破坏
+                # Use sanitize_text 防stop Markdown tablegridby破坏
                 lines.append(
                     f"| {sanitize_text(row.get('SQLDATE'))} | "
                     f"{sanitize_text(row.get('Actor1Name', 'N/A'))[:15]} | "
@@ -1418,7 +1418,7 @@ def register_core_tools(mcp: FastMCP):
                 
                 count += 1
                 if count >= params.max_results:
-                    lines.append("| ... | (更multiResult截断) | ... | ... | ... | ... |")
+                    lines.append("| ... | (updatemultiResult截断) | ... | ... | ... | ... |")
                     break
             
             lines.append(f"\n*Total returned {count} item(s)Result (streaming read)*")
@@ -1442,13 +1442,13 @@ def sanitize_text(text) -> str:
     text = str(text)
     # remove surrogate pairs
     text = text.encode('utf-8', 'ignore').decode('utf-8')
-    # replace控制字符
+    # replacecontrolsystem字符
     import unicodedata
     text = ''.join(
         char for char in text 
         if unicodedata.category(char)[0] != 'C' or char in '\n\t\r'
     )
-    # remove null bytes and Markdown table格特殊字符
+    # remove null bytes and Markdown tablegrid特殊字符
     text = text.replace('\x00', '').replace('|', ' ').replace('\n', ' ')
     return text.strip()
 
@@ -1509,7 +1509,7 @@ def _parse_region_input(region_input: str) -> list:
         'Washington': ['Washington', 'DC'],
         '纽约': ['New York', 'NYC'],
         '洛杉矶': ['Los Angeles', 'LA'],
-        '芝加哥': ['Chicago'],
+        '芝add哥': ['Chicago'],
         '休斯顿': ['Houston'],
         'old金山': ['San Francisco', 'SF'],
         '西雅map': ['Seattle'],
@@ -1529,7 +1529,7 @@ def _parse_region_input(region_input: str) -> list:
         '德country': ['Germany', 'DEU', 'DE'],
         'daythis': ['Japan', 'JPN', 'JP'],
         '俄罗斯': ['Russia', 'RUS', 'RU'],
-        '加拿大': ['Canada', 'CAN', 'CA'],
+        'add拿大': ['Canada', 'CAN', 'CA'],
         '墨西哥': ['Mexico', 'MEX', 'MX'],
         'printdegree': ['India', 'IND', 'IN'],
         '澳大利亚': ['Australia', 'AUS', 'AU'],
@@ -1540,8 +1540,8 @@ def _parse_region_input(region_input: str) -> list:
         'non-洲': ['Africa', 'African'],
         '德state': ['Texas', 'TX'],
         '得克萨斯': ['Texas', 'TX'],
-        '加state': ['California', 'CA'],
-        '加利福尼亚': ['California', 'CA'],
+        'addstate': ['California', 'CA'],
+        'add利福尼亚': ['California', 'CA'],
         '佛state': ['Florida', 'FL'],
         '佛罗里达': ['Florida', 'FL'],
         '宾state': ['Pennsylvania', 'PA'],
@@ -1563,7 +1563,7 @@ def _parse_region_input(region_input: str) -> list:
         '俄勒冈': ['Oregon', 'OR'],
         'Washingtonstate': ['Washington State', 'WA'],
         '夏威夷': ['Hawaii', 'HI'],
-        '阿拉斯加': ['Alaska', 'AK'],
+        '阿拉斯add': ['Alaska', 'AK'],
     }
     
     # Check for Chinese mappings
@@ -1695,7 +1695,7 @@ def _format_search_results_v2(rows: list, columns: list, original_query: str) ->
         output.append("")
     
     output.append("💡 **Hint**: Use `get_event_detail(fingerprint='...')` ViewEventDetails")
-    output.append("📌 Standard fingerprint：ETLalready处理，信infocomplete | 📝 Temporary fingerprint：real-timegenerate，basic信info")
+    output.append("📌 Standard fingerprint：ETLalready处process，信infocomplete | 📝 Temporary fingerprint：real-timegenerate，basic信info")
     return "\n".join(output)
 
 
@@ -1771,12 +1771,12 @@ def _format_event_detail_from_raw(event_data: dict, fingerprint: str, params) ->
     # Event typelabel
     type_labels = {
         '01': 'diplomacystatement', '02': 'diplomacyappeal', '03': '政策intention',
-        '04': 'diplomacyconsultation', '05': '参Withcooperation', '06': '物资aid',
+        '04': 'diplomacyconsultation', '05': 'paramWithcooperation', '06': '物资aid',
         '07': '人员aid', '08': '保护aid', '09': 'concession缓and',
-        '10': '提出demand', '11': 'table达dissatisfaction', '12': 'reject反to',
-        '13': 'threat警notification', '14': 'protest示威', '15': 'show of force',
+        '10': '提outputdemand', '11': 'table达dissatisfaction', '12': 'reject反to',
+        '13': 'threatalertnotification', '14': 'protest示威', '15': 'show of force',
         '16': 'relationship downgrade', '17': 'coercion', '18': 'militaryfriction',
-        '19': '大规模conflict', '20': '武装attack'
+        '19': '大规modelconflict', '20': '武装attack'
     }
     event_label = type_labels.get(event_root, '其他Event')
     

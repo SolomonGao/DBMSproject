@@ -9,11 +9,11 @@ usemethod:
 selectitem:
     --config               Force start configuration wizard
     --log-level {DEBUG,INFO,WARNING,ERROR}  Setloglevel
-    --no-file-log          禁用文件log
+    --no-file-log          禁usefilelog
     -h, --help             显示Help
 
 特性:
-    - 交互式 LLM Provides商select择 (Kimi/Claude/Gemini)
+    - 交互pattern LLM Provides商select择 (Kimi/Claude/Gemini)
     - 自动detectandHintconfig
     - SupportsmultiProvides商切换
 """
@@ -47,8 +47,8 @@ async def main():
         epilog="""
 Example:
   python run_v1.py                          # startApply（首次willHintconfig）
-  python run_v1.py --config                 # 强制重新config
-  python run_v1.py --log-level DEBUG        # Debug模式
+  python run_v1.py --config                 # 强system重newconfig
+  python run_v1.py --log-level DEBUG        # Debugmodelpattern
         """
     )
     parser.add_argument(
@@ -65,7 +65,7 @@ Example:
     parser.add_argument(
         '--no-file-log',
         action='store_true',
-        help='禁用文件log'
+        help='禁usefilelog'
     )
     args = parser.parse_args()
     
@@ -92,7 +92,7 @@ Example:
         config = load_config()
     except ValueError as e:
         print(f"❌ configerror: {e}")
-        print("\n建议运row: python run_v1.py --config")
+        print("\nbuild议运row: python run_v1.py --config")
         sys.exit(1)
     
     # 2. Setlog
@@ -124,11 +124,11 @@ Example:
         connected = await mcp_client.connect()
         if not connected:
             logger.error("unablejointo MCP Server，请check:")
-            logger.error("  1. MCP Server 文件isNo存in")
+            logger.error("  1. MCP Server fileisNosavein")
             logger.error("  2. Python environmentisNo正确")
             sys.exit(1)
         
-        # 6. 发现tool
+        # 6. send现tool
         await mcp_client.discover_tools()
         
     except Exception as e:
@@ -156,7 +156,7 @@ Example:
     # Process信号
     import signal
     def signal_handler(sig, frame):
-        logger.info(f"收to信号 {sig}，正inExit...")
+        logger.info(f"acceptto信号 {sig}，正inExit...")
         asyncio.create_task(mcp_client.close())
         sys.exit(0)
     
@@ -169,8 +169,8 @@ Example:
         # cleanup资源
         logger.info("正incleanup资源...")
         await mcp_client.close()
-        if 'llm_client' in locals():      # <--- 加上这一row
-            await llm_client.close()      # <--- 加上这一row
+        if 'llm_client' in locals():      # <--- addupload这一row
+            await llm_client.close()      # <--- addupload这一row
         logger.info("ApplyalreadyExit")
 
 

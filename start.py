@@ -16,12 +16,12 @@ def main():
     ]
     
     try:
-        # use subprocess 执rowcommand，不捕获输出，directjointowhenbefore终端
+        # use subprocess 执rowcommand，不catchcapturetransportoutput，directjointowhenbeforeend端
         subprocess.run(command, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"\n❌ 运row出错，Exit码: {e.returncode}")
+        print(f"\n❌ 运rowoutputerror，Exit码: {e.returncode}")
     except KeyboardInterrupt:
-        print("\n👋 收toExit信号，正in安全关闭...")
+        print("\n👋 accepttoExit信号，正in安全关闭...")
         sys.exit(0)
 
 if __name__ == "__main__":

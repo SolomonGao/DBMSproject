@@ -158,7 +158,7 @@ class OllamaRouter:
             )
         
         # Explicit database query keywords (Chinese)
-        if any(kw in text_lower for kw in ['查询', '查找', '搜索', '查一under']):
+        if any(kw in text_lower for kw in ['queryinquiry', 'query找', '搜索', 'query一under']):
             return None  # Needs further model analysis
         
         return None
@@ -309,7 +309,7 @@ Notes:
             )
         
         # Analysis & Dashboard (Chinese + English)
-        if any(kw in text_lower for kw in ['statistics', '分析', 'trends', 'dashboard', '仪表盘']):
+        if any(kw in text_lower for kw in ['statistics', '分析', 'trends', 'dashboard', '仪table盘']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -320,7 +320,7 @@ Notes:
             )
         
         # Geographic / Heatmap (Chinese + English)
-        if any(kw in text_lower for kw in ['map', 'heat图', 'heatmap', '地理', 'distribution', '可视化']):
+        if any(kw in text_lower for kw in ['map', 'heatmap', 'heatmap', 'locationprocess', 'distribution', '可视ization']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -331,7 +331,7 @@ Notes:
             )
         
         # Time series / trends (Chinese)
-        if any(kw in text_lower for kw in ['when间序列', 'trends', '变化', '走势', 'time series']):
+        if any(kw in text_lower for kw in ['when间序column', 'trends', 'variableization', '走势', 'time series']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -342,7 +342,7 @@ Notes:
             )
         
         # Streaming / large data (Chinese)
-        if any(kw in text_lower for kw in ['export', '全部', 'all', 'streaming', '大量data']):
+        if any(kw in text_lower for kw in ['export', '全部', 'all', 'streaming', '大amountdata']):
             return RouterDecision(
                 intent="query",
                 cleaned_input=text,
