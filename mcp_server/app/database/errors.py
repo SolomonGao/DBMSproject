@@ -1,7 +1,7 @@
 """
-数据库错误处理模块
+Database Error Handling Module
 
-提供 MySQL 错误分类、特定异常类型和错误处理工具。
+Provides MySQL error classification, specific exception types, and error handling utilities.
 """
 
 from enum import Enum
@@ -10,24 +10,24 @@ import aiomysql
 
 
 class DBErrorCode(Enum):
-    """MySQL 常见错误码分类"""
-    # 连接类错误
+    """MySQL Common Error Code Classification"""
+    # Connection errors
     CONNECTION_LOST = 2006          # MySQL server has gone away
     CONNECTION_TIMEOUT = 2013       # Lost connection during query
     CONNECTION_REFUSED = 2003       # Can't connect to MySQL server
     
-    # 权限类错误
+    # Permission errors
     ACCESS_DENIED = 1045            # Access denied for user
     
-    # 资源类错误
+    # Resource errors
     TOO_MANY_CONNECTIONS = 1040     # Too many connections
     OUT_OF_MEMORY = 1037            # Out of memory
     
-    # 锁类错误
+    # Lock errors
     LOCK_WAIT_TIMEOUT = 1205        # Lock wait timeout exceeded
     DEADLOCK = 1213                 # Deadlock found
     
-    # 查询类错误
+    # Query errors
     PARSE_ERROR = 1064              # SQL syntax error
     UNKNOWN_TABLE = 1109            # Unknown table
     UNKNOWN_COLUMN = 1054           # Unknown column
@@ -36,12 +36,12 @@ class DBErrorCode(Enum):
 
 class DatabaseError(Exception):
     """
-    数据库操作异常基类
+    Database Operation Exception Base Class
     
     Attributes:
-        message: 错误描述
-        error_code: MySQL 错误码
-        original_error: 原始异常对象
+        message: Error description
+        error_code: MySQL error code
+        original_error: Original exception object
     """
     def __init__(
         self, 
@@ -60,68 +60,68 @@ class DatabaseError(Exception):
         return self.message
     
     def is_retryable(self) -> bool:
-        """判断此错误是否可以通过重试解决"""
+        """Determine if this error can be resolved by retrying"""
         return False
 
 
 class ConnectionLostError(DatabaseError):
-    """连接丢失错误（可重试）"""
+    """Connection lost error (retryable)"""
     def is_retryable(self) -> bool:
         return True
 
 
 class ConnectionTimeoutError(DatabaseError):
-    """连接超时错误（可重试）"""
+    """Connection timeout error (retryable)"""
     def is_retryable(self) -> bool:
         return True
 
 
 class PoolExhaustedError(DatabaseError):
-    """连接池耗尽错误"""
+    """Connection pool exhausted error"""
     pass
 
 
 class QueryTimeoutError(DatabaseError):
-    """查询超时/锁等待错误"""
+    """Query timeout/lock wait error"""
     def is_retryable(self) -> bool:
-        # 锁等待可以重试
+        # Lock wait can be retried
         if self.error_code == DBErrorCode.LOCK_WAIT_TIMEOUT.value:
             return True
         return False
 
 
 class AuthenticationError(DatabaseError):
-    """数据库认证失败"""
+    """Database authentication failed"""
     pass
 
 
 class QuerySyntaxError(DatabaseError):
-    """SQL 语法错误"""
+    """SQL syntax error"""
     pass
 
 
 class TableNotFoundError(DatabaseError):
-    """表不存在"""
+    """Table does not exist"""
     pass
 
 
 class ColumnNotFoundError(DatabaseError):
-    """列不存在"""
+    """Column does not exist"""
     pass
 
 
 def classify_mysql_error(error: aiomysql.Error) -> DatabaseError:
     """
-    分类 MySQL 错误，转换为特定异常类型
+    Classify MySQL error, convert to specific exception type
     
-    根据错误码将通用 MySQL 错误转换为特定异常类型，
-    便于调用方根据错误类型做不同处理。
+    Converts generic MySQL errors to specific exception types based on error code,
+    allowing callers to handle different error types accordingly.
     
     Args:
-        error: MySQL 原始错误对象
+        error: MySQL original error object
         
     Returns:
-        DatabaseError: 分类后的特定异常
+        DatabaseError: Classified specific exception
         
     Example:
         try:
@@ -129,106 +129,106 @@ def classify_mysql_error(error: aiomysql.Error) -> DatabaseError:
         except aiomysql.Error as e:
             db_error = classify_mysql_error(e)
             if isinstance(db_error, TableNotFoundError):
-                print(f"表不存在: {db_error}")
+                print(f"Table not found: {db_error}")
             elif db_error.is_retryable():
-                print("可以重试")
+                print("Can retry")
     """
-    # 提取错误码和消息
+    # Extract error code and message
     error_code = None
     error_msg = str(error)
     
-    # aiomysql.Error 通常是 pymysql.err.MySQLError 的子类
-    # 错误码可能在 args[0] 或 errno 属性中
+    # aiomysql.Error is usually a subclass of pymysql.err.MySQLError
+    # Error code may be in args[0] or errno attribute
     if hasattr(error, 'args') and len(error.args) > 0:
         if isinstance(error.args[0], int):
             error_code = error.args[0]
     if error_code is None and hasattr(error, 'errno'):
         error_code = error.errno
     
-    # 根据错误码分类
-    # 连接类错误（可重试）
+    # Classify by error code
+    # Connection errors (retryable)
     if error_code == DBErrorCode.CONNECTION_LOST.value:
         return ConnectionLostError(
-            f"数据库连接已断开: {error_msg}",
+            f"Database connection lost: {error_msg}",
             error_code=error_code,
             original_error=error
         )
     
     if error_code == DBErrorCode.CONNECTION_TIMEOUT.value:
         return ConnectionTimeoutError(
-            f"数据库连接超时: {error_msg}",
+            f"Database connection timeout: {error_msg}",
             error_code=error_code,
             original_error=error
         )
     
     if error_code == DBErrorCode.CONNECTION_REFUSED.value:
         return ConnectionLostError(
-            f"无法连接到数据库服务器: {error_msg}",
+            f"Cannot connect to database server: {error_msg}",
             error_code=error_code,
             original_error=error
         )
     
-    # 认证错误
+    # Authentication error
     if error_code == DBErrorCode.ACCESS_DENIED.value:
         return AuthenticationError(
-            f"数据库认证失败: {error_msg}",
+            f"Database authentication failed: {error_msg}",
             error_code=error_code,
             original_error=error
         )
     
-    # 资源类错误
+    # Resource errors
     if error_code == DBErrorCode.TOO_MANY_CONNECTIONS.value:
         return PoolExhaustedError(
-            f"数据库连接过多: {error_msg}",
+            f"Too many database connections: {error_msg}",
             error_code=error_code,
             original_error=error
         )
     
-    # 锁类错误
+    # Lock errors
     if error_code in [DBErrorCode.LOCK_WAIT_TIMEOUT.value, DBErrorCode.DEADLOCK.value]:
         return QueryTimeoutError(
-            f"查询锁超时: {error_msg}",
+            f"Query lock timeout: {error_msg}",
             error_code=error_code,
             original_error=error
         )
     
-    # 语法错误
+    # Syntax error
     if error_code == DBErrorCode.PARSE_ERROR.value:
         return QuerySyntaxError(
-            f"SQL 语法错误: {error_msg}",
+            f"SQL syntax error: {error_msg}",
             error_code=error_code,
             original_error=error
         )
     
-    # 表不存在
+    # Table not found
     if error_code == DBErrorCode.UNKNOWN_TABLE.value:
         return TableNotFoundError(
-            f"表不存在: {error_msg}",
+            f"Table not found: {error_msg}",
             error_code=error_code,
             original_error=error
         )
     
-    # 列不存在
+    # Column not found
     if error_code == DBErrorCode.UNKNOWN_COLUMN.value:
         return ColumnNotFoundError(
-            f"列不存在: {error_msg}",
+            f"Column not found: {error_msg}",
             error_code=error_code,
             original_error=error
         )
     
-    # 其他未知错误
+    # Other unknown errors
     return DatabaseError(
-        f"数据库错误: {error_msg}",
+        f"Database error: {error_msg}",
         error_code=error_code,
         original_error=error
     )
 
 
-# 导出所有内容
+# Export all content
 __all__ = [
-    # 错误码枚举
+    # Error code enum
     "DBErrorCode",
-    # 异常类
+    # Exception classes
     "DatabaseError",
     "ConnectionLostError",
     "ConnectionTimeoutError",
@@ -238,6 +238,6 @@ __all__ = [
     "QuerySyntaxError",
     "TableNotFoundError",
     "ColumnNotFoundError",
-    # 函数
+    # Functions
     "classify_mysql_error",
 ]
