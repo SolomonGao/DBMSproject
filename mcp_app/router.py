@@ -1,14 +1,14 @@
 """
-轻量级 Router - 基于 Ollama + Qwen 2.5B
+Lightweight Router - Based on Ollama + Qwen 2.5B
 
-职责：
-1. 用户输入清理和标准化
-2. 意图识别（查询/分析/闲聊）
-3. 预选择工具（给大模型参考）
-4. 安全过滤
+Responsibilities:
+1. User input cleaning and standardization
+2. Intent recognition (query/analysis/chat)
+3. Tool pre-selection (for LLM reference)
+4. Safety filtering
 
-架构：
-User -> Router (Qwen 2.5B local) -> [可选] LLM (Kimi/Claude) -> MCP Server
+Architecture:
+User -> Router (Qwen 2.5B local) -> [Optional] LLM (Kimi/Claude) -> MCP Server
 """
 
 import json
@@ -24,21 +24,21 @@ logger = get_logger("router")
 
 @dataclass
 class RouterDecision:
-    """路由决策结果"""
-    intent: str                    # 意图: query | analysis | chat | direct
-    cleaned_input: str             # 清理后的用户输入
-    confidence: float              # 置信度 0-1
-    suggested_tools: List[str]     # 建议工具
-    direct_response: Optional[str] = None  # 直接回复（闲聊时）
-    skip_llm: bool = False         # 是否跳过 LLM
-    reasoning: str = ""            # 判断理由
+    """Router decision result"""
+    intent: str                    # Intent: query | analysis | chat | direct
+    cleaned_input: str             # Cleaned user input
+    confidence: float              # Confidence 0-1
+    suggested_tools: List[str]     # Suggested tools
+    direct_response: Optional[str] = None  # Direct response (for chat)
+    skip_llm: bool = False         # Whether to skip LLM
+    reasoning: str = ""            # Decision reasoning
 
 
 class OllamaRouter:
     """
-    Ollama 本地路由器
+    Ollama Local Router
     
-    使用 Qwen 2.5B 进行轻量级意图识别
+    Uses Qwen 2.5B for lightweight intent recognition
     """
     
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "qwen2.5:3b"):
@@ -49,19 +49,19 @@ class OllamaRouter:
     
     async def route(self, user_input: str, context: List[Dict] = None) -> RouterDecision:
         """
-        主路由函数
+        Main routing function
         
         Returns:
-            RouterDecision: 包含处理决策
+            RouterDecision: Contains processing decision
         """
-        # Step 1: 基础清理
+        # Step 1: Basic cleaning
         cleaned = self._basic_clean(user_input)
         
-        # Step 2: 系统命令直接处理
+        # Step 2: Handle system commands
         if cleaned.startswith('/'):
             return self._handle_command(cleaned)
         
-        # Step 3: 安全检查
+        # Step 3: Safety check
         safety_flags = self._safety_check(cleaned)
         if safety_flags:
             return RouterDecision(
@@ -69,33 +69,33 @@ class OllamaRouter:
                 cleaned_input=cleaned,
                 confidence=1.0,
                 suggested_tools=[],
-                direct_response="⚠️ 输入包含不安全内容，请重新描述。",
+                direct_response="⚠️ Input contains unsafe content, please rephrase.",
                 skip_llm=True,
                 reasoning=f"Safety flags: {safety_flags}"
             )
         
-        # Step 4: 简单规则快速判断（减少模型调用）
+        # Step 4: Quick rule-based check (reduce model calls)
         rule_result = self._quick_check(cleaned)
         if rule_result:
             return rule_result
         
-        # Step 5: 调用 Qwen 2.5B 进行意图识别
+        # Step 5: Call Qwen 2.5B for intent recognition
         try:
             return await self._call_ollama(cleaned, context)
         except Exception as e:
             logger.error(f"Ollama call failed: {e}")
-            # Fallback 到规则判断
+            # Fallback to rule-based classification
             return self._fallback_classify(cleaned)
     
     def _basic_clean(self, text: str) -> str:
-        """基础文本清理"""
+        """Basic text cleaning"""
         text = text.strip()
-        text = re.sub(r'\s+', ' ', text)  # 统一空格
-        text = re.sub(r'[\u200b-\u200f\ufeff]', '', text)  # 去除零宽字符
+        text = re.sub(r'\s+', ' ', text)  # Normalize spaces
+        text = re.sub(r'[\u200b-\u200f\ufeff]', '', text)  # Remove zero-width characters
         return text
     
     def _safety_check(self, text: str) -> List[str]:
-        """安全检查"""
+        """Safety check"""
         flags = []
         dangerous = ['drop table', 'delete from', 'truncate table', '--', ';--']
         if any(d in text.lower() for d in dangerous):
@@ -103,7 +103,7 @@ class OllamaRouter:
         return flags
     
     def _handle_command(self, command: str) -> RouterDecision:
-        """处理系统命令"""
+        """Handle system commands"""
         return RouterDecision(
             intent="command",
             cleaned_input=command,
@@ -114,10 +114,10 @@ class OllamaRouter:
         )
     
     def _quick_check(self, text: str) -> Optional[RouterDecision]:
-        """快速规则判断（避免模型调用）"""
+        """Quick rule-based check (avoid model calls)"""
         text_lower = text.lower()
         
-        # CLI 命令（以 / 开头）
+        # CLI commands (starting with /)
         if text.startswith('/'):
             return RouterDecision(
                 intent="command",
@@ -128,7 +128,7 @@ class OllamaRouter:
                 reasoning="CLI command"
             )
         
-        # 简单问候
+        # Simple greetings (Chinese + English)
         greetings = ['你好', 'hello', 'hi', '在吗', '在么']
         if any(g in text_lower for g in greetings) and len(text) < 10:
             return RouterDecision(
@@ -136,12 +136,12 @@ class OllamaRouter:
                 cleaned_input=text,
                 confidence=0.95,
                 suggested_tools=[],
-                direct_response=None,  # 让 LLM 回复
+                direct_response=None,  # Let LLM respond
                 skip_llm=False,
                 reasoning="Simple greeting"
             )
         
-        # 每日简报/Daily Brief 查询
+        # Daily brief keywords (Chinese + English)
         daily_brief_keywords = [
             '简报', '日报', 'daily brief', 'daily report', 'news brief',
             '今天新闻', '今日简报', '今天发生了什么', '新闻总结',
@@ -157,90 +157,90 @@ class OllamaRouter:
                 reasoning="Daily brief request"
             )
         
-        # 明确的数据库查询
+        # Explicit database query keywords (Chinese)
         if any(kw in text_lower for kw in ['查询', '查找', '搜索', '查一下']):
-            return None  # 需要模型进一步分析
+            return None  # Needs further model analysis
         
         return None
     
     async def _call_ollama(self, text: str, context: List[Dict] = None) -> RouterDecision:
-        """调用本地 Ollama"""
+        """Call local Ollama"""
         
-        system_prompt = """你是一个智能路由助手。分析用户输入，输出 JSON 格式决策。
+        system_prompt = """You are an intelligent routing assistant. Analyze user input and output JSON format decisions.
 
-意图分类：
-- query: 需要查询 GDELT 数据库（如"查 Virginia 的新闻"、"2024年1月有什么事件"）
-- analysis: 需要统计分析（如"统计冲突趋势"、"Top 10 参与方"、"可视化热力图"）
-- chat: 闲聊、问候、简单问答（如"你好"、"谢谢"、"你能做什么"）
-- clarification: 需要用户澄清（输入模糊或不完整）
+Intent Classification:
+- query: Needs to query GDELT database (e.g., "Virginia news", "events in Jan 2024")
+- analysis: Needs statistical analysis (e.g., "conflict trends", "Top 10 actors", "heatmap visualization")
+- chat: Casual chat, greetings, simple Q&A (e.g., "hello", "thanks", "what can you do")
+- clarification: Needs user clarification (input ambiguous or incomplete)
 
-可用工具（merge-optimized 完整工具集）：
+Available Tools (merge-optimized complete toolset):
 
-【核心搜索工具】
-- search_events: 智能事件搜索（核心入口）- 支持自然语言如"1月华盛顿的抗议"
-- get_event_detail: 获取事件详情（通过指纹ID如 US-20240115-WDC-PROTEST-001）
-- search_news_context: RAG语义搜索 - 查询新闻知识库获取真实报道细节
+[Core Search Tools]
+- search_events: Intelligent event search (core entry) - supports natural language like "protests in Washington in Jan"
+- get_event_detail: Get event details (via fingerprint ID like US-20240115-WDC-PROTEST-001)
+- search_news_context: RAG semantic search - query news knowledge base for real report details
 
-【分析统计工具】
-- get_dashboard: 仪表盘数据 - 5个查询并行执行，快速获取多维度统计
-- analyze_time_series: 时间序列分析 - 支持日/周/月粒度趋势分析
-- get_geo_heatmap: 地理热力图 - 网格聚合展示事件密度
-- analyze_conflict_cooperation: 冲突/合作趋势分析
-- get_regional_overview: 区域态势概览（如"中东局势"）
+[Analysis & Statistics Tools]
+- get_dashboard: Dashboard data - 5 queries in parallel, fast multi-dimensional stats
+- analyze_time_series: Time series analysis - supports day/week/month granularity trend analysis
+- get_geo_heatmap: Geographic heatmap - grid aggregation showing event density
+- analyze_conflict_cooperation: Conflict/cooperation trend analysis
+- get_regional_overview: Regional situation overview (e.g., "Middle East situation")
 
-【事件发现工具】
-- get_hot_events: 热点事件推荐（单日）
-- get_top_events: 时间段热度排行（跨时间范围，如"2024年最热事件"）
-- get_daily_brief: 每日简报
+[Event Discovery Tools]
+- get_hot_events: Hot event recommendations (single day)
+- get_top_events: Time period heat ranking (cross-time range, e.g., "hottest events in 2024")
+- get_daily_brief: Daily brief
 
-【高级查询工具】
-- stream_events: 流式查询 - 处理大数据量，内存友好
-- query_by_time_range: 按时间范围查询
-- query_by_actor: 按参与方查询
-- query_by_location: 按地理位置查询（支持空间索引）
+[Advanced Query Tools]
+- stream_events: Stream query - handles large data volumes, memory-friendly
+- query_by_time_range: Query by time range
+- query_by_actor: Query by actor name
+- query_by_location: Query by geographic location (supports spatial index)
 
-【诊断工具】
-- get_cache_stats: 查看查询缓存统计
-- clear_cache: 清空查询缓存
+[Diagnostic Tools]
+- get_cache_stats: View query cache statistics
+- clear_cache: Clear query cache
 
-工具选择指南：
-- 用户说"搜索"、"查找"、"查一下" → search_events
-- 用户提到"详情"、"详细说说" + 指纹ID → get_event_detail
-- 用户问"为什么"、"诉求"、"细节" → search_news_context (RAG)
-- 用户问"统计"、"趋势"、"分析" → get_dashboard 或 analyze_time_series
-- 用户问"地图"、"分布"、"热力" → get_geo_heatmap
-- 用户问"局势"、"态势"、"怎么样" → get_regional_overview
-- 用户问"热点"、"新闻"、"发生了什么"（单日）→ get_hot_events
-- 用户问"最热的"、"Top"、"排行"（跨时间）→ get_top_events
-- 用户要"简报"、"日报"、"总结" → get_daily_brief
-- 用户说"大量数据"、"全部导出" → stream_events
+Tool Selection Guide:
+- User says "search", "find", "look up" -> search_events
+- User mentions "details", "tell me more" + fingerprint ID -> get_event_detail
+- User asks "why", "demands", "details" -> search_news_context (RAG)
+- User asks "statistics", "trends", "analysis" -> get_dashboard or analyze_time_series
+- User asks "map", "distribution", "heat" -> get_geo_heatmap
+- User asks "situation", "status", "how is" -> get_regional_overview
+- User asks "hot", "news", "what happened" (single day) -> get_hot_events
+- User asks "hottest", "Top", "ranking" (cross-time) -> get_top_events
+- User wants "brief", "daily report", "summary" -> get_daily_brief
+- User says "large data", "export all" -> stream_events
 
-工具组合建议：
-- 深度事件分析: search_events → get_event_detail → search_news_context
-- 区域态势: get_regional_overview + get_geo_heatmap
-- 时间趋势: analyze_time_series + analyze_conflict_cooperation
+Tool Combination Suggestions:
+- Deep event analysis: search_events -> get_event_detail -> search_news_context
+- Regional situation: get_regional_overview + get_geo_heatmap
+- Time trends: analyze_time_series + analyze_conflict_cooperation
 
-输出格式（严格 JSON）：
+Output Format (strict JSON):
 {
     "intent": "query|analysis|chat|clarification",
     "confidence": 0.95,
     "suggested_tools": ["tool1", "tool2"],
     "needs_llm": true,
-    "reasoning": "简要说明"
+    "reasoning": "brief explanation"
 }
 
-注意：
-1. 只输出 JSON，不要其他内容
-2. needs_llm: 复杂查询需要大模型推理时为 true，简单查询可为 false
-3. confidence: 0-1 之间的数字
-4. 优先使用新工具（V2），不要用旧的 query_by_actor 等"""
+Notes:
+1. Only output JSON, no other content
+2. needs_llm: true when complex query requires LLM reasoning, false for simple queries
+3. confidence: number between 0-1
+4. Prefer new tools (V2), don't use old ones like query_by_actor"""
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"用户输入: {text}"}
+            {"role": "user", "content": f"User input: {text}"}
         ]
         
-        # 添加上下文（最近3轮）
+        # Add context (last 3 rounds)
         if context:
             recent = context[-6:] if len(context) > 6 else context
             for msg in recent:
@@ -259,7 +259,7 @@ class OllamaRouter:
                     "stream": False,
                     "options": {"temperature": 0.1}
                 },
-                timeout=aiohttp.ClientTimeout(total=5)  # 5秒超时
+                timeout=aiohttp.ClientTimeout(total=5)  # 5 second timeout
             ) as resp:
                 if resp.status != 200:
                     raise Exception(f"Ollama error: {resp.status}")
@@ -267,13 +267,13 @@ class OllamaRouter:
                 data = await resp.json()
                 content = data["message"]["content"]
                 
-                # 解析 JSON
+                # Parse JSON
                 try:
-                    # 提取 JSON（防止有额外文本）
+                    # Extract JSON (in case of extra text)
                     json_match = re.search(r'\{.*\}', content, re.DOTALL)
                     if json_match:
                         json_str = json_match.group()
-                        # 尝试修复不完整的 JSON（缺少结尾 }）
+                        # Try to fix incomplete JSON (missing closing })
                         if not json_str.strip().endswith('}'):
                             json_str = json_str.strip() + '}'
                         result = json.loads(json_str)
@@ -289,15 +289,15 @@ class OllamaRouter:
                         reasoning=result.get("reasoning", "")
                     )
                 except json.JSONDecodeError:
-                    # 静默处理，使用 fallback
+                    # Silent handling, use fallback
                     logger.debug(f"Router JSON parse failed, using fallback: {content[:100]}...")
                     return self._fallback_classify(text)
     
     def _fallback_classify(self, text: str) -> RouterDecision:
-        """规则 Fallback - 当 Ollama 失败时使用"""
+        """Rule-based Fallback - used when Ollama fails"""
         text_lower = text.lower()
         
-        # Daily brief detection
+        # Daily brief detection (Chinese + English)
         if any(kw in text_lower for kw in ['简报', '日报', 'brief', 'daily report', 'news summary']):
             return RouterDecision(
                 intent="query",
@@ -308,7 +308,7 @@ class OllamaRouter:
                 reasoning="Fallback: daily brief request"
             )
         
-        # Analysis & Dashboard
+        # Analysis & Dashboard (Chinese + English)
         if any(kw in text_lower for kw in ['统计', '分析', '趋势', 'dashboard', '仪表盘']):
             return RouterDecision(
                 intent="analysis",
@@ -319,7 +319,7 @@ class OllamaRouter:
                 reasoning="Fallback: analysis keywords"
             )
         
-        # Geographic / Heatmap
+        # Geographic / Heatmap (Chinese + English)
         if any(kw in text_lower for kw in ['地图', '热力图', 'heatmap', '地理', '分布', '可视化']):
             return RouterDecision(
                 intent="analysis",
@@ -330,7 +330,7 @@ class OllamaRouter:
                 reasoning="Fallback: geographic visualization"
             )
         
-        # Time series / trends
+        # Time series / trends (Chinese)
         if any(kw in text_lower for kw in ['时间序列', '趋势', '变化', '走势', '时序']):
             return RouterDecision(
                 intent="analysis",
@@ -341,7 +341,7 @@ class OllamaRouter:
                 reasoning="Fallback: time series keywords"
             )
         
-        # Streaming / large data
+        # Streaming / large data (Chinese)
         if any(kw in text_lower for kw in ['导出', '全部', '所有', '流式', '大量数据']):
             return RouterDecision(
                 intent="query",
@@ -363,7 +363,7 @@ class OllamaRouter:
         )
     
     async def health_check(self) -> bool:
-        """检查 Ollama 是否可用"""
+        """Check if Ollama is available"""
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
