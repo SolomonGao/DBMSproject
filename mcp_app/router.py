@@ -141,6 +141,22 @@ class OllamaRouter:
                 reasoning="Simple greeting"
             )
         
+        # 每日简报/Daily Brief 查询
+        daily_brief_keywords = [
+            '简报', '日报', 'daily brief', 'daily report', 'news brief',
+            '今天新闻', '今日简报', '今天发生了什么', '新闻总结',
+            '新闻简报', '每日新闻', 'daily news', '今日新闻'
+        ]
+        if any(kw in text_lower for kw in daily_brief_keywords):
+            return RouterDecision(
+                intent="query",
+                cleaned_input=text,
+                confidence=0.95,
+                suggested_tools=["get_daily_brief"],
+                skip_llm=False,
+                reasoning="Daily brief request"
+            )
+        
         # 明确的数据库查询
         if any(kw in text_lower for kw in ['查询', '查找', '搜索', '查一下']):
             return None  # 需要模型进一步分析
@@ -278,10 +294,22 @@ class OllamaRouter:
                     return self._fallback_classify(text)
     
     def _fallback_classify(self, text: str) -> RouterDecision:
-        """规则 Fallback"""
+        """规则 Fallback - 当 Ollama 失败时使用"""
         text_lower = text.lower()
         
-        if any(kw in text_lower for kw in ['统计', '分析', '趋势', 'dashboard', '可视化']):
+        # Daily brief detection
+        if any(kw in text_lower for kw in ['简报', '日报', 'brief', 'daily report', 'news summary']):
+            return RouterDecision(
+                intent="query",
+                cleaned_input=text,
+                confidence=0.6,
+                suggested_tools=["get_daily_brief"],
+                skip_llm=False,
+                reasoning="Fallback: daily brief request"
+            )
+        
+        # Analysis & Dashboard
+        if any(kw in text_lower for kw in ['统计', '分析', '趋势', 'dashboard', '仪表盘']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -291,13 +319,47 @@ class OllamaRouter:
                 reasoning="Fallback: analysis keywords"
             )
         
+        # Geographic / Heatmap
+        if any(kw in text_lower for kw in ['地图', '热力图', 'heatmap', '地理', '分布', '可视化']):
+            return RouterDecision(
+                intent="analysis",
+                cleaned_input=text,
+                confidence=0.6,
+                suggested_tools=["get_geo_heatmap", "get_regional_overview"],
+                skip_llm=False,
+                reasoning="Fallback: geographic visualization"
+            )
+        
+        # Time series / trends
+        if any(kw in text_lower for kw in ['时间序列', '趋势', '变化', '走势', '时序']):
+            return RouterDecision(
+                intent="analysis",
+                cleaned_input=text,
+                confidence=0.6,
+                suggested_tools=["analyze_time_series"],
+                skip_llm=False,
+                reasoning="Fallback: time series keywords"
+            )
+        
+        # Streaming / large data
+        if any(kw in text_lower for kw in ['导出', '全部', '所有', '流式', '大量数据']):
+            return RouterDecision(
+                intent="query",
+                cleaned_input=text,
+                confidence=0.6,
+                suggested_tools=["stream_events", "stream_query_events"],
+                skip_llm=False,
+                reasoning="Fallback: streaming query"
+            )
+        
+        # Default: use core V2 tools
         return RouterDecision(
             intent="query",
             cleaned_input=text,
             confidence=0.6,
-            suggested_tools=["query_by_actor", "query_by_time_range"],
+            suggested_tools=["search_events", "get_top_events"],
             skip_llm=False,
-            reasoning="Fallback: default to query"
+            reasoning="Fallback: default to V2 search tools"
         )
     
     async def health_check(self) -> bool:

@@ -20,6 +20,7 @@ from fastmcp import FastMCP
 # 导入数据库连接
 from ..database import get_db_pool
 from ..cache import query_cache
+from ..services.gdelt_optimized import GDELTServiceOptimized
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,58 @@ class StreamQueryInput(BaseModel):
         description="最大返回数量",
         ge=1,
         le=1000
+    )
+
+
+class DashboardInput(BaseModel):
+    """仪表盘数据输入"""
+    start_date: str = Field(
+        ...,
+        description="开始日期，格式: YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$"
+    )
+    end_date: str = Field(
+        ...,
+        description="结束日期，格式: YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$"
+    )
+
+
+class TimeSeriesInput(BaseModel):
+    """时间序列分析输入"""
+    start_date: str = Field(
+        ...,
+        description="开始日期，格式: YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$"
+    )
+    end_date: str = Field(
+        ...,
+        description="结束日期，格式: YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$"
+    )
+    granularity: Literal['day', 'week', 'month'] = Field(
+        default='day',
+        description="时间粒度: day(日), week(周), month(月)"
+    )
+
+
+class GeoHeatmapInput(BaseModel):
+    """地理热力图输入"""
+    start_date: str = Field(
+        ...,
+        description="开始日期，格式: YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$"
+    )
+    end_date: str = Field(
+        ...,
+        description="结束日期，格式: YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$"
+    )
+    precision: int = Field(
+        default=2,
+        ge=1,
+        le=4,
+        description="坐标精度(小数位数)，越大精度越高"
     )
 
 
@@ -1137,7 +1190,215 @@ def register_core_tools(mcp: FastMCP):
             logger.error(f"流式查询失败: {e}")
             return f"❌ 流式查询失败: {str(e)}"
 
-    logger.info("✅ 核心工具V2已注册 (6个工具 + RAG + Streaming)")
+    # =======================================================================
+    # 优化分析工具 (并行查询 + 流式处理)
+    # =======================================================================
+    
+    @mcp.tool()
+    async def get_dashboard(params: DashboardInput) -> str:
+        """
+        【优化】仪表盘数据 - 并发获取多维度统计
+        
+        同时返回：每日趋势、Top 参与方、地理分布、事件类型分布、综合统计
+        比串行查询快 3-5 倍。
+        
+        适用场景:
+        - 快速概览某段时间的整体态势
+        - 获取多维度统计数据
+        - Dashboard 展示
+        """
+        try:
+            service = GDELTServiceOptimized()
+            dashboard = await service.get_dashboard_data(
+                params.start_date, params.end_date
+            )
+            
+            lines = ["# 📊 仪表盘数据\n"]
+            
+            summary = dashboard.get("summary_stats", {})
+            if "data" in summary and summary["data"]:
+                s = summary["data"][0]
+                lines.append(f"**统计周期**: {params.start_date} 至 {params.end_date}")
+                lines.append(f"- 总事件数: {s.get('total_events', 0):,}")
+                lines.append(f"- 独特参与方: {s.get('unique_actors', 0):,}")
+                lines.append(f"- 平均 Goldstein: {s.get('avg_goldstein', 0):.2f}")
+                lines.append("")
+            
+            daily = dashboard.get("daily_trend", {})
+            if "data" in daily:
+                lines.append("## 📈 每日趋势（前 7 天）")
+                for row in daily["data"][:7]:
+                    lines.append(f"- {row.get('SQLDATE')}: {row.get('cnt')} 事件")
+                lines.append("")
+            
+            actors = dashboard.get("top_actors", {})
+            if "data" in actors:
+                lines.append("## 🎭 Top 5 参与方")
+                for i, row in enumerate(actors["data"][:5], 1):
+                    lines.append(f"{i}. {row.get('Actor1Name')}: {row.get('cnt')} 事件")
+                lines.append("")
+            
+            total_time = sum(v.get("elapsed_ms", 0) for v in dashboard.values() if isinstance(v, dict))
+            lines.append(f"\n*查询耗时: {total_time:.0f}ms (并行优化)*")
+            
+            return "\n".join(lines)
+            
+        except Exception as e:
+            logger.error(f"仪表盘查询失败: {e}")
+            return f"❌ 查询失败: {str(e)}"
+    
+    
+    @mcp.tool()
+    async def analyze_time_series(params: TimeSeriesInput) -> str:
+        """
+        【优化】高级时间序列分析 - 数据库端聚合
+        
+        支持日/周/月粒度的时间趋势分析，全部在数据库端完成聚合，
+        只传输结果，极大减少网络开销。
+        
+        适用场景:
+        - 分析事件随时间的变化趋势
+        - 对比不同时间粒度的模式
+        - 识别周期性规律
+        """
+        try:
+            service = GDELTServiceOptimized()
+            results = await service.analyze_time_series_advanced(
+                params.start_date, params.end_date, params.granularity
+            )
+            
+            if not results:
+                return "📭 未找到数据"
+            
+            lines = [f"# 📈 时间序列分析 ({params.granularity})\n"]
+            lines.append(f"**时间范围**: {params.start_date} 至 {params.end_date}")
+            lines.append(f"**数据点**: {len(results)} 个")
+            lines.append("")
+            
+            for row in results[:20]:  # 最多显示20个
+                period = row.get("period")
+                lines.append(f"### {period}")
+                lines.append(f"- 事件数: {row.get('event_count', 0):,}")
+                lines.append(f"- 冲突比例: {row.get('conflict_pct', 0)}%")
+                lines.append(f"- 合作比例: {row.get('cooperation_pct', 0)}%")
+                lines.append(f"- 平均 Goldstein: {row.get('avg_goldstein', 0)}")
+                lines.append("")
+            
+            if len(results) > 20:
+                lines.append(f"_... 还有 {len(results) - 20} 个时间周期_")
+            
+            return "\n".join(lines)
+            
+        except Exception as e:
+            logger.error(f"时间序列分析失败: {e}")
+            return f"❌ 分析失败: {str(e)}"
+    
+    
+    @mcp.tool()
+    async def get_geo_heatmap(params: GeoHeatmapInput) -> str:
+        """
+        【优化】地理热力图数据 - 网格聚合
+        
+        将相近坐标聚合到网格，减少前端渲染压力。
+        返回热点经纬度、强度、平均冲突值等信息。
+        
+        适用场景:
+        - 在地图上可视化事件分布
+        - 识别热点区域
+        - 地理密度分析
+        """
+        try:
+            service = GDELTServiceOptimized()
+            results = await service.get_geo_heatmap(
+                params.start_date, params.end_date, params.precision
+            )
+            
+            if not results:
+                return "📭 未找到地理数据"
+            
+            heatmap_data = [
+                {
+                    "lat": float(row["lat"]),
+                    "lng": float(row["lng"]),
+                    "intensity": int(row["intensity"]),
+                    "avg_conflict": float(row["avg_conflict"]) if row["avg_conflict"] else None,
+                    "location": row["sample_location"]
+                }
+                for row in results[:100]
+            ]
+            
+            return f"""# 🗺️ 地理热力图数据
+
+**时间范围**: {params.start_date} 至 {params.end_date}
+**精度**: {params.precision} 位小数
+**热点数量**: {len(heatmap_data)}
+
+```json
+{json.dumps(heatmap_data[:10], indent=2, ensure_ascii=False)}
+```
+
+*完整数据共 {len(heatmap_data)} 条*
+
+**说明**: 
+- `intensity`: 该网格内的事件数量
+- `avg_conflict`: 平均冲突指数 (GoldsteinScale)
+- 使用 `lat` 和 `lng` 可在地图上标记热点
+"""
+        except Exception as e:
+            logger.error(f"热力图查询失败: {e}")
+            return f"❌ 查询失败: {str(e)}"
+    
+    
+    @mcp.tool()
+    async def stream_query_events(params: StreamQueryInput) -> str:
+        """
+        【优化】流式查询 - 处理大量数据
+        
+        使用服务器端游标流式读取数据，内存占用稳定，
+        无论数据量多大都能处理。
+        
+        适用场景:
+        - 需要导出大量事件
+        - 大数据量统计分析
+        - 内存敏感环境
+        
+        与 `stream_events` 的区别:
+        - 本工具按参与方名称搜索
+        - 支持模糊匹配 Actor1Name 和 Actor2Name
+        """
+        try:
+            service = GDELTServiceOptimized()
+            
+            lines = [f"# 🔍 流式查询结果: {params.actor_name}\n"]
+            lines.append("| 日期 | Actor1 | Actor2 | Goldstein | Tone | 位置 |")
+            lines.append("|------|--------|--------|-----------|------|------|")
+            
+            count = 0
+            async for row in service.stream_events_by_actor(
+                params.actor_name, params.start_date, params.end_date
+            ):
+                lines.append(
+                    f"| {row.get('SQLDATE')} | "
+                    f"{str(row.get('Actor1Name', 'N/A'))[:15]} | "
+                    f"{str(row.get('Actor2Name', 'N/A'))[:15]} | "
+                    f"{row.get('GoldsteinScale', 'N/A')} | "
+                    f"{row.get('AvgTone', 'N/A')} | "
+                    f"{str(row.get('ActionGeo_FullName', 'N/A'))[:20]} |"
+                )
+                
+                count += 1
+                if count >= params.max_results:
+                    lines.append("| ... | (更多结果截断) | ... | ... | ... | ... |")
+                    break
+            
+            lines.append(f"\n*共返回 {count} 条结果 (流式读取)*")
+            return "\n".join(lines)
+            
+        except Exception as e:
+            logger.error(f"流式查询失败: {e}")
+            return f"❌ 流式查询失败: {str(e)}"
+
+    logger.info("✅ 核心工具V2已注册 (6个基础工具 + RAG + 4个优化分析工具)")
 
 
 # ============================================================================
