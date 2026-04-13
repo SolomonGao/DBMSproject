@@ -24,6 +24,9 @@ const elements = {
     composerInput: document.getElementById("composerInput"),
     sendButton: document.getElementById("sendButton"),
     errorBanner: document.getElementById("errorBanner"),
+    thinkingBanner: document.getElementById("thinkingBanner"),
+    thinkingBannerText: document.getElementById("thinkingBannerText"),
+    thinkingBannerTime: document.getElementById("thinkingBannerTime"),
     messageTemplate: document.getElementById("messageTemplate"),
     typingTemplate: document.getElementById("typingTemplate"),
     thinkingTemplate: document.getElementById("thinkingTemplate"),
@@ -280,10 +283,22 @@ function buildMessageNode(message) {
     avatar.textContent = message.role === "user" ? "You" : "AI";
     role.textContent = message.role === "user" ? "You" : "Assistant";
     time.textContent = formatTime(message.createdAt);
-    content.textContent = message.content || "(No response content)";
+
+    const hasRealContent = message.content && message.content.trim();
+    if (!hasRealContent && message.thinking_process && message.thinking_process.length > 0) {
+        const routerStep = message.thinking_process.find((s) => s.type === "router_decision");
+        const suggested = routerStep?.suggested_tools?.join(", ") || "";
+        if (suggested) {
+            content.innerHTML = `<em style="color:var(--muted)">The model returned an empty response, but suggested using: <strong>${suggested}</strong>. Please try sending again or rephrase your question.</em>`;
+        } else {
+            content.textContent = "(The model returned an empty response. Please try again.)";
+        }
+    } else {
+        content.textContent = message.content || "(No response content)";
+    }
 
     if (message.thinking_process && message.thinking_process.length > 0) {
-        const isEmptyContent = !message.content || !message.content.trim();
+        const isEmptyContent = !hasRealContent;
         const thinkingNode = buildThinkingNode(message.thinking_process, isEmptyContent);
         article.querySelector(".message__body").appendChild(thinkingNode);
     }
@@ -392,6 +407,27 @@ function focusComposer() {
     elements.composerInput.focus();
 }
 
+function updateThinkingStatus(startTime) {
+    const elapsedMs = Date.now() - startTime;
+    const elapsedSec = Math.floor(elapsedMs / 1000);
+
+    let status = "Thinking...";
+    if (elapsedSec < 5) {
+        status = "Analyzing your question...";
+    } else if (elapsedSec < 15) {
+        status = "Router identified intent, preparing tools...";
+    } else if (elapsedSec < 30) {
+        status = "Querying the database...";
+    } else if (elapsedSec < 60) {
+        status = "Processing large dataset (this may take a minute)...";
+    } else {
+        status = "Almost there, finalizing response...";
+    }
+
+    elements.thinkingBannerText.textContent = status;
+    elements.thinkingBannerTime.textContent = `${elapsedSec}s`;
+}
+
 async function fetchHealth() {
     try {
         const response = await fetch("/api/health");
@@ -442,8 +478,15 @@ async function sendCurrentPrompt() {
     state.abortController = new AbortController();
     elements.sendButton.textContent = "Stop";
     elements.sendButton.classList.add("is-stopping");
+    elements.thinkingBanner.hidden = false;
     elements.messageList.appendChild(buildTypingNode());
     scrollMessagesToBottom();
+
+    const requestStartTime = Date.now();
+    const thinkingInterval = setInterval(() => {
+        updateThinkingStatus(requestStartTime);
+    }, 1000);
+    updateThinkingStatus(requestStartTime);
 
     try {
         console.log("[UI] Sending chat request...");
@@ -484,10 +527,12 @@ async function sendCurrentPrompt() {
             showError(error.message || "Failed to send the message.");
         }
     } finally {
+        clearInterval(thinkingInterval);
         state.requestInFlight = false;
         state.abortController = null;
         elements.sendButton.textContent = "Send";
         elements.sendButton.classList.remove("is-stopping");
+        elements.thinkingBanner.hidden = true;
         render();
         focusComposer();
     }

@@ -469,6 +469,39 @@ textarea {
     border: 1px solid rgba(166, 63, 46, 0.18);
 }
 
+.thinking-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    border-radius: 16px;
+    padding: 12px 14px;
+    background: rgba(14, 90, 84, 0.08);
+    color: var(--accent);
+    border: 1px solid rgba(14, 90, 84, 0.18);
+    font-size: 0.92rem;
+    font-weight: 600;
+}
+
+.thinking-banner__spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(14, 90, 84, 0.25);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.thinking-banner[hidden] {
+    display: none;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .thinking-process {
     margin-top: 12px;
     border-radius: 18px;

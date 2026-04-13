@@ -261,6 +261,24 @@ User input: {prompt}"""
                 on_step=on_step,
             )
 
+            # Auto-retry if LLM returned empty but router suggested tools
+            if not reply.strip() and router_decision and router_decision.suggested_tools:
+                tools_hint = ", ".join(router_decision.suggested_tools)
+                self.logger.warning(f"LLM returned empty response despite router suggesting {tools_hint}. Retrying with nudge...")
+                thinking_steps.append({
+                    "type": "auto_retry",
+                    "reason": f"Empty response with suggested tools: {tools_hint}",
+                })
+                llm_client.add_system_message(
+                    f"The router strongly suggests calling these tools: {tools_hint}. "
+                    "Do not describe your plan. Call the tools immediately."
+                )
+                reply = await llm_client.chat(
+                    tools=mcp_client.tools,
+                    tool_executor=mcp_client.create_tool_executor(),
+                    on_step=on_step,
+                )
+
             return {
                 "reply": reply,
                 "reply_length": len(reply) if reply else 0,
