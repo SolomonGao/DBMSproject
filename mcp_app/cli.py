@@ -8,6 +8,7 @@ CLI Interface:
 """
 
 import asyncio
+import re
 import sys
 from typing import Optional
 
@@ -367,6 +368,21 @@ When you see "[System hint: suggested tools: ...]", consider these recommendatio
                             if not self.handle_command(user_input):
                                 break
                             continue
+                        
+                        # Force direct tool execution for get_event_detail with fingerprint (bypass LLM laziness)
+                        if router_decision and "get_event_detail" in router_decision.suggested_tools:
+                            fp_match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', user_input)
+                            if fp_match:
+                                fingerprint = fp_match.group(0)
+                                print(f"{self.EMOJI['info']} [Router] Retrieving event details for {fingerprint}...")
+                                try:
+                                    result = await self.mcp.call_tool("get_event_detail", {"params": {"fingerprint": fingerprint, "include_causes": True}})
+                                    print(f"{self.EMOJI['ai']} AI: {result}")
+                                    print()
+                                    self.llm.add_assistant_message(result)
+                                    continue
+                                except Exception as exc:
+                                    logger.error(f"Direct get_event_detail failed: {exc}")
                         
                         # If Router suggests skipping LLM (e.g., safety filter, direct response)
                         if router_decision.skip_llm:

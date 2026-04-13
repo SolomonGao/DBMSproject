@@ -283,22 +283,10 @@ function buildMessageNode(message) {
     avatar.textContent = message.role === "user" ? "You" : "AI";
     role.textContent = message.role === "user" ? "You" : "Assistant";
     time.textContent = formatTime(message.createdAt);
-
-    const hasRealContent = message.content && message.content.trim();
-    if (!hasRealContent && message.thinking_process && message.thinking_process.length > 0) {
-        const routerStep = message.thinking_process.find((s) => s.type === "router_decision");
-        const suggested = routerStep?.suggested_tools?.join(", ") || "";
-        if (suggested) {
-            content.innerHTML = `<em style="color:var(--muted)">The model returned an empty response, but suggested using: <strong>${suggested}</strong>. Please try sending again or rephrase your question.</em>`;
-        } else {
-            content.textContent = "(The model returned an empty response. Please try again.)";
-        }
-    } else {
-        content.textContent = message.content || "(No response content)";
-    }
+    content.textContent = message.content || "(No response content)";
 
     if (message.thinking_process && message.thinking_process.length > 0) {
-        const isEmptyContent = !hasRealContent;
+        const isEmptyContent = !message.content || !message.content.trim();
         const thinkingNode = buildThinkingNode(message.thinking_process, isEmptyContent);
         article.querySelector(".message__body").appendChild(thinkingNode);
     }

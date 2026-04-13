@@ -9,6 +9,7 @@ LLM Client:
 
 import asyncio
 import json
+import re
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 
 import httpx
@@ -203,6 +204,37 @@ class LLMClient:
                 # Fallback: if content is empty but reasoning exists, use reasoning as reply
                 if not content.strip():
                     content = message.reasoning_content
+            
+            # Backend force execution for get_event_detail when LLM returns empty
+            if not content.strip() and tools and tool_executor:
+                fingerprint = None
+                for msg in reversed(self.messages):
+                    if msg.get("role") == "user":
+                        match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', msg.get("content", ""))
+                        if match:
+                            fingerprint = match.group(0)
+                            break
+                
+                has_event_detail = any(
+                    t.get("function", {}).get("name") == "get_event_detail"
+                    for t in tools
+                )
+                
+                if fingerprint and has_event_detail:
+                    logger.warning(f"Backend forcing get_event_detail({fingerprint})")
+                    if on_step:
+                        on_step("backend_force_execution", {"tool": "get_event_detail", "fingerprint": fingerprint})
+                    try:
+                        result = await tool_executor("get_event_detail", {"params": {"fingerprint": fingerprint, "include_causes": True}})
+                        self.add_assistant_message(f"I have retrieved the event details for {fingerprint}.")
+                        self.add_user_message(
+                            f"Here is the raw data:\n{result}\n\n"
+                            "Please summarize this event in a clear, concise way for the user."
+                        )
+                        return await self.chat(tools=None, tool_executor=None, on_step=on_step)
+                    except Exception as exc:
+                        logger.exception(f"Forced tool execution failed: {exc}")
+                        content = f"Failed to retrieve event details: {exc}"
             
             # Final fallback for completely empty responses
             if not content.strip():

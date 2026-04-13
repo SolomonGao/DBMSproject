@@ -5,6 +5,7 @@ import asyncio
 import json
 import mimetypes
 import os
+import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -198,12 +199,37 @@ class WebChatService:
                         "reasoning": router_decision.reasoning,
                     })
 
+                    # Force direct tool execution for get_event_detail with fingerprint (bypass LLM laziness)
+                    if router_decision and "get_event_detail" in router_decision.suggested_tools:
+                        fp_match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', prompt)
+                        if fp_match:
+                            fingerprint = fp_match.group(0)
+                            self.logger.info(f"Directly executing get_event_detail({fingerprint})")
+                            thinking_steps.append({
+                                "type": "direct_tool_execution",
+                                "tool": "get_event_detail",
+                                "fingerprint": fingerprint,
+                            })
+                            try:
+                                result = await mcp_client.call_tool(
+                                    "get_event_detail",
+                                    {"params": {"fingerprint": fingerprint, "include_causes": True}}
+                                )
+                                return {
+                                    "reply": result,
+                                    "provider": self.config.llm_provider,
+                                    "model": self.config.llm_model,
+                                    "tool_names": tool_names,
+                                    "thinking_process": thinking_steps,
+                                }
+                            except Exception as exc:
+                                self.logger.exception(f"Direct get_event_detail failed: {exc}")
+
                     # If Router suggests skipping LLM (e.g., safety filter, direct response)
                     if router_decision.skip_llm:
                         direct = router_decision.direct_response or ""
                         return {
                             "reply": direct,
-                            "reply_length": len(direct),
                             "provider": self.config.llm_provider,
                             "model": self.config.llm_model,
                             "tool_names": tool_names,
@@ -261,27 +287,33 @@ User input: {prompt}"""
                 on_step=on_step,
             )
 
-            # Auto-retry if LLM returned empty but router suggested tools
-            if not reply.strip() and router_decision and router_decision.suggested_tools:
-                tools_hint = ", ".join(router_decision.suggested_tools)
-                self.logger.warning(f"LLM returned empty response despite router suggesting {tools_hint}. Retrying with nudge...")
-                thinking_steps.append({
-                    "type": "auto_retry",
-                    "reason": f"Empty response with suggested tools: {tools_hint}",
-                })
-                llm_client.add_system_message(
-                    f"The router strongly suggests calling these tools: {tools_hint}. "
-                    "Do not describe your plan. Call the tools immediately."
-                )
-                reply = await llm_client.chat(
-                    tools=mcp_client.tools,
-                    tool_executor=mcp_client.create_tool_executor(),
-                    on_step=on_step,
-                )
+            # Server-side fallback for get_event_detail empty responses
+            if not reply.strip() and router_decision and "get_event_detail" in router_decision.suggested_tools:
+                fp_match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', prompt)
+                if fp_match:
+                    fingerprint = fp_match.group(0)
+                    self.logger.warning(f"Server forcing get_event_detail({fingerprint})")
+                    thinking_steps.append({
+                        "type": "server_force_execution",
+                        "tool": "get_event_detail",
+                        "fingerprint": fingerprint,
+                    })
+                    try:
+                        tool_result = await mcp_client.call_tool(
+                            "get_event_detail",
+                            {"params": {"fingerprint": fingerprint, "include_causes": True}}
+                        )
+                        llm_client.add_assistant_message(f"Retrieved event details for {fingerprint}.")
+                        llm_client.add_user_message(
+                            f"Raw data:\n{tool_result}\n\nSummarize clearly."
+                        )
+                        reply = await llm_client.chat(tools=None, tool_executor=None, on_step=on_step)
+                    except Exception as exc:
+                        self.logger.exception(f"Server forced execution failed: {exc}")
+                        reply = f"Failed to retrieve details: {exc}"
 
             return {
                 "reply": reply,
-                "reply_length": len(reply) if reply else 0,
                 "provider": self.config.llm_provider,
                 "model": self.config.llm_model,
                 "tool_names": tool_names,
