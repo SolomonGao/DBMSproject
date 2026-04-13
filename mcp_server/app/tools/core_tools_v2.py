@@ -163,6 +163,20 @@ class GetDailyBriefInput(BaseModel):
     )
 
 
+class NewsSearchInput(BaseModel):
+    """新闻语义搜索 - RAG向量检索"""
+    query: str = Field(
+        ...,
+        description="英文语义搜索查询词，如 'protesters demanding climate action', 'police response to protests'"
+    )
+    n_results: int = Field(
+        default=3,
+        description="返回的相关新闻数量",
+        ge=1,
+        le=10
+    )
+
+
 # ============================================================================
 # 工具注册函数
 # ============================================================================
@@ -180,10 +194,41 @@ def register_core_tools(mcp: FastMCP):
         - "中东军事冲突" → location_hint=Middle East, event_type=conflict
         - "中美经济往来" → query="China US economic"
         """
-        # 解析时间提示
-        date_start, date_end = _parse_time_hint(params.time_hint)
+        # 解析时间提示（如果没有提供，尝试从 query 提取）
+        time_hint = params.time_hint
+        if not time_hint and params.query:
+            # 从 query 中提取时间关键词
+            import re
+            query_lower = params.query.lower()
+            
+            # 匹配 "2024年" 或 "2024"
+            year_match = re.search(r'(\d{4})\s*年?', query_lower)
+            if year_match:
+                year = year_match.group(1)
+                # 检查是否有月份
+                month_match = re.search(r'(\d{1,2})\s*月', query_lower)
+                if month_match:
+                    month = month_match.group(1).zfill(2)
+                    time_hint = f"{year}-{month}"
+                else:
+                    time_hint = year  # 整年
+            
+            # 匹配 "1月"、"一月" 等（当年）
+            elif re.search(r'(\d{1,2}|一|二|三|四|五|六|七|八|九|十|十一|十二)\s*月', query_lower):
+                month_map = {'一': '01', '二': '02', '三': '03', '四': '04', '五': '05', '六': '06',
+                            '七': '07', '八': '08', '九': '09', '十': '10', '十一': '11', '十二': '12'}
+                month_match = re.search(r'(\d{1,2}|一|二|三|四|五|六|七|八|九|十|十一|十二)\s*月', query_lower)
+                if month_match:
+                    month = month_match.group(1)
+                    if month in month_map:
+                        month = month_map[month]
+                    else:
+                        month = month.zfill(2)
+                    time_hint = f"2024-{month}"  # 默认2024年
         
-        # 构建查询 (优先使用预计算表，回退到实时查询)
+        date_start, date_end = _parse_time_hint(time_hint)
+        
+        # 构建查询 (JOIN event_fingerprints 获取指纹信息)
         query = f"""
         SELECT 
             e.GlobalEventID,
@@ -198,8 +243,14 @@ def register_core_tools(mcp: FastMCP):
             e.ActionGeo_FullName,
             e.ActionGeo_CountryCode,
             e.ActionGeo_Lat,
-            e.ActionGeo_Long
+            e.ActionGeo_Long,
+            f.fingerprint,
+            f.headline,
+            f.summary,
+            f.event_type_label,
+            f.severity_score
         FROM {DEFAULT_TABLE} e
+        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
         WHERE 1=1
         """
         
@@ -233,9 +284,10 @@ def register_core_tools(mcp: FastMCP):
         if conditions:
             query += " AND " + " AND ".join(conditions)
         
-        # 排序和限制
+        # 排序：优先有指纹的（信息更丰富），然后按热度排序
         query += f"""
         ORDER BY 
+            CASE WHEN f.fingerprint IS NOT NULL THEN 1 ELSE 0 END DESC,
             e.NumArticles * ABS(e.GoldsteinScale) DESC
         LIMIT {params.max_results}
         """
@@ -873,8 +925,165 @@ def register_core_tools(mcp: FastMCP):
         except Exception as e:
             logger.error(f"获取每日简报失败: {e}")
             return f"❌ 查询失败: {str(e)}"
+    
+    
+    # ========================================================================
+    # RAG 语义搜索工具 (来自 txx_docker)
+    # ========================================================================
+    
+    @mcp.tool()
+    async def search_news_context(params: NewsSearchInput) -> str:
+        """
+        【RAG 语义搜索】查询新闻知识库获取真实报道细节
+        
+        当用户需要了解:
+        - 事件的具体起因
+        - 人群的具体诉求
+        - 警方的回应
+        - 事件的详细背景
+        
+        时调用此工具搜索向量知识库中的真实新闻文本。
+        
+        示例查询:
+        - "protesters demanding climate action"
+        - "police response to Washington protest"
+        - "Texas border conflict reasons"
+        """
+        try:
+            import os
+            import chromadb
+            from chromadb.utils import embedding_functions
+            
+            # 初始化 ChromaDB
+            db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../chroma_db'))
+            
+            if not os.path.exists(db_path):
+                return f"❌ 向量数据库未找到: {db_path}\n请先运行: python start_kb.py 构建知识库"
+            
+            client = chromadb.PersistentClient(path=db_path)
+            ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name="all-MiniLM-L6-v2"
+            )
+            
+            try:
+                collection = client.get_collection(
+                    name="gdelt_news_collection",
+                    embedding_function=ef
+                )
+            except Exception:
+                return "❌ 新闻集合未找到，请先构建知识库"
+            
+            # 执行语义检索
+            results = collection.query(
+                query_texts=[params.query],
+                n_results=params.n_results
+            )
+            
+            if not results['documents'] or not results['documents'][0]:
+                return f"📭 知识库中未找到与 '{params.query}' 相关的新闻报道。\n\n建议:\n1. 尝试不同的英文关键词\n2. 检查知识库是否已构建 (运行 start_kb.py)"
+            
+            # 格式化结果
+            output = [f"# 🔍 RAG 语义搜索结果: '{params.query}'\n"]
+            output.append(f"找到 {len(results['documents'][0])} 篇相关新闻:\n")
+            
+            for i in range(len(results['documents'][0])):
+                doc_text = results['documents'][0][i]
+                event_id = results['ids'][0][i]
+                url = results['metadatas'][0][i].get('source_url', 'Unknown')
+                date = results['metadatas'][0][i].get('date', 'Unknown')
+                
+                # 截取前1000字符
+                snippet = doc_text[:1000] + "..." if len(doc_text) > 1000 else doc_text
+                
+                output.append(f"## 📰 结果 {i+1}")
+                output.append(f"- **Event ID**: {event_id}")
+                output.append(f"- **Date**: {date}")
+                output.append(f"- **Source**: {url}")
+                output.append(f"\n**内容摘要**:\n{snippet}\n")
+            
+            return "\n".join(output)
+            
+        except ImportError:
+            return "❌ ChromaDB 未安装，请运行: pip install chromadb sentence-transformers"
+        except Exception as e:
+            logger.error(f"RAG搜索失败: {e}")
+            return f"❌ RAG搜索失败: {str(e)}"
+    
+    
+    # ========================================================================
+    # 流式查询工具 (来自 txx_docker)
+    # ========================================================================
+    
+    @mcp.tool()
+    async def stream_events(params: StreamQueryInput) -> str:
+        """
+        【流式查询】处理大量事件数据，内存友好
+        
+        当需要处理大量事件时使用（如"分析全年所有抗议事件"），
+        流式读取避免一次性加载到内存。
+        
+        适用场景:
+        - 数据导出前的预览
+        - 大量事件的统计分析
+        - 内存敏感的环境
+        
+        示例:
+        - actor_name="Protest" - 查找所有抗议相关事件
+        - actor_name="USA" + 时间范围 - 美国全年事件
+        """
+        try:
+            from ..database.streaming import StreamingQuery
+            from ..database import get_db_pool
+            
+            pool = await get_db_pool()
+            streaming = StreamingQuery(pool, chunk_size=50)
+            
+            # 构建查询
+            date_filter = ""
+            params_list = [f"%{params.actor_name}%", f"%{params.actor_name}%"]
+            
+            if params.start_date and params.end_date:
+                date_filter = "AND SQLDATE BETWEEN %s AND %s"
+                params_list.extend([params.start_date, params.end_date])
+            
+            query = f"""
+                SELECT SQLDATE, Actor1Name, Actor2Name, EventCode,
+                       GoldsteinScale, AvgTone, ActionGeo_FullName,
+                       ActionGeo_Lat, ActionGeo_Long
+                FROM {DEFAULT_TABLE}
+                WHERE (Actor1Name LIKE %s OR Actor2Name LIKE %s)
+                {date_filter}
+                ORDER BY SQLDATE DESC
+            """
+            
+            output = [f"# 🔍 流式查询结果: {params.actor_name}", ""]
+            output.append("| 日期 | Actor1 | Actor2 | Goldstein | Tone | 位置 |")
+            output.append("|------|--------|--------|-----------|------|------|")
+            
+            count = 0
+            async for row in streaming.stream(query, tuple(params_list)):
+                output.append(
+                    f"| {row.get('SQLDATE')} | "
+                    f"{str(row.get('Actor1Name', 'N/A'))[:15]} | "
+                    f"{str(row.get('Actor2Name', 'N/A'))[:15]} | "
+                    f"{row.get('GoldsteinScale', 'N/A')} | "
+                    f"{row.get('AvgTone', 'N/A')} | "
+                    f"{str(row.get('ActionGeo_FullName', 'N/A'))[:20]} |"
+                )
+                
+                count += 1
+                if count >= params.max_results:
+                    output.append("| ... | (更多结果...) | ... | ... | ... | ... |")
+                    break
+            
+            output.append(f"\n*共返回 {count} 条结果 (流式读取)*")
+            return "\n".join(output)
+            
+        except Exception as e:
+            logger.error(f"流式查询失败: {e}")
+            return f"❌ 流式查询失败: {str(e)}"
 
-    logger.info("✅ 核心工具V2已注册 (5个工具)")
+    logger.info("✅ 核心工具V2已注册 (6个工具 + RAG + Streaming)")
 
 
 # ============================================================================
@@ -897,6 +1106,10 @@ def _parse_time_hint(time_hint: Optional[str]) -> tuple:
         start = end - timedelta(days=7)
     elif time_hint == 'this_month':
         start = end - timedelta(days=30)
+    elif len(time_hint) == 4 and time_hint.isdigit():  # YYYY (如 "2024")
+        # 整年范围
+        start = datetime.strptime(time_hint + "-01-01", '%Y-%m-%d').date()
+        end = datetime.strptime(time_hint + "-12-31", '%Y-%m-%d').date()
     elif len(time_hint) == 7:  # YYYY-MM
         start = datetime.strptime(time_hint + "-01", '%Y-%m-%d').date()
         end = (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
@@ -923,12 +1136,16 @@ def _calculate_risk_level(intensity: float) -> str:
 
 
 def _format_search_results_v2(rows: list, columns: list, original_query: str) -> str:
-    """格式化搜索结果V2"""
+    """格式化搜索结果V2 - 使用ETL指纹系统"""
     if not rows:
         return f"❌ 未找到与 '{original_query}' 相关的事件"
     
     output = [f"# 🔍 搜索结果: '{original_query}'", ""]
-    output.append(f"找到 {len(rows)} 个相关事件:\n")
+    
+    # 统计指纹覆盖情况
+    fp_idx = columns.index('fingerprint') if 'fingerprint' in columns else -1
+    with_fingerprint = sum(1 for row in rows if fp_idx >= 0 and row[fp_idx]) if fp_idx >= 0 else 0
+    output.append(f"找到 {len(rows)} 个相关事件 (其中 {with_fingerprint} 个有ETL指纹)\n")
     
     for i, row in enumerate(rows, 1):
         data = dict(zip(columns, row))
@@ -941,29 +1158,51 @@ def _format_search_results_v2(rows: list, columns: list, original_query: str) ->
         articles = data.get('NumArticles', 0) or 0
         event_root = str(data.get('EventRootCode', ''))[:2]
         
-        # 事件类型标签
-        type_labels = {
-            '01': '声明', '02': '呼吁', '03': '意向',
-            '04': '磋商', '05': '合作', '06': '援助',
-            '07': '援助', '08': '援助', '09': '让步',
-            '10': '要求', '11': '不满', '12': '拒绝',
-            '13': '威胁', '14': '抗议', '15': '武力展示',
-            '16': '降级', '17': '强制', '18': '摩擦',
-            '19': '冲突', '20': '攻击'
-        }
-        event_label = type_labels.get(event_root, '事件')
+        # 优先使用ETL生成的指纹，否则使用临时指纹
+        fingerprint = data.get('fingerprint')
+        if fingerprint:
+            fp_display = f"📌 {fingerprint}"  # 标准指纹
+            fp_type = "标准"
+        else:
+            gid = data.get('GlobalEventID', '0')
+            fingerprint = f"EVT-{date}-{gid}"
+            fp_display = f"📝 {fingerprint}"  # 临时指纹
+            fp_type = "临时"
         
-        # 生成临时指纹
-        gid = data.get('GlobalEventID', '0')
-        temp_fp = f"EVT-{date}-{gid}"
+        # 使用ETL生成的事件类型标签（如果有）
+        event_label = data.get('event_type_label')
+        if not event_label:
+            type_labels = {
+                '01': '声明', '02': '呼吁', '03': '意向',
+                '04': '磋商', '05': '合作', '06': '援助',
+                '07': '援助', '08': '援助', '09': '让步',
+                '10': '要求', '11': '不满', '12': '拒绝',
+                '13': '威胁', '14': '抗议', '15': '武力展示',
+                '16': '降级', '17': '强制', '18': '摩擦',
+                '19': '冲突', '20': '攻击'
+            }
+            event_label = type_labels.get(event_root, '事件')
         
         output.append(f"## {i}. {actor1} vs {actor2} [{event_label}]")
-        output.append(f"**指纹**: `{temp_fp}`")
+        output.append(f"**指纹** ({fp_type}): `{fp_display}`")
+        
+        # 显示ETL生成的摘要（如果有）
+        headline = data.get('headline')
+        if headline:
+            output.append(f"**标题**: {headline}")
+        
+        summary = data.get('summary')
+        if summary:
+            # 截断长摘要
+            short_summary = summary[:100] + "..." if len(summary) > 100 else summary
+            output.append(f"**摘要**: {short_summary}")
+        
         output.append(f"**时间**: {date} | **地点**: {location}")
         output.append(f"**冲突指数**: {goldstein:.1f} | **报道量**: {articles} 篇")
         output.append("")
     
-    output.append("💡 _提示：使用 `get_event_detail` 查看事件详情_")
+    output.append("💡 **提示**: 使用 `get_event_detail(fingerprint='...')` 查看事件详情")
+    output.append("📌 标准指纹：ETL已处理，信息完整 | 📝 临时指纹：实时生成，基础信息")
     return "\n".join(output)
 
 

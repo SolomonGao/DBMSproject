@@ -165,42 +165,137 @@ Step 4: 叙事合成
 
 ---
 
-## 🛠️ MCP 工具集（15个）
+## 🛠️ MCP 工具集（18个）
 
-### 基础查询工具（4个）
+### 核心意图驱动工具（6个）- 用户驱动版本
 
-| 工具 | 用途 | 示例 |
-|------|------|------|
-| `get_schema` | 查看表结构 | `get_schema()` |
-| `execute_sql` | 自定义SQL | `execute_sql("SELECT * FROM events LIMIT 10")` |
-| `query_by_time_range` | 时间查询 | `query_by_time_range("2024-01-01", "2024-01-31")` |
-| `query_by_actor` | 参与方查询 | `query_by_actor("USA", limit=50)` |
+| 工具 | 用途 | 示例 | 返回 |
+|------|------|------|------|
+| `search_events` | ⭐ 智能事件搜索（核心入口） | `"1月华盛顿的抗议"` | 事件列表（带指纹ID） |
+| `get_event_detail` | 获取事件详情（通过指纹） | `fingerprint="US-20240115-WDC-PROTEST-001"` | 详细信息 |
+| `get_regional_overview` | 区域态势概览 | `region="Middle East"` | 态势评分+热点 |
+| `get_hot_events` | 单日热点推荐 | `date="2024-01-15"` | TOP事件 |
+| `get_top_events` | 时间段热度排行 | `start_date="2024-01-01"` | 热度排序 |
+| `get_daily_brief` | 每日简报 | - | 摘要报告 |
 
-### 统计分析工具（4个）
+### RAG & 语义理解（2个）- txx_docker
 
-| 工具 | 用途 | 优化 |
-|------|------|------|
-| `get_dashboard` | 仪表盘（5查询并行） | ⭐ 并行执行，最快 |
-| `analyze_time_series` | 时间序列分析 | 数据库端聚合 |
-| `analyze_conflict_cooperation` | 冲突/合作趋势 | 预计算数据 |
-| `get_geo_heatmap` | 地理热力图 | 网格预计算 |
+| 工具 | 用途 | 示例 | 数据来源 |
+|------|------|------|---------|
+| `search_news_context` | ⭐ RAG语义搜索 | `"protesters demanding climate action"` | ChromaDB 向量库 |
+| `stream_events` | 流式大数据查询（内存友好） | `actor_name="Protest"` | MySQL SSCursor |
 
-### RAG / 高级工具（5个）
+### 统计分析 & 优化工具（6个）- txx_docker
 
-| 工具 | 用途 | 数据来源 |
+| 工具 | 用途 | 优化技术 |
 |------|------|---------|
-| `search_news_context` | ⭐ RAG语义搜索 | ChromaDB 向量库 |
-| `stream_query_events` | 流式大数据查询 | MySQL 流式读取 |
+| `get_dashboard` | 仪表盘（多维度统计） | 5查询并行执行 |
+| `analyze_time_series` | 时间序列分析 | 数据库端聚合 |
+| `analyze_conflict_cooperation` | 冲突/合作趋势 | 预计算表 |
+| `get_geo_heatmap` | 地理热力图 | 空间索引+网格 |
 | `get_cache_stats` | 缓存诊断 | 内存统计 |
 | `clear_cache` | 清空缓存 | - |
-| `generate_chart` | 图表配置生成 | - |
 
-### 辅助工具（2个）
+### 基础查询工具（3个）
+
+| 工具 | 用途 | 说明 |
+|------|------|------|
+| `query_by_location` | 地理位置查询 | 支持空间索引 |
+| `query_by_time_range` | 时间范围查询 | 带缓存 |
+| `query_by_actor` | 参与方查询 | 带缓存 |
+| `execute_sql` | 自定义SQL | 通用接口 |
+
+### 辅助工具（1个）
 
 | 工具 | 用途 |
 |------|------|
-| `get_schema_guide` | 显示字段说明和示例 |
-| `get_schema` | 查看表结构 |
+| `get_schema_guide` | 字段说明和示例 |
+
+---
+
+## 🔗 工具关联使用指南
+
+### 典型工作流
+
+```
+工作流1: 深度事件分析
+👤 "华盛顿抗议事件的详情"
+   ↓
+1. search_events("华盛顿 抗议") 
+   → 返回事件列表 [{指纹: US-20240115-WDC-001}, ...]
+   ↓
+2. get_event_detail(fingerprint="US-20240115-WDC-001")
+   → 时空数据 + 基础信息
+   ↓
+3. search_news_context("Washington protest demands")
+   → 新闻原文 + 具体诉求
+   ↓
+🤖 综合分析报告（数据+新闻）
+
+工作流2: 区域态势感知
+👤 "中东局势怎么样？"
+   ↓
+1. get_regional_overview(region="Middle East")
+   → 态势评分 + 统计数据
+   ↓
+2. get_geo_heatmap(start_date, end_date)
+   → 地理热力图
+   ↓
+3. get_hot_events(date)
+   → 当日热点事件
+   ↓
+🤖 完整态势报告
+
+工作流3: 主题追踪分析
+👤 "追踪全年气候变化抗议"
+   ↓
+1. stream_events(actor_name="Climate", max_results=1000)
+   → 大量事件流式读取
+   ↓
+2. analyze_time_series(start_date, end_date, granularity="month")
+   → 月度趋势分析
+   ↓
+3. search_news_context("climate protest demands 2024")
+   → 新闻诉求分析
+   ↓
+🤖 主题追踪报告
+```
+
+### 工具依赖关系
+
+```
+search_events ─┬─→ get_event_detail ─┬─→ search_news_context (RAG)
+               │                      └─→ query_by_location (空间扩展)
+               └─→ get_geo_heatmap
+
+get_dashboard ─┬─→ analyze_time_series
+               └─→ analyze_conflict_cooperation
+```
+
+### 指纹系统流转
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  ETL Pipeline (每日2AM)                                  │
+│  events_table ──→ event_fingerprints                     │
+│  (原始数据)      (标准指纹 + 标题/摘要)                   │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│  search_events                                          │
+│  - 优先返回有标准指纹的事件                              │
+│  - 无指纹的生成临时指纹 EVT-{date}-{gid}                │
+│  - 返回: fingerprint (标准📌 / 临时📝)                  │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│  get_event_detail(fingerprint)                          │
+│  - 标准指纹: JOIN event_fingerprints 获取完整信息        │
+│  - 临时指纹: 直接查询 events_table                       │
+└─────────────────────────────────────────────────────────┘
+```
 
 ---
 

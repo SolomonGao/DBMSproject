@@ -117,6 +117,17 @@ class OllamaRouter:
         """快速规则判断（避免模型调用）"""
         text_lower = text.lower()
         
+        # CLI 命令（以 / 开头）
+        if text.startswith('/'):
+            return RouterDecision(
+                intent="command",
+                cleaned_input=text,
+                confidence=1.0,
+                suggested_tools=[],
+                skip_llm=True,
+                reasoning="CLI command"
+            )
+        
         # 简单问候
         greetings = ['你好', 'hello', 'hi', '在吗', '在么']
         if any(g in text_lower for g in greetings) and len(text) < 10:
@@ -147,21 +158,51 @@ class OllamaRouter:
 - chat: 闲聊、问候、简单问答（如"你好"、"谢谢"、"你能做什么"）
 - clarification: 需要用户澄清（输入模糊或不完整）
 
-可用工具（V2 - 意图驱动）：
+可用工具（merge-optimized 完整工具集）：
+
+【核心搜索工具】
 - search_events: 智能事件搜索（核心入口）- 支持自然语言如"1月华盛顿的抗议"
 - get_event_detail: 获取事件详情（通过指纹ID如 US-20240115-WDC-PROTEST-001）
+- search_news_context: RAG语义搜索 - 查询新闻知识库获取真实报道细节
+
+【分析统计工具】
+- get_dashboard: 仪表盘数据 - 5个查询并行执行，快速获取多维度统计
+- analyze_time_series: 时间序列分析 - 支持日/周/月粒度趋势分析
+- get_geo_heatmap: 地理热力图 - 网格聚合展示事件密度
+- analyze_conflict_cooperation: 冲突/合作趋势分析
 - get_regional_overview: 区域态势概览（如"中东局势"）
+
+【事件发现工具】
 - get_hot_events: 热点事件推荐（单日）
 - get_top_events: 时间段热度排行（跨时间范围，如"2024年最热事件"）
 - get_daily_brief: 每日简报
 
+【高级查询工具】
+- stream_events: 流式查询 - 处理大数据量，内存友好
+- query_by_time_range: 按时间范围查询
+- query_by_actor: 按参与方查询
+- query_by_location: 按地理位置查询（支持空间索引）
+
+【诊断工具】
+- get_cache_stats: 查看查询缓存统计
+- clear_cache: 清空查询缓存
+
 工具选择指南：
 - 用户说"搜索"、"查找"、"查一下" → search_events
-- 用户提到"详情"、"详细说说" → get_event_detail
+- 用户提到"详情"、"详细说说" + 指纹ID → get_event_detail
+- 用户问"为什么"、"诉求"、"细节" → search_news_context (RAG)
+- 用户问"统计"、"趋势"、"分析" → get_dashboard 或 analyze_time_series
+- 用户问"地图"、"分布"、"热力" → get_geo_heatmap
 - 用户问"局势"、"态势"、"怎么样" → get_regional_overview
 - 用户问"热点"、"新闻"、"发生了什么"（单日）→ get_hot_events
-- 用户问"最热的"、"Top"、"排行"、"排名"（跨时间）→ get_top_events
+- 用户问"最热的"、"Top"、"排行"（跨时间）→ get_top_events
 - 用户要"简报"、"日报"、"总结" → get_daily_brief
+- 用户说"大量数据"、"全部导出" → stream_events
+
+工具组合建议：
+- 深度事件分析: search_events → get_event_detail → search_news_context
+- 区域态势: get_regional_overview + get_geo_heatmap
+- 时间趋势: analyze_time_series + analyze_conflict_cooperation
 
 输出格式（严格 JSON）：
 {
@@ -215,7 +256,11 @@ class OllamaRouter:
                     # 提取 JSON（防止有额外文本）
                     json_match = re.search(r'\{.*\}', content, re.DOTALL)
                     if json_match:
-                        result = json.loads(json_match.group())
+                        json_str = json_match.group()
+                        # 尝试修复不完整的 JSON（缺少结尾 }）
+                        if not json_str.strip().endswith('}'):
+                            json_str = json_str.strip() + '}'
+                        result = json.loads(json_str)
                     else:
                         result = json.loads(content)
                     
@@ -228,7 +273,8 @@ class OllamaRouter:
                         reasoning=result.get("reasoning", "")
                     )
                 except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse JSON: {content}")
+                    # 静默处理，使用 fallback
+                    logger.debug(f"Router JSON parse failed, using fallback: {content[:100]}...")
                     return self._fallback_classify(text)
     
     def _fallback_classify(self, text: str) -> RouterDecision:

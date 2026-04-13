@@ -48,7 +48,47 @@ Phase 5: 智能增强         ⏸️ 待开始 (2周)
 - [x] **并行查询优化**: 5查询并发执行（get_dashboard）
 - [x] **流式查询**: 大数据量分块读取，内存友好
 - [x] **空间-时间叙事**: 多跳推理、因果链分析
-- [x] 工具集整合优化（15个工具）
+- [x] 工具集整合优化（18个工具）
+- [x] **工具间关联增强**: search_events → get_event_detail → search_news_context 完整链路
+- [x] **指纹系统集成**: search_events JOIN event_fingerprints，优先返回有ETL指纹的事件
+- [x] **Router更新**: 包含所有18个工具的意图识别和组合推荐
+
+#### 新增工具列表
+
+**来自 txx_docker**:
+| 工具 | 功能 | 技术亮点 |
+|------|------|---------|
+| `search_news_context` | RAG语义搜索 | ChromaDB 向量检索 |
+| `stream_events` | 流式查询 | MySQL SSCursor，内存友好 |
+| `get_dashboard` | 并行仪表盘 | 5查询并发，3-5x加速 |
+| `analyze_time_series` | 时间序列分析 | 数据库端聚合 |
+| `get_geo_heatmap` | 地理热力图 | 空间索引+网格预计算 |
+| `query_by_location` | 地理查询 | ST_Distance_Sphere |
+| `get_cache_stats` | 缓存诊断 | LRU命中率统计 |
+| `clear_cache` | 缓存清理 | - |
+
+#### 工具关联设计
+
+```
+完整工作流:
+search_events("华盛顿抗议") 
+    → 返回: [{指纹: US-20240115-WDC-001, headline: "...", summary: "..."}]
+    
+get_event_detail(fingerprint="US-20240115-WDC-001")
+    → 返回: 时空数据 + ETL生成的标题/摘要/严重程度
+    
+search_news_context("Washington protest demands")
+    → 返回: 新闻原文片段（具体诉求、背景）
+    
+→ AI综合: 数据库时空数据 + 新闻语义理解 → 完整事件报道
+```
+
+#### 指纹双轨制实现
+
+| 指纹类型 | 生成方式 | 信息完整度 | 查询优先级 |
+|---------|---------|-----------|-----------|
+| **标准指纹** (📌) | ETL每日2AM生成 | ⭐⭐⭐⭐⭐ 完整 | 优先返回 |
+| **临时指纹** (📝) | 实时生成 | ⭐⭐⭐ 基础 | 后备兼容 |
 
 ---
 
@@ -65,6 +105,8 @@ Phase 5: 智能增强         ⏸️ 待开始 (2周)
 | 并行查询 | ❌ | ✅ | ✅ **新增** |
 | 流式大数据 | ❌ | ✅ | ✅ **新增** |
 | 空间-时间叙事 | 基础 | 增强 | ✅ **融合** |
+| **工具间关联** | ❌ | ❌ | ✅ **新增** |
+| **指纹ETL集成** | ❌ | ❌ | ✅ **新增** |
 
 ---
 
