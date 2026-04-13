@@ -24,7 +24,9 @@ DB_CONFIG = {
     'autocommit': True
 }
 
-BATCH_SIZE = 100  
+BATCH_SIZE = 10  
+CONCURRENT_LIMIT = 3  # limit concurrent HTTP requests to save memory
+UPSERT_CHUNK_SIZE = 2  # process only 2 docs at a time for embedding
 # 🎯 willprojectmarkcallbackbig，For example, this time we set a 2000 articlesmallprojectmark
 TOTAL_TARGET = 300000 
 
@@ -76,30 +78,44 @@ async def fetch_urls_batch(pool, limit, offset=0):
             await cur.execute(query, (limit, offset))
             return await cur.fetchall()
 
-async def scrape_article(session, event_id, date, url):
-    """asyncFetch single news article content"""
+async def scrape_article(session, event_id, date, url, semaphore):
+    """asyncFetch single news article content with concurrency limit"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     timeout = aiohttp.ClientTimeout(total=10)
     
-    try:
-        async with session.get(url, headers=headers, timeout=timeout) as response:
-            if response.status == 200:
-                html = await response.text()
-                soup = BeautifulSoup(html, 'html.parser')
-                paragraphs = soup.find_all('p')
-                article_text = ' '.join([p.get_text(strip=True) for p in paragraphs])
-                
-                # Filter out too short useless content
-                if len(article_text) > 150:
-                    return {
-                        "id": str(event_id),
-                        "text": article_text,
-                        "metadata": {"source_url": url, "date": str(date)}
-                    }
+    async with semaphore:  # limit concurrent requests
+        try:
+            async with session.get(url, headers=headers, timeout=timeout) as response:
+                if response.status == 200:
+                    # limit response size to prevent memory explosion (max 5MB)
+                    content_length = response.headers.get('Content-Length')
+                    if content_length and int(content_length) > 5 * 1024 * 1024:
+                        logging.warning(f"⚠️ URL too large ({int(content_length)/1024/1024:.1f}MB), skipping: {url[:80]}...")
+                        return None
+                    
+                    html = await response.text()
+                    # double check size after download
+                    if len(html) > 5 * 1024 * 1024:
+                        logging.warning(f"⚠️ Downloaded content too large ({len(html)/1024/1024:.1f}MB), skipping: {url[:80]}...")
+                        return None
+                    
+                    soup = BeautifulSoup(html, 'html.parser')
+                    paragraphs = soup.find_all('p')
+                    article_text = ' '.join([p.get_text(strip=True) for p in paragraphs])
+                    
+                    # Filter out too short useless content and limit length
+                    if len(article_text) > 150:
+                        # limit text to max 8000 chars to save memory during embedding
+                        return {
+                            "id": str(event_id),
+                            "text": article_text[:8000],
+                            "metadata": {"source_url": url, "date": str(date)}
+                        }
+                return None
+        except Exception as e:
+            # ignorenetworksuperwhenorfetchfailedchainreceive
+            logging.debug(f"fetch failed for {url[:60]}...: {str(e)[:100]}")
             return None
-    except Exception:
-        # ignorenetworksuperwhenorfetchfailedchainreceive
-        return None
 
 # ==========================================
 # 3. mainpipelinecompilearrange (Supports resumable transfer version)
@@ -107,6 +123,9 @@ async def scrape_article(session, event_id, date, url):
 async def main():
     collection = init_chromadb()
     pool = await aiomysql.create_pool(**DB_CONFIG)
+    
+    # create semaphore limit concurrent HTTP requests
+    semaphore = asyncio.Semaphore(CONCURRENT_LIMIT)
     
     total_processed = 0
     total_saved = 0
@@ -125,19 +144,29 @@ async def main():
                     logging.info("databaseinnohasupdatemultirecordlogdone，all URL alreadyprocesscompletefinish！")
                     break
                 
-                # createandsendfetchtask
-                tasks = [scrape_article(session, r['GlobalEventID'], r['SQLDATE'], r['SOURCEURL']) for r in records]
+                # createandsendfetchtask (with concurrency limit)
+                logging.info(f"   Processing {len(records)} URLs with max {CONCURRENT_LIMIT} concurrent requests...")
+                tasks = [scrape_article(session, r['GlobalEventID'], r['SQLDATE'], r['SOURCEURL'], semaphore) for r in records]
                 scraped_results = await asyncio.gather(*tasks)
                 
                 valid_docs = [res for res in scraped_results if res is not None]
                 
                 if valid_docs:
-                    ids = [doc['id'] for doc in valid_docs]
-                    texts = [doc['text'] for doc in valid_docs]
-                    metadatas = [doc['metadata'] for doc in valid_docs]
+                    # process in smaller chunks to avoid memory spike during embedding
+                    import gc
+                    for i in range(0, len(valid_docs), UPSERT_CHUNK_SIZE):
+                        chunk = valid_docs[i:i + UPSERT_CHUNK_SIZE]
+                        ids = [doc['id'] for doc in chunk]
+                        texts = [doc['text'][:5000] for doc in chunk]  # limit text length to 5000 chars
+                        metadatas = [doc['metadata'] for doc in chunk]
+                        
+                        logging.info(f"   Embedding chunk {i//UPSERT_CHUNK_SIZE + 1}/{(len(valid_docs)-1)//UPSERT_CHUNK_SIZE + 1} ({len(chunk)} docs)...")
+                        collection.upsert(documents=texts, metadatas=metadatas, ids=ids)
+                        total_saved += len(chunk)
+                        
+                        # force garbage collection after each chunk
+                        gc.collect()
                     
-                    collection.upsert(documents=texts, metadatas=metadatas, ids=ids)
-                    total_saved += len(valid_docs)
                     logging.info(f"✅ batchcompleted！successfetchandvectorize {len(valid_docs)} articlefilechapter。(Cumulative storage for this run: {total_saved}/{TOTAL_TARGET})")
                 else:
                     logging.warning("⚠️ thisbatchallchainreceivefetchfailed，continueunderonebatch。")
