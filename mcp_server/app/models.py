@@ -1,87 +1,87 @@
 """
-GDELT MCP Server - 输入输出模型
+GDELT MCP Server - Input/Output Models
 
-定义所有工具的输入参数模型。
+Defines input parameter models for all tools.
 """
 
 from pydantic import BaseModel, Field
 
 
 class SQLQueryInput(BaseModel):
-    """SQL 查询输入"""
+    """SQL query input"""
     query: str = Field(
         ..., 
-        description="SQL SELECT 查询语句，用于查询 GDELT 事件数据"
+        description="SQL SELECT query statement for querying GDELT event data"
     )
 
 
 class TableSchemaInput(BaseModel):
-    """表结构查询输入"""
+    """Table schema query input"""
     table_name: str = Field(
         default="events_table",
-        description="要查询的表名，默认为 events_table"
+        description="Table name to query, default is events_table"
     )
 
 
 class TimeRangeQueryInput(BaseModel):
-    """时间范围查询输入"""
+    """Time range query input"""
     start_date: str = Field(
         ..., 
-        description="开始日期，格式: YYYY-MM-DD",
+        description="Start date, format: YYYY-MM-DD",
         pattern=r"^\d{4}-\d{2}-\d{2}$"
     )
     end_date: str = Field(
         ..., 
-        description="结束日期，格式: YYYY-MM-DD",
+        description="End date, format: YYYY-MM-DD",
         pattern=r"^\d{4}-\d{2}-\d{2}$"
     )
     limit: int = Field(
         default=100,
         ge=1,
         le=1000,
-        description="返回结果数量限制"
+        description="Limit on number of results to return"
     )
 
 
 class ActorQueryInput(BaseModel):
-    """参与方查询输入"""
+    """Actor query input"""
     actor_name: str = Field(
         ..., 
-        description="参与方名称关键词，如 'Trump', 'China'"
+        description="Actor name keyword, e.g., 'Trump', 'China'"
     )
     start_date: str = Field(
         default=None,
-        description="开始日期，可选，格式: YYYY-MM-DD"
+        description="Start date, optional, format: YYYY-MM-DD"
     )
     end_date: str = Field(
         default=None,
-        description="结束日期，可选，格式: YYYY-MM-DD"
+        description="End date, optional, format: YYYY-MM-DD"
     )
     limit: int = Field(
         default=50,
         ge=1,
         le=500,
-        description="返回结果数量限制"
+        description="Limit on number of results to return"
     )
 
 
 class GeoQueryInput(BaseModel):
-    """地理范围查询输入"""
+    """Geographic range query input"""
     lat: float = Field(
         ..., 
-        description="中心纬度",
+        description="Center latitude",
         ge=-90,
         le=90
     )
     lon: float = Field(
         ..., 
-        description="中心经度",
+        description="Center longitude",
         ge=-180,
         le=180
     )
     radius_km: float = Field(
         default=100,
-        description="搜索半径（公里）",
+        description="Search radius (kilometers)",
         ge=1,
         le=1000
     )
@@ -89,55 +89,56 @@ class GeoQueryInput(BaseModel):
         default=50,
         ge=1,
         le=500,
-        description="返回结果数量限制"
+        description="Limit on number of results to return"
     )
 
 
 class EventAnalysisInput(BaseModel):
-    """事件分析输入"""
+    """Event analysis input"""
     start_date: str = Field(
         ..., 
-        description="开始日期，格式: YYYY-MM-DD"
+        description="Start date, format: YYYY-MM-DD"
     )
     end_date: str = Field(
         ..., 
-        description="结束日期，格式: YYYY-MM-DD"
+        description="End date, format: YYYY-MM-DD"
     )
     actor1: str = Field(
         default=None,
-        description="参与方1，可选"
+        description="Actor 1, optional"
     )
     actor2: str = Field(
         default=None,
-        description="参与方2，可选"
+        description="Actor 2, optional"
     )
 
 
 class VisualizationInput(BaseModel):
-    """数据可视化输入"""
+    """Data visualization input"""
     query: str = Field(
         ..., 
-        description="生成图表的 SQL 查询（应返回可用于绘图的数据）"
+        description="SQL query to generate chart (should return data suitable for plotting)"
     )
     chart_type: str = Field(
         default="line",
-        description="图表类型: line(折线), bar(柱状), pie(饼图), scatter(散点)",
+        description="Chart type: line, bar, pie, scatter",
         pattern=r"^(line|bar|pie|scatter)$"
     )
     title: str = Field(
-        default="GDELT 数据分析",
-        description="图表标题"
+        default="GDELT Data Analysis",
+        description="Chart title"
     )
 
+
 class NewsSearchInput(BaseModel):
-    """新闻语义搜索输入"""
+    """News semantic search input"""
     query: str = Field(
         ..., 
-        description="英文语义搜索查询词，例如 'protesters demanding climate action', 'police response'"
+        description="English semantic search query, e.g., 'protesters demanding climate action', 'police response'"
     )
     n_results: int = Field(
         default=3,
-        description="返回的相关新闻数量限制",
+        description="Limit on number of related news to return",
         ge=1,
         le=10
     )
