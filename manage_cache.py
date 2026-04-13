@@ -3,7 +3,7 @@
 cache管理 CLI 工具
 
 Usage:
-    python manage_cache.py stats          # 查看统计
+    python manage_cache.py stats          # 查看statistics
     python manage_cache.py clear          # 清空所hascache
     python manage_cache.py cleanup        # cleanupexpired条目
     python manage_cache.py clear-pattern <pattern>  # 按模式清除
@@ -21,9 +21,9 @@ from app.cache import query_cache
 
 
 def format_stats(stats: dict) -> str:
-    """format化统计info"""
+    """format化statisticsinfo"""
     lines = [
-        "📊 querycache统计",
+        "📊 querycachestatistics",
         "=" * 40,
         f"  cache条目: {stats['size']:,} / {stats['maxsize']:,}",
         f"  hit次数: {stats['hits']:,}",
@@ -42,7 +42,7 @@ def format_stats(stats: dict) -> str:
         elif hit_rate >= 50:
             lines.append("⚠️ hit率一般 (50-80%)")
         else:
-            lines.append("❌ hit率较低 (<50%)，建议检查cache配置")
+            lines.append("❌ hit率较低 (<50%)，建议checkcache配置")
     except:
         pass
     
@@ -50,14 +50,14 @@ def format_stats(stats: dict) -> str:
 
 
 async def cmd_stats():
-    """显示统计info"""
+    """显示statisticsinfo"""
     stats = query_cache.get_stats()
     print(format_stats(stats))
 
 
 async def cmd_clear():
     """清空所hascache"""
-    print("⚠️  OK要清空所hascache吗？这会导致下次query变慢。")
+    print("⚠️  OKwant清空所hascache吗？这会导致下次query变慢。")
     confirm = input("input 'yes' Confirm: ")
     
     if confirm.lower() == 'yes':
@@ -135,7 +135,7 @@ Example:
     subparsers = parser.add_subparsers(dest='command', help='可用命令')
     
     # stats
-    subparsers.add_parser('stats', help='查看cache统计')
+    subparsers.add_parser('stats', help='查看cachestatistics')
     
     # clear
     subparsers.add_parser('clear', help='清空所hascache')

@@ -143,9 +143,9 @@ class OllamaRouter:
         
         # Daily brief keywords (Chinese + English)
         daily_brief_keywords = [
-            '简报', '日报', 'daily brief', 'daily report', 'news brief',
-            '今天新闻', '今日简报', '今天发生了什么', '新闻总结',
-            '新闻简报', '每日新闻', 'daily news', '今日新闻'
+            'brief', 'daily report', 'daily brief', 'daily report', 'news brief',
+            '今天news', '今日brief', 'What happened today', 'newssummary',
+            'newsbrief', '每日news', 'daily news', '今日news'
         ]
         if any(kw in text_lower for kw in daily_brief_keywords):
             return RouterDecision(
@@ -298,7 +298,7 @@ Notes:
         text_lower = text.lower()
         
         # Daily brief detection (Chinese + English)
-        if any(kw in text_lower for kw in ['简报', '日报', 'brief', 'daily report', 'news summary']):
+        if any(kw in text_lower for kw in ['brief', 'daily report', 'brief', 'daily report', 'news summary']):
             return RouterDecision(
                 intent="query",
                 cleaned_input=text,
@@ -309,7 +309,7 @@ Notes:
             )
         
         # Analysis & Dashboard (Chinese + English)
-        if any(kw in text_lower for kw in ['统计', '分析', '趋势', 'dashboard', '仪表盘']):
+        if any(kw in text_lower for kw in ['statistics', '分析', 'trends', 'dashboard', '仪表盘']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -320,7 +320,7 @@ Notes:
             )
         
         # Geographic / Heatmap (Chinese + English)
-        if any(kw in text_lower for kw in ['地图', '热力图', 'heatmap', '地理', '分布', '可视化']):
+        if any(kw in text_lower for kw in ['map', 'heat图', 'heatmap', '地理', 'distribution', '可视化']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -331,7 +331,7 @@ Notes:
             )
         
         # Time series / trends (Chinese)
-        if any(kw in text_lower for kw in ['时间序列', '趋势', '变化', '走势', '时序']):
+        if any(kw in text_lower for kw in ['时间序列', 'trends', '变化', '走势', 'time series']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,

@@ -9,15 +9,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(
 def run_knowledge_base_builder():
     """
     运row Docker 容器中爬虫and向量化流水线。
-    如果遇to非normalExit（如网络中断），会自动重启继续抓取。
+    如果遇to非normalExit（如网络中断），Will auto-restart to continue fetching。
     """
     command = ["docker-compose", "run", "--rm", "app", "python", "db_scripts/build_knowledge_base.py"]
     
     retry_count = 0
-    max_retries = 50  # Set一个最大连续重启次数，防止死循环
+    max_retries = 50  # SetA maximum consecutive restart count，防止死循环
     
-    logging.info("🚀 启动知识库构建守护进程 (Daemon Mode)...")
-    logging.info("💡 Hint: 随时按下 Ctrl+C 可以安全终止整个进程。")
+    logging.info("🚀 Start knowledge base build daemon (Daemon Mode)...")
+    logging.info("💡 Hint: 随时按下 Ctrl+C Can safely terminate the entire process。")
     print("=" * 60)
     
     while retry_count < max_retries:
@@ -30,7 +30,7 @@ def run_knowledge_base_builder():
             
             # CheckExit状态码
             if process.returncode == 0:
-                logging.info("🎉 知识库构建脚本normal执row完毕！(达to目标or已无data)")
+                logging.info("🎉 Knowledge base build scriptnormal执row完毕！(达to目标or已无data)")
                 break
             else:
                 retry_count += 1

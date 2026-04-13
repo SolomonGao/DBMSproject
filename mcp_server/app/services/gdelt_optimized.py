@@ -86,7 +86,7 @@ class GDELTServiceOptimized:
         
         # Defines 5 个独立query
         queries = [
-            # 1. 每日趋势
+            # 1. 每日trends
             (f"""
                 SELECT SQLDATE, COUNT(*) as cnt, 
                        AVG(GoldsteinScale) as goldstein,
@@ -104,7 +104,7 @@ class GDELTServiceOptimized:
                 GROUP BY Actor1Name ORDER BY cnt DESC LIMIT 10
             """, (start_date, end_date), "top_actors"),
             
-            # 3. 地理分布（Top 10 国家）
+            # 3. 地理distribution（Top 10 国家）
             (f"""
                 SELECT ActionGeo_CountryCode, COUNT(*) as cnt
                 FROM {self.DEFAULT_TABLE}
@@ -114,7 +114,7 @@ class GDELTServiceOptimized:
                 ORDER BY cnt DESC LIMIT 10
             """, (start_date, end_date), "geo_distribution"),
             
-            # 4. eventtype分布
+            # 4. eventtypedistribution
             (f"""
                 SELECT 
                     CASE 
@@ -134,7 +134,7 @@ class GDELTServiceOptimized:
                 GROUP BY event_type ORDER BY cnt DESC
             """, (start_date, end_date), "event_types"),
             
-            # 5. 统计digest
+            # 5. statisticsdigest
             (f"""
                 SELECT 
                     COUNT(*) as total_events,
@@ -236,7 +236,7 @@ class GDELTServiceOptimized:
                 SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
                 2
             ) as cooperation_pct,
-            -- 统计指标
+            -- statistics指标
             ROUND(AVG(GoldsteinScale), 2) as avg_goldstein,
             ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
             ROUND(AVG(AvgTone), 2) as avg_tone,
@@ -261,14 +261,14 @@ class GDELTServiceOptimized:
         ORDER BY period
         """
         
-        # use长cache时间（统计data变化少）
+        # use长cache时间（statisticsdata变化少）
         return await self.execute_sql_cached(
             query, 
             (start_date, end_date),
             cache_ttl=1800  # 30 分钟
         )
     
-    # ==================== core优化：地理热力graph ====================
+    # ==================== core优化：地理heatgraph ====================
     
     async def get_geo_heatmap(
         self,
@@ -277,7 +277,7 @@ class GDELTServiceOptimized:
         precision: int = 2  # 小数位数，越大精度越高
     ) -> List[Dict[str, Any]]:
         """
-        地理热力graphdata - gridaggregate
+        地理heatgraphdata - gridaggregate
         
         将相近坐标aggregatetogrid，reducebefore端渲染压力。
         """
@@ -287,7 +287,7 @@ class GDELTServiceOptimized:
             ROUND(ActionGeo_Long, {precision}) as lng,
             COUNT(*) as intensity,
             AVG(GoldsteinScale) as avg_conflict,
-            -- 代表性位置名称
+            -- Representative location name
             ANY_VALUE(ActionGeo_FullName) as sample_location
         FROM {self.DEFAULT_TABLE}
         WHERE SQLDATE BETWEEN %s AND %s
@@ -339,7 +339,7 @@ class GDELTServiceOptimized:
         
         return all_results
     
-    # ==================== core优化：快速检查 ====================
+    # ==================== core优化：快速check ====================
     
     async def quick_count(
         self,
@@ -362,7 +362,7 @@ class GDELTServiceOptimized:
             """
             result = await pool.fetchone(query, (date, f"%{actor}%", f"%{actor}%"))
         else:
-            # 纯日期计数可以用覆盖index
+            # Pure date count can be overriddenindex
             query = f"""
                 SELECT COUNT(*) as cnt FROM {self.DEFAULT_TABLE}
                 USE INDEX (idx_sqldate)
@@ -451,7 +451,7 @@ class GDELTServiceOptimized:
         end_date: str,
         cache_ttl: int = 600
     ) -> str:
-        """按日期统计eventquantity（带cache）"""
+        """按日期statisticseventquantity（带cache）"""
         query = f"""
         SELECT SQLDATE, 
                COUNT(*) as event_count,
@@ -480,7 +480,7 @@ class GDELTServiceOptimized:
         top_n: int = 10,
         cache_ttl: int = 600
     ) -> str:
-        """统计最活跃参and方（带cache）"""
+        """statistics最活跃参and方（带cache）"""
         query = f"""
         SELECT Actor1Name as actor, COUNT(*) as event_count
         FROM {self.DEFAULT_TABLE}
@@ -539,7 +539,7 @@ class GDELTServiceOptimized:
         """
         join池pre热 - 启动时建立join
         
-        避免第一次请求时冷启动延迟。
+        Avoid cold start latency on first request。
         """
         pool = await get_db_pool()
         
@@ -553,7 +553,7 @@ class GDELTServiceOptimized:
         print(f"[warmup] pre热completed: {count} 个join")
 
     def _get_chroma_collection(self):
-        """延迟Initialize ChromaDB (避免启动时卡顿)"""
+        """延迟Initialize ChromaDB (Avoid lag at startup)"""
         if self._chroma_collection is None:
             try:
                 # 定位toitem目根目录下 chroma_db 文件夹
@@ -580,14 +580,14 @@ class GDELTServiceOptimized:
             return "Error: vectordatabase未Initializeor无法join。"
 
         try:
-            # ChromaDB 本地检索非常快，直接调用
+            # ChromaDB Local retrieval is very fast，直接调用
             results = collection.query(
                 query_texts=[query],
                 n_results=n_results
             )
             
             if not results['documents'] or not results['documents'][0]:
-                return f"Knowledge base 中not foundand '{query}' 相关新闻报道。"
+                return f"Knowledge base 中not foundand '{query}' 相关news报道。"
                 
             formatted_result = f"🔍 Found the following news excerpts for query '{query}':\n\n"
             for i in range(len(results['documents'][0])):

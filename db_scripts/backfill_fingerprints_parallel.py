@@ -71,9 +71,9 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         if fp_count >= evt_count:
             return (date, True, f"已完整 ({fp_count}/{evt_count})")
         
-        print(f"  [{date}] startETL，当before {fp_count}/{evt_count}...")
+        print(f"  [{date}] startETL，whenbefore {fp_count}/{evt_count}...")
         
-        # 运行ETL（增加超时到10minute，因为一天可能有2-5万event）
+        # 运行ETL（增加超时到10minute，Because one day may have2-5万event）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
@@ -120,7 +120,7 @@ def main():
     print()
     
     # 先checkalldate状态
-    print("📊 check当before状态...")
+    print("📊 checkwhenbefore状态...")
     status_list = []
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {executor.submit(check_date_status, date): date for date in dates}

@@ -90,7 +90,7 @@ class GDELTETLWorker:
             grid_count = await self._update_geo_grid()
             result['steps']['geo_grid'] = grid_count
             
-            # 6. 识别热点event
+            # 6. 识别hotevent
             hot_count = await self._identify_hot_events()
             result['steps']['hot_events'] = hot_count
             
@@ -158,7 +158,7 @@ class GDELTETLWorker:
         """, (self.date,))
         top_locations = [{"name": row['name'], "count": row['cnt']} for row in locations_result]
         
-        # eventtype分布
+        # eventtypedistribution
         types_result = await self.pool.fetchall("""
             SELECT 
                 CASE 
@@ -187,7 +187,7 @@ class GDELTETLWorker:
         """, (self.date,))
         type_dist = {row['event_type']: row['cnt'] for row in types_result}
         
-        # 热点eventfingerprint（临时用GID，after续update为fingerprint）
+        # hoteventfingerprint（临时用GID，after续update为fingerprint）
         hot_result = await self.pool.fetchall("""
             SELECT GlobalEventID, NumArticles * ABS(GoldsteinScale) as hot_score
             FROM events_table
@@ -340,7 +340,7 @@ class GDELTETLWorker:
             '03': f"{a1}table达意graph", '04': f"{a1}与{a2}磋商",
             '05': f"{a1}参与{a2}事务", '06': f"{a1}向{a2}提供物资",
             '07': f"{a1}向{a2}提供援助", '08': f"{a1}向{a2}提供援助",
-            '09': f"{a1}向{a2}让步", '10': f"{a1}向{a2}提出要求",
+            '09': f"{a1}向{a2}让步", '10': f"{a1}向{a2}提出want求",
             '11': f"{a1}对{a2}table示不满", '12': f"{a1}拒绝{a2}",
             '13': f"{a1}威胁{a2}", '14': f"{a1}发起抗议",
             '15': f"{a1}展示武力", '16': f"{a1}reduce对{a2}关系",
@@ -381,7 +381,7 @@ class GDELTETLWorker:
             '01': '外交声明', '02': '外交呼吁', '03': '政策意向',
             '04': '外交磋商', '05': '参与合作', '06': '物资援助',
             '07': '人员援助', '08': '保护援助', '09': '让步缓和',
-            '10': '提出要求', '11': 'table达不满', '12': '拒绝反对',
+            '10': '提出want求', '11': 'table达不满', '12': '拒绝反对',
             '13': '威胁warning', '14': '抗议示威', '15': '展示武力',
             '16': '关系downgrade', '17': '强制胁迫', '18': '军事摩擦',
             '19': '大规模conflict', '20': '武装攻击'
@@ -484,7 +484,7 @@ class GDELTETLWorker:
         return updated
     
     async def _update_geo_grid(self) -> int:
-        """update地理grid热点"""
+        """update地理gridhot"""
         logger.info(f"🗺️ [{self.date}] update地理grid")
         
         grids = await self.pool.fetchall("""
@@ -532,8 +532,8 @@ class GDELTETLWorker:
         return updated
     
     async def _identify_hot_events(self) -> int:
-        """识别andupdate热点eventfingerprintreference"""
-        logger.info(f"🔥 [{self.date}] 识别热点event")
+        """识别andupdatehoteventfingerprintreference"""
+        logger.info(f"🔥 [{self.date}] 识别hotevent")
         
         result = await self.pool.fetchone("""
             SELECT hot_event_fingerprints 
@@ -542,7 +542,7 @@ class GDELTETLWorker:
         """, (self.date,))
         
         if not result or not result['hot_event_fingerprints']:
-            logger.info(f"  ⚠️ [{self.date}] 无热点eventdata")
+            logger.info(f"  ⚠️ [{self.date}] 无hoteventdata")
             return 0
         
         hot_data = result['hot_event_fingerprints']
@@ -568,7 +568,7 @@ class GDELTETLWorker:
                 SET hot_event_fingerprints = %s 
                 WHERE date = %s
             """, (json.dumps(fingerprints), self.date))
-            logger.info(f"  ✓ [{self.date}] update {len(fingerprints)} 个热点eventfingerprint")
+            logger.info(f"  ✓ [{self.date}] update {len(fingerprints)} 个hoteventfingerprint")
         
         return len(fingerprints)
 

@@ -36,7 +36,7 @@ class PerformanceBenchmark:
         await GDELTServiceOptimized.warmup_connections(3)
     
     def benchmark(self, name: str):
-        """装饰器：自动timing和memory统计"""
+        """装饰器：自动timing和memorystatistics"""
         def decorator(func):
             async def wrapper(*args, **kwargs):
                 # 开始memory追踪
@@ -48,7 +48,7 @@ class PerformanceBenchmark:
                 result = await func(*args, **kwargs)
                 elapsed = time.perf_counter() - start_time
                 
-                # memory统计
+                # memorystatistics
                 current, peak = tracemalloc.get_traced_memory()
                 tracemalloc.stop()
                 
@@ -106,18 +106,18 @@ async def main():
     
     # ========== test 1: serial vs and行查询 ==========
     
-    @bench.benchmark("1a. serial执行 4 个统计查询 (原始)")
+    @bench.benchmark("1a. serial执行 4 个statistics查询 (原始)")
     async def test_serial_queries():
         results = []
         results.append(await service_old.analyze_events_by_date(start_date, end_date))
         results.append(await service_old.analyze_top_actors(start_date, end_date))
         results.append(await service_old.analyze_conflict_cooperation_trend(start_date, end_date))
-        # 再加一个自定义查询
+        # Plus a custom query
         query = f"SELECT SQLDATE, COUNT(*) FROM events_table WHERE SQLDATE BETWEEN '{start_date}' AND '{end_date}' GROUP BY SQLDATE"
         results.append(await service_old.execute_sql(query))
         return results
     
-    @bench.benchmark("1b. and行执行 4 个统计查询 (optimization)")
+    @bench.benchmark("1b. and行执行 4 个statistics查询 (optimization)")
     async def test_parallel_queries():
         return await service_new.get_dashboard_data(start_date, end_date)
     
@@ -191,8 +191,8 @@ async def main():
     # 打印results
     bench.print_results()
     
-    # cache统计
-    print("\n📦 cache统计:")
+    # cachestatistics
+    print("\n📦 cachestatistics:")
     stats = query_cache.get_stats()
     for key, value in stats.items():
         print(f"  {key}: {value}")

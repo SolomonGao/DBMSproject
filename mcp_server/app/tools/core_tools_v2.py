@@ -696,7 +696,7 @@ def register_core_tools(mcp: FastMCP):
                             region_condition = "AND (e.ActionGeo_CountryCode = %s OR e.ActionGeo_FullName LIKE %s)"
                             query_params.extend([params.region_filter.upper(), f'%{params.region_filter}%'])
                         
-                        # 先查real-time热点，然afterLEFT JOINfingerprinttableGetStandard fingerprint
+                        # 先查real-timehot，然afterLEFT JOINfingerprinttableGetStandard fingerprint
                         await cursor.execute(f"""
                             SELECT 
                                 COALESCE(f.fingerprint, CONCAT('EVT-', e.SQLDATE, '-', CAST(e.GlobalEventID AS CHAR))) as fingerprint,
@@ -992,7 +992,7 @@ def register_core_tools(mcp: FastMCP):
                     output.append(f"# 📰 {query_date} 全球Event简report")
                     output.append("")
                     
-                    # one句话总结
+                    # one句话summary
                     total = data.get('total_events', 0)
                     conflict = data.get('conflict_events', 0)
                     conflict_pct = (conflict / max(total, 1)) * 100
@@ -1013,7 +1013,7 @@ def register_core_tools(mcp: FastMCP):
                                 output.append(f"- `{fp}`")
                             output.append("")
                         
-                        output.append("💡 _Use `get_hot_events` Get详细热点信info_")
+                        output.append("💡 _Use `get_hot_events` Get详细hot信info_")
                         
                     elif params.format == 'detailed':
                         # Detailed version
@@ -1065,7 +1065,7 @@ def register_core_tools(mcp: FastMCP):
     @mcp.tool()
     async def search_news_context(params: NewsSearchInput) -> str:
         """
-        【RAG semanticsearch】query新闻know识libraryGet真实articles细节
+        【RAG semanticsearch】querynewsknow识libraryGet真实articlesdetails
         
         When users need to know:
         - Event具体occurrence因
@@ -1102,7 +1102,7 @@ def register_core_tools(mcp: FastMCP):
                     embedding_function=ef
                 )
             except Exception:
-                return "❌ 新闻setnotFound，请先Build knowledge base"
+                return "❌ newssetnotFound，请先Build knowledge base"
             
             # Execute semantic search
             results = collection.query(
@@ -1111,7 +1111,7 @@ def register_core_tools(mcp: FastMCP):
             )
             
             if not results['documents'] or not results['documents'][0]:
-                return f"📭 Not found in knowledge base related to '{params.query}' related新闻articles。\n\nSuggestions:\n1. Try different English keywords\n2. Check if knowledge base is built (Run start_kb.py)"
+                return f"📭 Not found in knowledge base related to '{params.query}' relatednewsarticles。\n\nSuggestions:\n1. Try different English keywords\n2. Check if knowledge base is built (Run start_kb.py)"
             
             # FormatizationResult
             output = [f"# 🔍 RAG semanticsearchResult: '{params.query}'\n"]
@@ -1150,12 +1150,12 @@ def register_core_tools(mcp: FastMCP):
         """
         【streamingquery】处理大amountEventData，withinmemory-friendly
         
-        当need处理大amountEvent时Use（e.g."analysis全yearallprotestEvent"），
+        whenneed处理大amountEvent时Use（e.g."analysis全yearallprotestEvent"），
         Streaming read avoids loading everything into memory at once。
         
         Applicable scenarios:
         - Preview before data export
-        - 大amountEvent统计analysis
+        - 大amountEventstatisticsanalysis
         - Memory-sensitive environments
         
         Example:
@@ -1223,7 +1223,7 @@ def register_core_tools(mcp: FastMCP):
         """
         [Optimized] Dashboard data - concurrent multi-dimensional statistics
         
-        simultaneouslyreturn：dailyTrend、Top Actors、place理分布、Event type分布、综合统计
+        simultaneouslyreturn：dailyTrend、Top Actors、place理distribution、Event typedistribution、综合statistics
         3-5x faster than serial queries。
         
         Applicable scenarios:
@@ -1262,7 +1262,7 @@ def register_core_tools(mcp: FastMCP):
                     lines.append(f"{i}. {row.get('Actor1Name')}: {row.get('cnt')} Event")
                 lines.append("")
             
-            # calculate总耗时（only统计字典TypeResult）
+            # calculate总耗时（onlystatistics字典TypeResult）
             total_time = sum(
                 v.get("elapsed_ms", 0) 
                 for v in dashboard.values() 
@@ -1329,10 +1329,10 @@ def register_core_tools(mcp: FastMCP):
         [Optimized] Geographic heatmap data - grid aggregation
         
         Aggregate nearby coordinates to grids, reducing frontend rendering pressure。
-        return热点经纬degree、intensity、averageconflictvalueetc.信info。
+        returnhot经纬degree、intensity、averageconflictvalueetc.信info。
         
         Applicable scenarios:
-        - inplacemapabove可视izationEvent分布
+        - inplacemapabove可视izationEventdistribution
         - Identify hot spot areas
         - Geographic density analysis
         """
@@ -1374,7 +1374,7 @@ def register_core_tools(mcp: FastMCP):
 - Use `lat` and `lng` can mark hotspots on map
 """
         except Exception as e:
-            logger.error(f"热力mapQuery failed: {e}")
+            logger.error(f"heatmapQuery failed: {e}")
             return f"❌ Query failed: {str(e)}"
     
     
@@ -1635,7 +1635,7 @@ def _format_search_results_v2(rows: list, columns: list, original_query: str) ->
     
     output = [f"# 🔍 searchResult: '{original_query}'", ""]
     
-    # 统计fingerprint覆盖situation
+    # statisticsfingerprint覆盖situation
     fp_idx = columns.index('fingerprint') if 'fingerprint' in columns else -1
     with_fingerprint = sum(1 for row in rows if fp_idx >= 0 and row[fp_idx]) if fp_idx >= 0 else 0
     output.append(f"Found {len(rows)} Related Events (of which {with_fingerprint} 有ETLfingerprint)\n")

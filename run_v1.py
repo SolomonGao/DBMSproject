@@ -7,7 +7,7 @@ usemethod:
     python run_v1.py [selectitem]
 
 selectitem:
-    --config               强制启动配置向导
+    --config               Force start configuration wizard
     --log-level {DEBUG,INFO,WARNING,ERROR}  Setloglevel
     --no-file-log          禁用文件log
     -h, --help             显示Help
@@ -54,7 +54,7 @@ Example:
     parser.add_argument(
         '--config',
         action='store_true',
-        help='强制启动配置向导'
+        help='Force start configuration wizard'
     )
     parser.add_argument(
         '--log-level',
@@ -74,8 +74,8 @@ Example:
     
     # Check/启动配置
     if args.config:
-        # 强制启动配置向导
-        print("🚀 强制启动配置向导...")
+        # Force start configuration wizard
+        print("🚀 Force start configuration wizard...")
         success = wizard.run()
         if not success:
             sys.exit(1)
@@ -123,7 +123,7 @@ Example:
         # 5. jointo MCP Server
         connected = await mcp_client.connect()
         if not connected:
-            logger.error("无法jointo MCP Server，请检查:")
+            logger.error("无法jointo MCP Server，请check:")
             logger.error("  1. MCP Server 文件isNo存in")
             logger.error("  2. Python environmentisNo正确")
             sys.exit(1)

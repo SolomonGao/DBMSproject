@@ -33,7 +33,7 @@ def get_dates_to_process(start_date: str, end_date: str) -> List[str]:
 
 
 def check_date_status(date: str) -> Tuple[str, int, int]:
-    """检查某天fingerprint状态"""
+    """check某天fingerprint状态"""
     try:
         # fetchevent数
         evt_result = subprocess.run(
@@ -54,26 +54,26 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
         
         # 调试输出
         if fp_count > 0 or evt_count > 0:
-            print(f"  [检查] {date}: {fp_count} fingerprint / {evt_count} event")
+            print(f"  [check] {date}: {fp_count} fingerprint / {evt_count} event")
         
         return (date, fp_count, evt_count)
     except Exception as e:
-        print(f"  [错误] 检查 {date} 失败: {e}")
+        print(f"  [错误] check {date} 失败: {e}")
         return (date, -1, -1)
 
 
 def process_date(date: str) -> Tuple[str, bool, str]:
     """处理单天ETL"""
     try:
-        # 先检查状态
+        # 先check状态
         date_str, fp_count, evt_count = check_date_status(date)
         
         if fp_count >= evt_count:
             return (date, True, f"已完整 ({fp_count}/{evt_count})")
         
-        print(f"  [{date}] 开始ETL，当before {fp_count}/{evt_count}...")
+        print(f"  [{date}] 开始ETL，whenbefore {fp_count}/{evt_count}...")
         
-        # 运行ETL（增加超时到10分钟，因为一天可能有2-5万event）
+        # 运行ETL（增加超时到10分钟，Because one day may have2-5万event）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
@@ -81,7 +81,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         )
         
         if result.returncode == 0:
-            # 再次检查
+            # 再次check
             _, new_fp, evt = check_date_status(date)
             added = new_fp - fp_count
             if new_fp >= evt:
@@ -103,7 +103,7 @@ def main():
     parser.add_argument('--start', default='2024-01-01', help='开始日期 (YYYY-MM-DD)')
     parser.add_argument('--end', default='2024-12-31', help='结束日期 (YYYY-MM-DD)')
     parser.add_argument('--workers', type=int, default=8, help='and行工作线程数 (默认: 8)')
-    parser.add_argument('--dry-run', action='store_true', help='只检查状态，不执行ETL')
+    parser.add_argument('--dry-run', action='store_true', help='只check状态，不执行ETL')
     
     args = parser.parse_args()
     
@@ -119,8 +119,8 @@ def main():
     print(f"总共 {len(dates)} 天need处理")
     print()
     
-    # 先检查all日期状态
-    print("📊 检查当before状态...")
+    # 先checkall日期状态
+    print("📊 checkwhenbefore状态...")
     status_list = []
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {executor.submit(check_date_status, date): date for date in dates}
@@ -128,7 +128,7 @@ def main():
             date, fp, evt = future.result()
             status_list.append((date, fp, evt))
     
-    # 统计
+    # statistics
     # 完整: fingerprint数 >= event数（package括event数为0情况）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
     # 部分: 有fingerprint但未完整
@@ -138,7 +138,7 @@ def main():
     # 错误: 查询失败
     error = sum(1 for _, fp, evt in status_list if fp < 0 or evt < 0)
     
-    print(f"状态统计:")
+    print(f"状态statistics:")
     print(f"  ✅ 完整: {complete} 天")
     print(f"  ⚠️  部分: {partial} 天")
     print(f"  ❌ 空缺: {empty} 天")
@@ -179,13 +179,13 @@ def main():
     print("✅ 处理完成")
     print("=" * 60)
     
-    # 最终统计
+    # 最终statistics
     final_result = subprocess.run(
         ["docker", "exec", "gdelt_mysql", "mysql", "-u", "root", "-prootpassword",
          "-e", "SELECT 'events_table', COUNT(*) FROM events_table WHERE SQLDATE BETWEEN '2024-01-01' AND '2024-12-31' UNION ALL SELECT 'fingerprints', COUNT(*) FROM event_fingerprints"],
         capture_output=True, text=True
     )
-    print("最终统计:")
+    print("最终statistics:")
     print(final_result.stdout)
 
 

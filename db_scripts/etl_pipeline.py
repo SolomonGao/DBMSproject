@@ -82,7 +82,7 @@ class GDELTETLPipeline:
             # 5. update地理grid
             await self._update_geo_grid(target_date)
             
-            # 6. 识别热点eventandupdatefingerprintreference
+            # 6. 识别hoteventandupdatefingerprintreference
             await self._identify_hot_events(target_date)
             
             logger.info(f"✅ ETLcompleted: {target_date}")
@@ -145,7 +145,7 @@ class GDELTETLPipeline:
         
         top_locations = [{"name": row['name'], "count": row['cnt']} for row in locations_result]
         
-        # eventtype分布
+        # eventtypedistribution
         types_result = await self.pool.fetchall("""
             SELECT 
                 CASE 
@@ -175,7 +175,7 @@ class GDELTETLPipeline:
         
         type_dist = {row['event_type']: row['cnt'] for row in types_result}
         
-        # 热点eventfingerprint（临时用GID，after续update为fingerprint）
+        # hoteventfingerprint（临时用GID，after续update为fingerprint）
         hot_result = await self.pool.fetchall("""
             SELECT GlobalEventID, NumArticles * ABS(GoldsteinScale) as hot_score
             FROM events_table
@@ -222,7 +222,7 @@ class GDELTETLPipeline:
         """为新eventgeneratefingerprint"""
         logger.info(f"🔖 generateeventfingerprint: {date}")
         
-        # fetch当天尚未generatefingerprintevent（batchprocess）
+        # fetchwhen天尚未generatefingerprintevent（batchprocess）
         total_processed = 0
         batch_size = 5000
         
@@ -356,7 +356,7 @@ class GDELTETLPipeline:
             '03': f"{a1}table达意graph", '04': f"{a1}与{a2}磋商",
             '05': f"{a1}参与{a2}事务", '06': f"{a1}向{a2}提供物资",
             '07': f"{a1}向{a2}提供援助", '08': f"{a1}向{a2}提供援助",
-            '09': f"{a1}向{a2}让步", '10': f"{a1}向{a2}提出要求",
+            '09': f"{a1}向{a2}让步", '10': f"{a1}向{a2}提出want求",
             '11': f"{a1}对{a2}table示不满", '12': f"{a1}拒绝{a2}",
             '13': f"{a1}威胁{a2}", '14': f"{a1}发起抗议",
             '15': f"{a1}展示武力", '16': f"{a1}reduce对{a2}关系",
@@ -398,7 +398,7 @@ class GDELTETLPipeline:
             '01': '外交声明', '02': '外交呼吁', '03': '政策意向',
             '04': '外交磋商', '05': '参与合作', '06': '物资援助',
             '07': '人员援助', '08': '保护援助', '09': '让步缓和',
-            '10': '提出要求', '11': 'table达不满', '12': '拒绝反对',
+            '10': '提出want求', '11': 'table达不满', '12': '拒绝反对',
             '13': '威胁warning', '14': '抗议示威', '15': '展示武力',
             '16': '关系downgrade', '17': '强制胁迫', '18': '军事摩擦',
             '19': '大规模conflict', '20': '武装攻击'
@@ -453,7 +453,7 @@ class GDELTETLPipeline:
         logger.info(f"  ✓ update {updated} 个地区")
     
     async def _update_geo_grid(self, date: str):
-        """update地理grid热点"""
+        """update地理gridhot"""
         logger.info(f"🗺️ update地理grid: {date}")
         
         # 按0.5度gridaggregate
@@ -502,10 +502,10 @@ class GDELTETLPipeline:
         logger.info(f"  ✓ update {updated} 个grid")
     
     async def _identify_hot_events(self, date: str):
-        """识别andupdate热点eventfingerprintreference"""
-        logger.info(f"🔥 识别热点event: {date}")
+        """识别andupdatehoteventfingerprintreference"""
+        logger.info(f"🔥 识别hotevent: {date}")
         
-        # fetch当before热点eventGID
+        # fetchwhenbeforehoteventGID
         result = await self.pool.fetchone("""
             SELECT hot_event_fingerprints 
             FROM daily_summary 
@@ -513,7 +513,7 @@ class GDELTETLPipeline:
         """, (date,))
         
         if not result or not result['hot_event_fingerprints']:
-            logger.info("  ⚠️ 无热点eventdata")
+            logger.info("  ⚠️ 无hoteventdata")
             return
         
         hot_fingerprints_data = result['hot_event_fingerprints']
@@ -541,7 +541,7 @@ class GDELTETLPipeline:
                 WHERE date = %s
             """, (json.dumps(fingerprints), date))
             
-            logger.info(f"  ✓ update {len(fingerprints)} 个热点eventfingerprint")
+            logger.info(f"  ✓ update {len(fingerprints)} 个hoteventfingerprint")
 
 
 async def main():

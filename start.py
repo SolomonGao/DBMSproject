@@ -4,7 +4,7 @@ import sys
 def main():
     print("🚀 正in启动 Spatio-Temporal Narrative AI Agent...")
     
-    # Defines要执row Docker 命令
+    # Defineswant执row Docker 命令
     command = [
         "docker-compose", 
         "run", 
@@ -16,7 +16,7 @@ def main():
     ]
     
     try:
-        # use subprocess 执row命令，不捕获输出，直接jointo当before终端
+        # use subprocess 执row命令，不捕获输出，直接jointowhenbefore终端
         subprocess.run(command, check=True)
     except subprocess.CalledProcessError as e:
         print(f"\n❌ 运row出错，Exit码: {e.returncode}")

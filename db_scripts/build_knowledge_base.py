@@ -25,7 +25,7 @@ DB_CONFIG = {
 }
 
 BATCH_SIZE = 100  
-# 🎯 将目标调大，比如这次我们定个 2000 篇小目标
+# 🎯 将目标调大，For example, this time we set a 2000 篇小目标
 TOTAL_TARGET = 300000 
 
 # 新增：用于保存progress本地file
@@ -39,7 +39,7 @@ def get_last_offset():
     return 0
 
 def save_offset(offset):
-    """保存当beforeprogress"""
+    """保存whenbeforeprogress"""
     with open(PROGRESS_FILE, 'w') as f:
         f.write(str(offset))
 
@@ -77,7 +77,7 @@ async def fetch_urls_batch(pool, limit, offset=0):
             return await cur.fetchall()
 
 async def scrape_article(session, event_id, date, url):
-    """async抓取单篇新闻正文"""
+    """asyncFetch single news article content"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     timeout = aiohttp.ClientTimeout(total=10)
     
@@ -89,7 +89,7 @@ async def scrape_article(session, event_id, date, url):
                 paragraphs = soup.find_all('p')
                 article_text = ' '.join([p.get_text(strip=True) for p in paragraphs])
                 
-                # 过滤太短无用内容
+                # Filter out too short useless content
                 if len(article_text) > 150:
                     return {
                         "id": str(event_id),
@@ -102,7 +102,7 @@ async def scrape_article(session, event_id, date, url):
         return None
 
 # ==========================================
-# 3. 主流水线编排 (支持断点续传版)
+# 3. 主流水线编排 (Supports resumable transfer version)
 # ==========================================
 async def main():
     collection = init_chromadb()
@@ -138,7 +138,7 @@ async def main():
                     
                     collection.upsert(documents=texts, metadatas=metadatas, ids=ids)
                     total_saved += len(valid_docs)
-                    logging.info(f"✅ 批次completed！success抓取and向量化 {len(valid_docs)} 篇文章。(本次运行累计存入: {total_saved}/{TOTAL_TARGET})")
+                    logging.info(f"✅ 批次completed！success抓取and向量化 {len(valid_docs)} 篇文章。(Cumulative storage for this run: {total_saved}/{TOTAL_TARGET})")
                 else:
                     logging.warning("⚠️ 本批次all链接抓取failed，继续下一批。")
                 

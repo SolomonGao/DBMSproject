@@ -7,7 +7,7 @@ import os
 import logging
 import hashlib
 
-# configurationlogformat，让终端输出更好看
+# configurationlogformat，Make terminal output look better
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(message)s')
 
 dotenv.load_dotenv()
@@ -69,7 +69,7 @@ def record_import(cursor, file_path, row_count):
 
 def fast_ingest():
     if not csv_files:
-        logging.error("❌ 在 data/ directory下没有找到任何 gdelt_2024_na_*.csv file，请checkpath！")
+        logging.error("❌ 在 data/ directoryNo results found under gdelt_2024_na_*.csv file，请checkpath！")
         return
 
     logging.info(f"📂 共扫描到 {len(csv_files)} 个shardfile准备import。")
@@ -105,7 +105,7 @@ def fast_ingest():
         
         logging.info(f"   🚀 startclean和import...")
         
-        # 🌟 优化2：增加 try-except，防止单file报错中断整体进程
+        # 🌟 优化2：增加 try-except，防止单fileError interrupts entire process
         try:
             # 1. readandclean 
             df = pd.read_csv(file, dtype={'EventCode': str, 'EventRootCode': str})
@@ -128,7 +128,7 @@ def fast_ingest():
             # 拼装 WKT 字符串列
             df['ActionGeo_Point_WKT'] = 'POINT(' + df['ActionGeo_Lat'].astype(str) + ' ' + df['ActionGeo_Long'].astype(str) + ')'
 
-            # 2. 存为没有任何干扰临时file (na_rep='\N' 是 MySQL 识别 NULL 专属标记)
+            # 2. Save as temporary without any interferencefile (na_rep='\N' 是 MySQL 识别 NULL 专属标记)
             df.to_csv(temp_file, index=False, header=False, na_rep=r'\N')
             row_count = len(df)
             

@@ -21,27 +21,27 @@ def _get_schema_guide_text() -> str:
     """GDELT databaseuse指南"""
     return """## GDELT databaseuse指南
 
-### 主要field说明
+### 主wantfield说明
 
 | field名 | type | 说明 |
 |--------|------|------|
 | `GlobalEventID` | BIGINT | eventunique identifier |
 | `SQLDATE` | DATE | event日期 (YYYY-MM-DD) |
 | `MonthYear` | INT | 年月 (YYYYMM) |
-| `Actor1Name` | VARCHAR | 主要参and方名称 |
+| `Actor1Name` | VARCHAR | 主want参and方名称 |
 | `Actor1CountryCode` | CHAR(3) | 参and方1国家code |
-| `Actor2Name` | VARCHAR | 次要参and方名称 |
+| `Actor2Name` | VARCHAR | 次want参and方名称 |
 | `Actor2CountryCode` | CHAR(3) | 参and方2国家code |
 | `EventCode` | VARCHAR | CAMEO eventtypecode |
 | `EventRootCode` | VARCHAR | CAMEO 根eventcode |
 | `GoldsteinScale` | FLOAT | conflict/合作强度 (-10 to +10) |
-| `AvgTone` | FLOAT | 新闻语调 (-100 to +100) |
+| `AvgTone` | FLOAT | news语调 (-100 to +100) |
 | `NumArticles` | INT | 报道文章数 |
 | `NumMentions` | INT | 提and次数 |
 | `ActionGeo_Lat` | DECIMAL | event发生地纬度 |
 | `ActionGeo_Long` | DECIMAL | event发生地经度 |
 | `ActionGeo_FullName` | TEXT | 地理位置全称 |
-| `SOURCEURL` | TEXT | 新闻来源 URL |
+| `SOURCEURL` | TEXT | news来源 URL |
 
 ### 常用queryExample
 
@@ -57,7 +57,7 @@ WHERE (Actor1Name LIKE '%China%' OR Actor2Name LIKE '%China%')
 ORDER BY SQLDATE DESC
 LIMIT 100;
 
--- 3. 统计某月每日eventquantity
+-- 3. statistics某月每日eventquantity
 SELECT SQLDATE, COUNT(*) as count 
 FROM events_table 
 WHERE SQLDATE BETWEEN '2024-01-01' AND '2024-01-31'
@@ -83,7 +83,7 @@ LIMIT 20;
 - **01-09**: 公开声明 (Make public statement)
 - **10-19**: 屈服 (Yield)
 - **20-29**: 调查 (Investigate)
-- **30-39**: 要求 (Demand)
+- **30-39**: want求 (Demand)
 - **40-49**: 不赞成 (Disapprove)
 - **50-59**: rejected (Reject)
 - **60-69**: 威胁 (Threaten)
@@ -133,7 +133,7 @@ class SQLQueryInput(BaseModel):
 
 class TableSchemaInput(BaseModel):
     """表结构queryinput"""
-    table_name: str = Field(default="events_table", description="要query表名")
+    table_name: str = Field(default="events_table", description="wantquery表名")
 
 
 class TimeRangeQueryInput(BaseModel):
@@ -186,7 +186,7 @@ class TimeSeriesInput(BaseModel):
 
 
 class GeoHeatmapInput(BaseModel):
-    """地理热力graph"""
+    """地理heatgraph"""
     start_date: str = Field(..., description="开始日期 (YYYY-MM-DD)")
     end_date: str = Field(..., description="结束日期 (YYYY-MM-DD)")
     precision: int = Field(default=2, description="坐标精度 (1-3)", ge=1, le=3)
@@ -199,7 +199,7 @@ class StreamQueryInput(BaseModel):
     end_date: Optional[str] = Field(None, description="结束日期")
     max_results: int = Field(default=100, description="最大Returnsquantity", le=1000)
 
-# ▼▼▼ in這裡新增以下這段 ▼▼▼
+# ▼▼▼ inAdd the following section here ▼▼▼
 class NewsSearchInput(BaseModel):
     """新聞語義search輸入"""
     query: str = Field(
@@ -208,7 +208,7 @@ class NewsSearchInput(BaseModel):
     )
     n_results: int = Field(
         default=3,
-        description="Returns相關新聞數量限制",
+        description="ReturnsRelated news quantity limit",
         ge=1,
         le=10
     )
@@ -329,7 +329,7 @@ def create_optimized_tools(mcp):
     
     @mcp.tool()
     async def analyze_conflict_cooperation(params: EventAnalysisInput) -> str:
-        """分析conflict/合作趋势（带cache）"""
+        """分析conflict/合作trends（带cache）"""
         query = f"""
         SELECT 
             SQLDATE,
@@ -363,10 +363,10 @@ def create_optimized_tools(mcp):
             return "querysuccess，但not founddata"
         
         chart_desc = {
-            "line": "折线graph - 适合展示时间趋势",
+            "line": "折线graph - Suitable for showing time trends",
             "bar": "柱状graph - 适合比较不同class别数value",
-            "pie": "饼graph - 适合展示比例分布",
-            "scatter": "散点graph - 适合展示相关性"
+            "pie": "饼graph - Suitable for showing ratio distribution",
+            "scatter": "散点graph - Suitable for showing correlations"
         }
         
         columns = list(rows[0].keys())
@@ -400,9 +400,9 @@ def create_optimized_tools(mcp):
     @mcp.tool()
     async def get_dashboard(params: DashboardInput) -> str:
         """
-        【优化】仪表盘data - and发Getmultidimension统计
+        【优化】仪表盘data - and发Getmultidimensionstatistics
         
-        同时Returns：每日趋势、Top 参and方、地理分布、eventtype分布、综合统计
+        同时Returns：每日trends、Top 参and方、地理distribution、eventtypedistribution、综合statistics
         比串rowquery快 3-5 倍。
         """
         try:
@@ -415,7 +415,7 @@ def create_optimized_tools(mcp):
             summary = dashboard.get("summary_stats", {})
             if "data" in summary and summary["data"]:
                 s = summary["data"][0]
-                lines.append(f"**统计week期**: {params.start_date} 至 {params.end_date}")
+                lines.append(f"**statisticsweek期**: {params.start_date} 至 {params.end_date}")
                 lines.append(f"- 总event数: {s.get('total_events', 0):,}")
                 lines.append(f"- 独特参and方: {s.get('unique_actors', 0):,}")
                 lines.append(f"- average Goldstein: {s.get('avg_goldstein', 0):.2f}")
@@ -423,7 +423,7 @@ def create_optimized_tools(mcp):
             
             daily = dashboard.get("daily_trend", {})
             if "data" in daily:
-                lines.append("## 📈 每日趋势（before 7 天）")
+                lines.append("## 📈 每日trends（before 7 天）")
                 for row in daily["data"][:7]:
                     lines.append(f"- {row.get('SQLDATE')}: {row.get('cnt')} event")
                 lines.append("")
@@ -475,7 +475,7 @@ def create_optimized_tools(mcp):
     
     @mcp.tool()
     async def get_geo_heatmap(params: GeoHeatmapInput) -> str:
-        """【优化】地理热力graphdata - gridaggregate"""
+        """【优化】地理heatgraphdata - gridaggregate"""
         try:
             results = await service.get_geo_heatmap(
                 params.start_date, params.end_date, params.precision
@@ -495,11 +495,11 @@ def create_optimized_tools(mcp):
                 for row in results[:100]
             ]
             
-            return f"""# 🗺️ 地理热力graphdata
+            return f"""# 🗺️ 地理heatgraphdata
 
 **时间范围**: {params.start_date} 至 {params.end_date}
 **精度**: {params.precision} 位小数
-**热点quantity**: {len(heatmap_data)}
+**hotquantity**: {len(heatmap_data)}
 
 ```json
 {json.dumps(heatmap_data[:10], indent=2, ensure_ascii=False)}
@@ -546,7 +546,7 @@ def create_optimized_tools(mcp):
     
     @mcp.tool()
     async def get_cache_stats() -> str:
-        """【诊断】查看querycache统计info"""
+        """【诊断】查看querycachestatisticsinfo"""
         stats = query_cache.get_stats()
         
         hit_rate_str = stats['hit_rate'].rstrip('%')
@@ -561,7 +561,7 @@ def create_optimized_tools(mcp):
         except:
             evaluation = "🤷 暂无足够data"
         
-        return f"""# 📊 querycache统计
+        return f"""# 📊 querycachestatistics
 
 | 指标 | value |
 |------|-----|
@@ -586,8 +586,8 @@ def create_optimized_tools(mcp):
         """
         【RAG 右腦】新聞語義搜index擎
         
-        當你need解event具體起因、人群具體訴求、警方回應or詳細新聞背景時調用此tool。
-        請輸入English自然語言查詢本地vector知識庫中真實新聞文本片段。
+        當你need解event具體起因、人群具體訴求、警方回應orCall this when detailed news background is neededtool。
+        請輸入EnglishNatural language query localvectorReal news text snippets in knowledge base。
         """
         # 呼叫我們in GDELTServiceOptimized 中新增檢索method
         return await service.search_news_context(params.query, params.n_results)   
