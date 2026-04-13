@@ -203,6 +203,7 @@ class WebChatService:
                         direct = router_decision.direct_response or ""
                         return {
                             "reply": direct,
+                            "reply_length": len(direct),
                             "provider": self.config.llm_provider,
                             "model": self.config.llm_model,
                             "tool_names": tool_names,
@@ -217,6 +218,7 @@ class WebChatService:
             if router_decision and router_decision.direct_response:
                 return {
                     "reply": router_decision.direct_response,
+                    "reply_length": len(router_decision.direct_response),
                     "provider": self.config.llm_provider,
                     "model": self.config.llm_model,
                     "tool_names": tool_names,
@@ -261,6 +263,7 @@ User input: {prompt}"""
 
             return {
                 "reply": reply,
+                "reply_length": len(reply) if reply else 0,
                 "provider": self.config.llm_provider,
                 "model": self.config.llm_model,
                 "tool_names": tool_names,
@@ -424,6 +427,7 @@ class GDELTWebHandler(BaseHTTPRequestHandler):
             "Content-Type",
             f"{content_type or 'application/octet-stream'}; charset=utf-8",
         )
+        self.send_header("Cache-Control", "no-cache, max-age=0")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

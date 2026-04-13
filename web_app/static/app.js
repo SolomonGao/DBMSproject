@@ -31,6 +31,7 @@ const elements = {
 };
 
 function bootstrap() {
+    console.log("[GDELT Chat UI] Version 2.0 loaded");
     loadSessions();
     bindEvents();
     selectOrCreateSession();
