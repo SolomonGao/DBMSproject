@@ -1,9 +1,9 @@
-# client.py - MCP 客户端核心模块
+# client.py - MCP Client Core Module
 """
-MCP 客户端：
-- 支持 stdio 和 sse 两种传输模式
-- 工具发现和格式转换
-- 异步工具调用
+MCP Client:
+- Supports stdio and sse transport modes
+- Tool discovery and format conversion
+- Async tool calling
 """
 
 import asyncio
@@ -21,7 +21,7 @@ logger = get_logger("mcp_client")
 
 
 class MCPClient:
-    """MCP 客户端"""
+    """MCP Client"""
     
     def __init__(self, server_path: str, transport: str = "stdio", port: int = 8000):
         self.server_path = server_path
@@ -33,38 +33,38 @@ class MCPClient:
         self.tools: List[Dict[str, Any]] = []
         self._tools_map: Dict[str, Any] = {}
         
-        logger.debug(f"初始化 MCPClient: transport={transport}, port={port}")
+        logger.debug(f"Initializing MCPClient: transport={transport}, port={port}")
     
     async def connect(self) -> bool:
         """
-        连接到 MCP Server
+        Connect to MCP Server
         
         Returns:
-            是否连接成功
+            Whether connection succeeded
         """
         try:
-            logger.info(f"正在连接到 MCP Server ({self.transport}模式)...")
+            logger.info(f"Connecting to MCP Server ({self.transport} mode)...")
             
             if self.transport == "stdio":
                 await self._connect_stdio()
             else:
                 await self._connect_sse()
             
-            # 初始化会话
+            # Initialize session
             self.session = await self.exit_stack.enter_async_context(
                 ClientSession(self.read, self.write)
             )
             await self.session.initialize()
             
-            logger.info("✅ MCP Server 连接成功")
+            logger.info("✅ MCP Server connected")
             return True
             
         except Exception as e:
-            logger.error(f"❌ 连接 MCP Server 失败: {e}")
+            logger.error(f"❌ Failed to connect to MCP Server: {e}")
             return False
     
     async def _connect_stdio(self):
-        """stdio 模式连接"""
+        """stdio mode connection"""
         server_params = StdioServerParameters(
             command="python",
             args=[self.server_path],
@@ -75,35 +75,35 @@ class MCPClient:
             stdio_client(server_params)
         )
         self.read, self.write = stdio_transport
-        logger.debug(f"stdio 连接已建立: {self.server_path}")
+        logger.debug(f"stdio connection established: {self.server_path}")
     
     async def _connect_sse(self):
-        """sse 模式连接"""
+        """sse mode connection"""
         url = f"http://localhost:{self.port}/sse"
         sse_transport = await self.exit_stack.enter_async_context(
             sse_client(url)
         )
         self.read, self.write = sse_transport
-        logger.debug(f"sse 连接已建立: {url}")
+        logger.debug(f"sse connection established: {url}")
     
     async def discover_tools(self) -> List[Dict[str, Any]]:
         """
-        发现并转换工具定义
+        Discover and convert tool definitions
         
         Returns:
-            OpenAI 格式的工具列表
+            OpenAI format tool list
         """
         if not self.session:
-            logger.error("未连接到 MCP Server，无法发现工具")
+            logger.error("Not connected to MCP Server, cannot discover tools")
             return []
         
         try:
-            logger.info("正在发现工具...")
+            logger.info("Discovering tools...")
             
             tools_result = await self.session.list_tools()
             mcp_tools = tools_result.tools
             
-            # 转换为 OpenAI 格式
+            # Convert to OpenAI format
             openai_tools = []
             self._tools_map = {}
             
@@ -121,7 +121,7 @@ class MCPClient:
             
             self.tools = openai_tools
             
-            logger.info(f"发现 {len(openai_tools)} 个工具:")
+            logger.info(f"Discovered {len(openai_tools)} tools:")
             for tool in openai_tools:
                 name = tool['function']['name']
                 desc = tool['function']['description'][:40] + "..."
@@ -130,66 +130,66 @@ class MCPClient:
             return openai_tools
             
         except Exception as e:
-            logger.error(f"发现工具失败: {e}")
+            logger.error(f"Failed to discover tools: {e}")
             return []
     
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """
-        调用 MCP 工具
+        Call MCP tool
         
         Args:
-            tool_name: 工具名称
-            arguments: 工具参数
+            tool_name: Tool name
+            arguments: Tool arguments
         
         Returns:
-            工具执行结果
+            Tool execution result
         """
         if not self.session:
-            error_msg = "未连接到 MCP Server"
+            error_msg = "Not connected to MCP Server"
             logger.error(error_msg)
             return error_msg
         
-        logger.debug(f"调用工具: {tool_name}({json.dumps(arguments, ensure_ascii=False)})")
+        logger.debug(f"Calling tool: {tool_name}({json.dumps(arguments, ensure_ascii=False)})")
         
         try:
             result = await self.session.call_tool(tool_name, arguments=arguments)
             
-            # 提取文本内容
+            # Extract text content
             texts = []
             for content in result.content:
                 if content.type == "text":
                     texts.append(content.text)
             
-            result_text = "\n".join(texts) if texts else "工具执行完成，无返回内容"
-            logger.debug(f"工具返回: {result_text[:100]}{'...' if len(result_text) > 100 else ''}")
+            result_text = "\n".join(texts) if texts else "Tool executed, no content returned"
+            logger.debug(f"Tool returned: {result_text[:100]}{'...' if len(result_text) > 100 else ''}")
             
             return result_text
             
         except Exception as e:
-            error_msg = f"工具调用失败: {e}"
+            error_msg = f"Tool call failed: {e}"
             logger.error(error_msg)
             return error_msg
     
     def create_tool_executor(self) -> Callable[[str, Dict], Awaitable[str]]:
         """
-        创建异步工具执行器
+        Create async tool executor
         
         Returns:
-            异步回调函数，返回 Awaitable[str]
+            Async callback function returning Awaitable[str]
         """
         async def executor(tool_name: str, tool_args: Dict) -> str:
             try:
-                # 直接 await，不再使用 future.result() 阻塞线程
+                # Directly await, no longer using future.result() to block thread
                 return await self.call_tool(tool_name, tool_args)
             except Exception as e:
-                logger.exception(f"工具执行错误: {e}")
-                return f"工具执行错误: {e}"
+                logger.exception(f"Tool execution error: {e}")
+                return f"Tool execution error: {e}"
         return executor
     
     async def close(self):
-        """关闭连接并清理资源"""
+        """Close connection and cleanup resources"""
         try:
             await self.exit_stack.aclose()
-            logger.info("🔌 MCP Server 连接已关闭")
+            logger.info("🔌 MCP Server connection closed")
         except Exception as e:
-            logger.warning(f"关闭连接时出错: {e}")
+            logger.warning(f"Error closing connection: {e}")
