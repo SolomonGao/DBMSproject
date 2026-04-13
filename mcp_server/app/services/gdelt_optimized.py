@@ -24,7 +24,7 @@ class GDELTServiceOptimized:
     
     优化点：
     1. query结果cache (TTL + LRU)
-    2. 并row聚合query
+    2. 并rowaggregatequery
     3. 流式querySupports大数据
     4. 预编译语句复用
     5. database端计算减少传输
@@ -134,7 +134,7 @@ class GDELTServiceOptimized:
                 GROUP BY event_type ORDER BY cnt DESC
             """, (start_date, end_date), "event_types"),
             
-            # 5. 统计摘要
+            # 5. 统计digest
             (f"""
                 SELECT 
                     COUNT(*) as total_events,
@@ -199,7 +199,7 @@ class GDELTServiceOptimized:
         async for row in self._streaming.stream(query, tuple(params)):
             yield row
     
-    # ==================== 核心优化：database端聚合 ====================
+    # ==================== 核心优化：database端aggregate ====================
     
     async def analyze_time_series_advanced(
         self,
@@ -210,9 +210,9 @@ class GDELTServiceOptimized:
         """
         高级时间序column分析 - 全部indatabasecompleted
         
-        只传输聚合后结果，极大减少网络开销。
+        只传输aggregate后结果，极大减少网络开销。
         """
-        # 根据粒度选择分组方式
+        # 根据粒度选择group方式
         if granularity == "week":
             date_group = "YEARWEEK(SQLDATE)"
             date_select = "STR_TO_DATE(CONCAT(YEARWEEK(SQLDATE), ' Sunday'), '%X%V %W') as period"
@@ -227,7 +227,7 @@ class GDELTServiceOptimized:
         SELECT 
             {date_select},
             COUNT(*) as event_count,
-            -- 冲突/合作比例（database端计算）
+            -- conflict/合作比例（database端计算）
             ROUND(
                 SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
                 2
@@ -241,7 +241,7 @@ class GDELTServiceOptimized:
             ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
             ROUND(AVG(AvgTone), 2) as avg_tone,
             ROUND(STDDEV(AvgTone), 2) as std_tone,
-            -- 最活跃参and方（JSON 聚合）
+            -- 最活跃参and方（JSON aggregate）
             (
                 SELECT JSON_ARRAYAGG(
                     JSON_OBJECT('actor', Actor1Name, 'count', cnt)
@@ -268,7 +268,7 @@ class GDELTServiceOptimized:
             cache_ttl=1800  # 30 分钟
         )
     
-    # ==================== 核心优化：地理热力图 ====================
+    # ==================== 核心优化：地理热力graph ====================
     
     async def get_geo_heatmap(
         self,
@@ -277,9 +277,9 @@ class GDELTServiceOptimized:
         precision: int = 2  # 小数位数，越大精度越高
     ) -> List[Dict[str, Any]]:
         """
-        地理热力图数据 - 网格聚合
+        地理热力graph数据 - 网格aggregate
         
-        将相近坐标聚合to网格，减少前端渲染压力。
+        将相近坐标aggregateto网格，减少前端渲染压力。
         """
         query = f"""
         SELECT 
@@ -296,7 +296,7 @@ class GDELTServiceOptimized:
         GROUP BY 
             ROUND(ActionGeo_Lat, {precision}),
             ROUND(ActionGeo_Long, {precision})
-        HAVING intensity >= 5  -- 过滤稀疏点
+        HAVING intensity >= 5  -- filter稀疏点
         ORDER BY intensity DESC
         LIMIT 1000
         """
@@ -372,7 +372,7 @@ class GDELTServiceOptimized:
         
         return result["cnt"] if result else 0
     
-    # ==================== 基础query方法（全部Supportscache）====================
+    # ==================== 基础querymethod（全部Supportscache）====================
     
     async def query_by_actor_cached(
         self,
@@ -502,7 +502,7 @@ class GDELTServiceOptimized:
         return self._format_markdown(columns, row_tuples)
     
     
-    # ==================== format化工具 ====================
+    # ==================== format化tool ====================
     
     def _format_markdown(self, columns: List[str], rows: List[tuple], max_display_rows: int = 20) -> str:
         """format化for Markdown 表格"""
@@ -556,7 +556,7 @@ class GDELTServiceOptimized:
         """延迟Initialize ChromaDB (避免启动时卡顿)"""
         if self._chroma_collection is None:
             try:
-                # 定位to项目根目录下 chroma_db 文件夹
+                # 定位toitem目根目录下 chroma_db 文件夹
                 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
                 db_path = os.path.join(project_root, 'chroma_db')
                 
@@ -566,7 +566,7 @@ class GDELTServiceOptimized:
                     name="gdelt_news_collection", 
                     embedding_function=ef
                 )
-                logging.info("✅ ChromaDB 向量检索工具Initializesuccess！")
+                logging.info("✅ ChromaDB vector检索toolInitializesuccess！")
             except Exception as e:
                 logging.error(f"❌ ChromaDB Initializefailed: {e}")
         return self._chroma_collection
@@ -574,10 +574,10 @@ class GDELTServiceOptimized:
     # ==================== 核心优化：RAG 语义检索 ====================
     
     async def search_news_context(self, query: str, n_results: int = 3) -> str:
-        """执row向量database语义检索 (Agent 右脑)"""
+        """执rowvectordatabase语义检索 (Agent 右脑)"""
         collection = self._get_chroma_collection()
         if not collection:
-            return "Error: 向量database未Initializeor无法join。"
+            return "Error: vectordatabase未Initializeor无法join。"
 
         try:
             # ChromaDB 本地检索非常快，直接调用
@@ -607,10 +607,10 @@ class GDELTServiceOptimized:
                 
             return formatted_result
         except Exception as e:
-            return f"检索知识库时发生error: {str(e)}"
+            return f"检索知识library时发生error: {str(e)}"
 
 
-# 便捷函数
+# 便捷function
 async def get_optimized_service() -> GDELTServiceOptimized:
-    """Get优化版服务实例"""
+    """Get优化版服务instance"""
     return GDELTServiceOptimized()

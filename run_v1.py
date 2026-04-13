@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # run_v1.py - CLI v1 启动脚本（Supports交互式配置）
 """
-GDELT MCP Client App v1 - 交互式配置版本
+GDELT MCP Client App v1 - 交互式配置version
 
-使用方法:
-    python run_v1.py [选项]
+使用method:
+    python run_v1.py [选item]
 
-选项:
+选item:
     --config               强制启动配置向导
     --log-level {DEBUG,INFO,WARNING,ERROR}  Setloglevel
     --no-file-log          禁用文件log
@@ -38,7 +38,7 @@ logger = get_logger("main")
 
 
 async def main():
-    """主函数"""
+    """主function"""
     
     # 解析命令rowArgs
     parser = argparse.ArgumentParser(
@@ -128,7 +128,7 @@ Example:
             logger.error("  2. Python 环境isNo正确")
             sys.exit(1)
         
-        # 6. 发现工具
+        # 6. 发现tool
         await mcp_client.discover_tools()
         
     except Exception as e:

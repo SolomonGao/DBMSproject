@@ -30,7 +30,7 @@ csv_files = sorted(glob.glob("data/gdelt_2024_na_*.csv"))
 temp_file = os.path.abspath('temp_bulk_load.csv').replace('\\', '/')
 
 def get_file_signature(file_path):
-    """获取file签名（file名 + 修改time + size）用于检测重复import"""
+    """fetchfilesign（file名 + 修改time + size）用于检测重复import"""
     stat = os.stat(file_path)
     signature = f"{os.path.basename(file_path)}_{stat.st_mtime}_{stat.st_size}"
     return hashlib.md5(signature.encode()).hexdigest()
@@ -72,7 +72,7 @@ def fast_ingest():
         logging.error("❌ 在 data/ directory下没有找到任何 gdelt_2024_na_*.csv file，请checkpath！")
         return
 
-    logging.info(f"📂 共扫描到 {len(csv_files)} 个分片file准备import。")
+    logging.info(f"📂 共扫描到 {len(csv_files)} 个shardfile准备import。")
     
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-并行补全事件指纹
-使用多线程并行处理多天的ETL
+并行补全事件fingerprint
+使用多线程parallel processing多天的ETL
 
 用法:
     python backfill_fingerprints_parallel.py --workers 8
@@ -33,9 +33,9 @@ def get_dates_to_process(start_date: str, end_date: str) -> List[str]:
 
 
 def check_date_status(date: str) -> Tuple[str, int, int]:
-    """检查某天的指纹状态"""
+    """检查某天的fingerprint状态"""
     try:
-        # 获取事件数
+        # fetch事件数
         evt_result = subprocess.run(
             ["docker", "exec", "gdelt_mysql", "mysql", "-u", "root", "-prootpassword", 
              "-N", "-e", f"SELECT COUNT(*) FROM gdelt.events_table WHERE SQLDATE = '{date}'"],
@@ -43,7 +43,7 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
         )
         evt_count = int(evt_result.stdout.strip()) if evt_result.returncode == 0 else 0
         
-        # 获取指纹数（指纹格式: US-20240101-WDC-PROTEST-001）
+        # fetchfingerprint数（fingerprint格式: US-20240101-WDC-PROTEST-001）
         date_no_dash = date.replace('-', '')
         fp_result = subprocess.run(
             ["docker", "exec", "gdelt_mysql", "mysql", "-u", "root", "-prootpassword",
@@ -54,7 +54,7 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
         
         # 调试输出
         if fp_count > 0 or evt_count > 0:
-            print(f"  [检查] {date}: {fp_count} 指纹 / {evt_count} 事件")
+            print(f"  [检查] {date}: {fp_count} fingerprint / {evt_count} 事件")
         
         return (date, fp_count, evt_count)
     except Exception as e:
@@ -99,7 +99,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='并行补全事件指纹')
+    parser = argparse.ArgumentParser(description='并行补全事件fingerprint')
     parser.add_argument('--start', default='2024-01-01', help='开始日期 (YYYY-MM-DD)')
     parser.add_argument('--end', default='2024-12-31', help='结束日期 (YYYY-MM-DD)')
     parser.add_argument('--workers', type=int, default=8, help='并行工作线程数 (默认: 8)')
@@ -108,7 +108,7 @@ def main():
     args = parser.parse_args()
     
     print("=" * 60)
-    print("🔧 并行补全事件指纹")
+    print("🔧 并行补全事件fingerprint")
     print("=" * 60)
     print(f"日期范围: {args.start} ~ {args.end}")
     print(f"并行度: {args.workers} 线程")
@@ -129,11 +129,11 @@ def main():
             status_list.append((date, fp, evt))
     
     # 统计
-    # 完整: 指纹数 >= 事件数（包括事件数为0的情况）
+    # 完整: fingerprint数 >= 事件数（package括事件数为0的情况）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
-    # 部分: 有指纹但未完整
+    # 部分: 有fingerprint但未完整
     partial = sum(1 for _, fp, evt in status_list if 0 < fp < evt)
-    # 空缺: 有事件但无指纹
+    # 空缺: 有事件但无fingerprint
     empty = sum(1 for _, fp, evt in status_list if fp == 0 and evt > 0)
     # 错误: 查询失败
     error = sum(1 for _, fp, evt in status_list if fp < 0 or evt < 0)
@@ -160,7 +160,7 @@ def main():
     print(f"🚀 开始处理 {len(need_process)} 天...")
     print()
     
-    # 并行处理
+    # parallel processing
     completed = 0
     failed = 0
     

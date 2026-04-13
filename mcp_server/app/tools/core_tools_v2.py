@@ -786,7 +786,7 @@ def register_core_tools(mcp: FastMCP):
                     conditions = ["SQLDATE BETWEEN %s AND %s"]
                     query_params = [params.start_date, params.end_date]
                     
-                    # Region filter（intelligentparse，support索引optizationquery）
+                    # Region filter（intelligentparse，supportindexoptizationquery）
                     if params.region_filter:
                         region_input = params.region_filter.strip()
                         
@@ -900,7 +900,7 @@ def register_core_tools(mcp: FastMCP):
                         # table格行
                         output.append(f"| {i} | `{temp_fp}` | {title} [{event_label}] | {hot_score:.0f} | {date} | {location_short} |")
                         
-                        # Detailed Information（used forafter续展开）
+                        # Detailed Information（used forafter续expand）
                         detail_list.append({
                             'rank': i,
                             'fingerprint': temp_fp,
@@ -1102,7 +1102,7 @@ def register_core_tools(mcp: FastMCP):
                     embedding_function=ef
                 )
             except Exception:
-                return "❌ 新闻集合notFound，请先Build knowledge base"
+                return "❌ 新闻setnotFound，请先Build knowledge base"
             
             # Execute semantic search
             results = collection.query(
@@ -1159,7 +1159,7 @@ def register_core_tools(mcp: FastMCP):
         - Memory-sensitive environments
         
         Example:
-        - actor_name="Protest" - 查找allprotestRelated Events
+        - actor_name="Protest" - findallprotestRelated Events
         - actor_name="USA" + Timerange - UScountry全yearEvent
         """
         try:
@@ -1280,7 +1280,7 @@ def register_core_tools(mcp: FastMCP):
     @mcp.tool()
     async def analyze_time_series(params: TimeSeriesInput) -> str:
         """
-        【optization】advancedTimeseriesanalysis - Datalibrary端聚合
+        【optization】advancedTimeseriesanalysis - Datalibrary端aggregate
         
         supportday/周/month粒degreeTimeTrendanalysis，All aggregation completed on database side，
         only传输Result，极大减少网络开销。
@@ -1442,7 +1442,7 @@ def sanitize_text(text) -> str:
     text = str(text)
     # remove surrogate pairs
     text = text.encode('utf-8', 'ignore').decode('utf-8')
-    # 替换控制字符
+    # replace控制字符
     import unicodedata
     text = ''.join(
         char for char in text 

@@ -68,7 +68,7 @@ class ConfigWizard:
         self._print(f"ℹ️  {message}", 'blue')
     
     def _input_required(self, prompt: str, hide_input: bool = False) -> str:
-        """获取必填输入"""
+        """fetch必填输入"""
         while True:
             if hide_input:
                 import getpass
@@ -95,7 +95,7 @@ class ConfigWizard:
         
         while True:
             try:
-                choice = input(f"请输入选项编号 (1-{len(providers)}): ").strip()
+                choice = input(f"请输入选item编号 (1-{len(providers)}): ").strip()
                 idx = int(choice) - 1
                 if 0 <= idx < len(providers):
                     provider_id, provider = providers[idx]
@@ -103,7 +103,7 @@ class ConfigWizard:
                     self._print_success(f"已选择: {provider.name}")
                     return provider
                 else:
-                    self._print_error(f"无效的选项，请输入 1-{len(providers)}")
+                    self._print_error(f"无效的选item，请输入 1-{len(providers)}")
             except ValueError:
                 self._print_error("请输入有效的数字")
     
@@ -120,7 +120,7 @@ class ConfigWizard:
         # 检查是否已有配置
         existing_key = os.getenv(provider.env_key, '')
         if existing_key and len(existing_key) > 10:
-            # 验证现有 key 不是日志错误信息（简单检查）
+            # verify现有 key 不是日志错误信息（简单检查）
             if '|' not in existing_key and 'ERROR' not in existing_key:
                 masked = f"{existing_key[:8]}...{existing_key[-4:]}"
                 self._print_info(f"检测到已有 API Key: {masked}")
@@ -138,21 +138,21 @@ class ConfigWizard:
             hide_input=True
         )
         
-        # 简单验证
+        # 简单verify
         if not self._validate_api_key(api_key, provider):
             self._print_error("API Key 格式似乎不正确，但仍继续保存")
         else:
-            self._print_success("API Key 格式验证通过")
+            self._print_success("API Key 格式verify通过")
         
         self.config['api_key'] = api_key
         return api_key
     
     def _validate_api_key(self, api_key: str, provider: ProviderConfig) -> bool:
-        """简单验证 API Key 格式"""
+        """简单verify API Key 格式"""
         if not api_key or len(api_key) < 10:
             return False
         
-        # 根据不同提供商验证前缀
+        # 根据不同提供商verify前缀
         if provider.env_key == "MOONSHOT_API_KEY":
             return api_key.startswith("sk-")
         elif provider.env_key == "ANTHROPIC_API_KEY":
@@ -195,15 +195,15 @@ class ConfigWizard:
                     self.config['model'] = selected
                     return selected
                 else:
-                    self._print_error(f"无效的选项，请输入 1-{len(provider.models)}")
+                    self._print_error(f"无效的选item，请输入 1-{len(provider.models)}")
             except ValueError:
                 self._print_error("请输入有效的数字")
     
     def _advanced_options(self):
-        """高级配置选项"""
-        self._print_header("高级配置选项（可选）")
+        """高级配置选item"""
+        self._print_header("高级配置选item（可选）")
         
-        print("以下配置使用默认值即可，如需修改请输入新值，直接回车跳过:")
+        print("以下配置使用默认value即可，如需修改请输入新value，直接回车跳过:")
         print()
         
         # Temperature
@@ -295,11 +295,11 @@ class ConfigWizard:
         # 生成内容
         content = self._generate_env_content()
         
-        # 备份旧配置
+        # backup旧配置
         if self.env_file.exists():
             backup = self.env_file.with_suffix('.env.backup')
             backup.write_text(self.env_file.read_text(encoding='utf-8'), encoding='utf-8')
-            self._print_info(f"已备份旧配置到: {backup.name}")
+            self._print_info(f"已backup旧配置到: {backup.name}")
         
         # 写入新配置
         self.env_file.write_text(content, encoding='utf-8')
@@ -330,13 +330,13 @@ class ConfigWizard:
             # 步骤 3: 选择模型
             self._select_model(provider)
             
-            # 高级选项
+            # 高级选item
             print()
-            advanced = input("是否配置高级选项? (y/n，默认 n): ").strip().lower()
+            advanced = input("是否配置高级选item? (y/n，默认 n): ").strip().lower()
             if advanced in ('y', 'yes'):
                 self._advanced_options()
             else:
-                # 使用默认值
+                # 使用默认value
                 self.config['temperature'] = 0.7
                 self.config['max_tokens'] = 4096
                 self.config['log_level'] = 'INFO'
