@@ -148,7 +148,8 @@ class LLMClient:
     async def chat(
         self,
         tools: Optional[List[Dict]] = None,
-        tool_executor: Optional[Callable[[str, Dict], Awaitable[str]]] = None
+        tool_executor: Optional[Callable[[str, Dict], Awaitable[str]]] = None,
+        on_step: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ) -> str:
         """
         Send chat request
@@ -189,7 +190,7 @@ class LLMClient:
             
             # Handle tool calls
             if message.tool_calls and tool_executor:
-                return await self._handle_tool_calls(message, tools, tool_executor)
+                return await self._handle_tool_calls(message, tools, tool_executor, on_step)
             
             # Normal reply
             content = message.content or ""
@@ -197,6 +198,15 @@ class LLMClient:
             # Kimi specific reasoning_content
             if hasattr(message, "reasoning_content") and message.reasoning_content:
                 logger.debug(f"Model reasoning: {message.reasoning_content[:100]}...")
+                if on_step:
+                    on_step("llm_reasoning", {"reasoning": message.reasoning_content})
+                # Fallback: if content is empty but reasoning exists, use reasoning as reply
+                if not content.strip():
+                    content = message.reasoning_content
+            
+            # Final fallback for completely empty responses
+            if not content.strip():
+                content = "(The model returned an empty response. Please try rephrasing your question.)"
             
             self.add_assistant_message(content)
             logger.info(f"Received reply: {content[:100]}{'...' if len(content) > 100 else ''}")
@@ -211,7 +221,8 @@ class LLMClient:
         self,
         message,
         tools: Optional[List[Dict]],
-        tool_executor: Callable[[str, Dict], Awaitable[str]]
+        tool_executor: Callable[[str, Dict], Awaitable[str]],
+        on_step: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ) -> str:
         """Handle tool calls"""
         # Build assistant's tool call request message
@@ -240,6 +251,17 @@ class LLMClient:
         
         logger.info(f"AI requests to call {len(message.tool_calls)} tools")
         
+        if on_step:
+            on_step("tool_calls", {
+                "tools": [
+                    {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                    for tc in message.tool_calls
+                ]
+            })
+        
         # Execute tool calls in parallel
         async def execute_single_tool(tool_call):
             """Execute single tool call"""
@@ -249,11 +271,21 @@ class LLMClient:
             logger.info(f"[Parallel] Calling tool: {tool_name}")
             logger.debug(f"Arguments: {json.dumps(tool_args, ensure_ascii=False)}")
             
+            if on_step:
+                on_step("tool_call_start", {"name": tool_name, "arguments": tool_args})
+            
             start_time = asyncio.get_event_loop().time()
             result = await tool_executor(tool_name, tool_args)
             elapsed = asyncio.get_event_loop().time() - start_time
             
             logger.info(f"[Parallel] Tool {tool_name} returned ({elapsed:.2f}s): {result[:80]}{'...' if len(result) > 80 else ''}")
+            
+            if on_step:
+                on_step("tool_result", {
+                    "name": tool_name,
+                    "elapsed": round(elapsed, 2),
+                    "result_preview": result[:200] + ("..." if len(result) > 200 else "")
+                })
             
             return tool_call.id, result
         
@@ -279,7 +311,10 @@ class LLMClient:
                 self.add_tool_result(tc_id_to_match, "Tool execution failed: result not found")
         
         # Request again to get final reply
-        return await self.chat(tools=None, tool_executor=None)
+        final_reply = await self.chat(tools=None, tool_executor=None, on_step=on_step)
+        if not final_reply.strip():
+            final_reply = "(The model returned an empty response after tool execution. Please try again.)"
+        return final_reply
     
     async def close(self):
         """Close LLM client connection"""

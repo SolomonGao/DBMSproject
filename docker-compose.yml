@@ -23,9 +23,11 @@ services:
     container_name: gdelt_app
     depends_on:
       - db
-    # 支援互動模式 (相當於 docker run -it)
+    # 支援互動模式 (相當於 docker run -it) 和 Web UI 訪問
     stdin_open: true
     tty: true
+    ports:
+      - "8080:8080"
     volumes:
       # 將本地代碼掛載到容器，方便本地修改代碼後即時生效
       - .:/app

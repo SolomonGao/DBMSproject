@@ -161,6 +161,9 @@ class WebChatService:
             port=self.config.mcp_port,
         )
 
+        # Collect thinking steps for UI display
+        thinking_steps: list[dict[str, Any]] = []
+
         try:
             connected = await mcp_client.connect()
             if not connected:
@@ -170,6 +173,11 @@ class WebChatService:
                 )
 
             await mcp_client.discover_tools()
+            tool_names = [
+                tool["function"]["name"]
+                for tool in mcp_client.tools
+                if tool.get("function", {}).get("name")
+            ]
 
             # ====== Router Processing (inherited from CLI) ======
             router_decision = None
@@ -182,6 +190,13 @@ class WebChatService:
                     self.logger.info(
                         f"Router decision: {router_decision.intent} (confidence: {router_decision.confidence:.2f})"
                     )
+                    thinking_steps.append({
+                        "type": "router_decision",
+                        "intent": router_decision.intent,
+                        "confidence": router_decision.confidence,
+                        "suggested_tools": router_decision.suggested_tools,
+                        "reasoning": router_decision.reasoning,
+                    })
 
                     # If Router suggests skipping LLM (e.g., safety filter, direct response)
                     if router_decision.skip_llm:
@@ -190,14 +205,12 @@ class WebChatService:
                             "reply": direct,
                             "provider": self.config.llm_provider,
                             "model": self.config.llm_model,
-                            "tool_names": [
-                                tool["function"]["name"]
-                                for tool in mcp_client.tools
-                                if tool.get("function", {}).get("name")
-                            ],
+                            "tool_names": tool_names,
+                            "thinking_process": thinking_steps,
                         }
                 except Exception as e:
                     self.logger.error(f"Router error: {e}")
+                    thinking_steps.append({"type": "router_error", "error": str(e)})
                     router_decision = None
 
             # If Router suggests direct response (non skip_llm case)
@@ -206,11 +219,8 @@ class WebChatService:
                     "reply": router_decision.direct_response,
                     "provider": self.config.llm_provider,
                     "model": self.config.llm_model,
-                    "tool_names": [
-                        tool["function"]["name"]
-                        for tool in mcp_client.tools
-                        if tool.get("function", {}).get("name")
-                    ],
+                    "tool_names": tool_names,
+                    "thinking_process": thinking_steps,
                 }
 
             # Build enhanced user message (with Router suggestions)
@@ -220,6 +230,10 @@ class WebChatService:
                 enhanced_input = f"""[System hint: Based on user input, suggested tools: {tools_hint}]
 
 User input: {prompt}"""
+                thinking_steps.append({
+                    "type": "system_hint",
+                    "suggested_tools": router_decision.suggested_tools,
+                })
 
             llm_client.add_system_message(SYSTEM_PROMPT)
             for item in self._sanitize_history(history):
@@ -232,22 +246,25 @@ User input: {prompt}"""
             if llm_client.get_history_length() > 12:
                 llm_client.truncate_history(max_messages=10)
                 self.logger.info("History too long, auto-truncated")
+                thinking_steps.append({"type": "history_truncated", "max_messages": 10})
 
             llm_client.add_user_message(enhanced_input)
+
+            def on_step(step_type: str, data: dict[str, Any]):
+                thinking_steps.append({"type": step_type, **data})
+
             reply = await llm_client.chat(
                 tools=mcp_client.tools,
                 tool_executor=mcp_client.create_tool_executor(),
+                on_step=on_step,
             )
 
             return {
                 "reply": reply,
                 "provider": self.config.llm_provider,
                 "model": self.config.llm_model,
-                "tool_names": [
-                    tool["function"]["name"]
-                    for tool in mcp_client.tools
-                    if tool.get("function", {}).get("name")
-                ],
+                "tool_names": tool_names,
+                "thinking_process": thinking_steps,
             }
         finally:
             await mcp_client.close()

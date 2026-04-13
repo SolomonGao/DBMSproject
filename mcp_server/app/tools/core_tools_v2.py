@@ -356,11 +356,6 @@ def register_core_tools(mcp: FastMCP):
                 if len(term) <= 3 and term.isalpha():
                     location_conditions.append("e.ActionGeo_CountryCode = %s")
                     query_params.append(term.upper()[:3])
-                
-                # 4. State code matching (e.g., DC, TX, CA)
-                if len(term) == 2:
-                    location_conditions.append("e.ActionGeo_ADM1Code = %s")
-                    query_params.append(f'US_{term.upper()}')
             
             # Combine all location conditions
             if location_conditions:
@@ -810,11 +805,6 @@ def register_core_tools(mcp: FastMCP):
                                 region_conditions.append("ActionGeo_CountryCode = %s")
                                 query_params.append(region.upper()[:3])
                             
-                            # 4. State code matching (e.g., DC, TX, CA)
-                            if len(region) == 2:
-                                region_conditions.append("ActionGeo_ADM1Code = %s")
-                                query_params.append(f'US_{region.upper()}')
-                        
                         where_clause_region = " OR ".join(region_conditions)
                         conditions.append(f"({where_clause_region})")
                     
