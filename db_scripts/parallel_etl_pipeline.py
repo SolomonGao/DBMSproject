@@ -78,7 +78,7 @@ class GDELTETLWorker:
             summary_count = await self._generate_daily_summary()
             result['steps']['daily_summary'] = summary_count
             
-            # 3. generate event fingerprints（全amount）
+            # 3. generate event fingerprints（allamount）
             fingerprint_count = await self._generate_event_fingerprints()
             result['steps']['fingerprints'] = fingerprint_count
             
@@ -106,7 +106,7 @@ class GDELTETLWorker:
         return result
     
     async def _check_data_exists(self) -> bool:
-        """check指定datewhetherhasdata"""
+        """checkfingerfixdatewhetherhasdata"""
         result = await self.pool.fetchone(
             "SELECT COUNT(*) as cnt FROM events_table WHERE SQLDATE = %s",
             (self.date,)
@@ -187,7 +187,7 @@ class GDELTETLWorker:
         """, (self.date,))
         type_dist = {row['event_type']: row['cnt'] for row in types_result}
         
-        # hoteventfingerprint（临whenuseGID，after续updateforfingerprint）
+        # hoteventfingerprint（temporarywhenuseGID，aftercontinueupdateforfingerprint）
         hot_result = await self.pool.fetchall("""
             SELECT GlobalEventID, NumArticles * ABS(GoldsteinScale) as hot_score
             FROM events_table
@@ -238,7 +238,7 @@ class GDELTETLWorker:
         batch_size = 5000
         
         while True:
-            # batchfetch尚notgeneratefingerprintevent
+            # batchfetchstillnotgeneratefingerprintevent
             batch = await self.pool.fetchall("""
                 SELECT e.GlobalEventID, e.SQLDATE, e.Actor1Name, e.Actor2Name,
                        e.EventCode, e.EventRootCode, e.GoldsteinScale,
@@ -259,12 +259,12 @@ class GDELTETLWorker:
                 fp_data = self._create_fingerprint(evt)
                 fingerprints.append(fp_data)
             
-            # batchinsert（onetime性insertwhole批，避免死锁）
+            # batchinsert（onetimesexinsertwholebatch，avoiddeadlock）
             inserted = await self._batch_insert_fingerprints(fingerprints)
             total_processed += inserted
-            logger.info(f"  ✓ [{self.date}] batch: +{inserted}, 累计 {total_processed}")
+            logger.info(f"  ✓ [{self.date}] batch: +{inserted}, tiredplan {total_processed}")
             
-            # ifthisbatchinsufficient batch_size，descriptionprocesscomplete了
+            # ifthisbatchinsufficient batch_size，descriptionprocesscompletedone
             if len(batch) < batch_size:
                 break
         
@@ -289,7 +289,7 @@ class GDELTETLWorker:
         else:
             date_str = str(sqldate).replace('-', '')
         
-        # locationpoint缩write
+        # locationpointshrinkwrite
         location_code = 'UNK'
         if location and location != 'unknownlocationpoint':
             parts = location.split(',')
@@ -308,7 +308,7 @@ class GDELTETLWorker:
         }
         event_type = type_map.get(event_root, 'EVENT')
         
-        # 序号
+        # orderNo.
         seq = str(gid)[-3:].zfill(3)
         fingerprint = f"{country}-{date_str}-{location_code}-{event_type}-{seq}"
         
@@ -330,21 +330,21 @@ class GDELTETLWorker:
     
     def _generate_headline(self, actor1: str, actor2: str, 
                           event_root: str, location: str) -> str:
-        """generateeventmark题"""
+        """generateeventmarktopic"""
         a1 = actor1 or 'some country'
         a2 = actor2 or 'objectmethod'
         loc = location or 'somelocation'
         
         action_map = {
-            '01': f"{a1}sendtable声clear", '02': f"{a1}toward{a2}呼吁",
-            '03': f"{a1}table达意graph", '04': f"{a1}and{a2}磋商",
-            '05': f"{a1}paramand{a2}事务", '06': f"{a1}toward{a2}提供物资",
+            '01': f"{a1}sendtablesoundclear", '02': f"{a1}toward{a2}appeal",
+            '03': f"{a1}tablereachideagraph", '04': f"{a1}and{a2}consultbusiness",
+            '05': f"{a1}paramand{a2}affair", '06': f"{a1}toward{a2}provideoffersupplies",
             '07': f"{a1}toward{a2}provide aid", '08': f"{a1}toward{a2}provide aid",
-            '09': f"{a1}toward{a2}letstep", '10': f"{a1}toward{a2}提outputwantrequest",
-            '11': f"{a1}object{a2}tableshownot满", '12': f"{a1}reject{a2}",
-            '13': f"{a1}threat{a2}", '14': f"{a1}send起protest",
+            '09': f"{a1}toward{a2}letstep", '10': f"{a1}toward{a2}provideoutputwantrequest",
+            '11': f"{a1}object{a2}tableshownotfull", '12': f"{a1}reject{a2}",
+            '13': f"{a1}threat{a2}", '14': f"{a1}sendstartprotest",
             '15': f"{a1}expandshowforce", '16': f"{a1}reduceobject{a2}relationship",
-            '17': f"{a1}coerce{a2}", '18': f"{a1}and{a2}occur摩擦",
+            '17': f"{a1}coerce{a2}", '18': f"{a1}and{a2}occurfriction",
             '19': f"{a1}and{a2}occurconflict", '20': f"{a1}object{a2}useforce"
         }
         
@@ -365,7 +365,7 @@ class GDELTETLWorker:
             if abs(goldstein) > 7:
                 intensity = "serious"
             elif abs(goldstein) > 4:
-                intensity = "in等"
+                intensity = "inetc"
         
         coverage = ""
         if articles > 100:
@@ -373,30 +373,30 @@ class GDELTETLWorker:
         elif articles > 10:
             coverage = f"，receivecertainreport({articles}article)"
         
-        return f"{a1}and{a2}在{loc}occur{intensity}interaction{coverage}。"
+        return f"{a1}and{a2}in{loc}occur{intensity}interaction{coverage}。"
     
     def _get_event_label(self, event_root: str) -> str:
         """fetcheventtypetag"""
         labels = {
-            '01': 'outside交声clear', '02': 'outside交呼吁', '03': '政策意toward',
-            '04': 'outside交磋商', '05': 'paramand合job', '06': '物资aid',
-            '07': '人员aid', '08': '保护aid', '09': 'letstep缓and',
-            '10': '提outputwantrequest', '11': 'table达not满', '12': 'reject反object',
-            '13': 'threatwarning', '14': 'protestshow威', '15': 'expandshowforce',
-            '16': 'relationshipdowngrade', '17': 'strongsystemcoerce', '18': 'military摩擦',
-            '19': 'big规modelconflict', '20': '武装attack'
+            '01': 'outsidehandsoundclear', '02': 'outsidehandappeal', '03': 'policyideatoward',
+            '04': 'outsidehandconsultbusiness', '05': 'paramandcombinejob', '06': 'suppliesaid',
+            '07': 'personnelaid', '08': 'protectaid', '09': 'letstepslowand',
+            '10': 'provideoutputwantrequest', '11': 'tablereachnotfull', '12': 'rejectantiobject',
+            '13': 'threatwarning', '14': 'protestshowthreat', '15': 'expandshowforce',
+            '16': 'relationshipdowngrade', '17': 'strongsystemcoerce', '18': 'militaryfriction',
+            '19': 'bigrulemodelconflict', '20': 'militaryinstallattack'
         }
-        return labels.get(event_root, '其他event')
+        return labels.get(event_root, 'otherevent')
     
     async def _batch_insert_fingerprints(self, fingerprints: List[Tuple]) -> int:
         """
-        batchinsertfingerprint（use INSERT IGNORE，no死锁，rowcount accurate）
+        batchinsertfingerprint（use INSERT IGNORE，nodeadlock，rowcount accurate）
         
-        策略：INSERT IGNORE 遇toduplicatekeydirectignore，returnbackreal际insertrow count
-        避免use ON DUPLICATE KEY UPDATE（cancan触send死锁）
+        strategy：INSERT IGNORE meettoduplicatekeydirectignore，returnbackrealborderinsertrow count
+        avoiduse ON DUPLICATE KEY UPDATE（cancantouchsenddeadlock）
         
         Args:
-            fingerprints: fingerprintdatacolumntable，eachitemyes 9 字段 tuple
+            fingerprints: fingerprintdatacolumntable，eachitemyes 9 charactersegment tuple
             
         Returns:
             successinsertrow count
@@ -407,7 +407,7 @@ class GDELTETLWorker:
         try:
             async with self.pool._pool.acquire() as conn:
                 async with conn.cursor() as cursor:
-                    # INSERT IGNORE：duplicate则ignore，rowcount accurate
+                    # INSERT IGNORE：duplicateruleignore，rowcount accurate
                     await cursor.executemany("""
                         INSERT IGNORE INTO event_fingerprints 
                         (global_event_id, fingerprint, headline, summary, 
@@ -416,12 +416,12 @@ class GDELTETLWorker:
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, fingerprints)
                     await conn.commit()
-                    # cursor.rowcount object于 INSERT IGNORE yesaccurate
+                    # cursor.rowcount objectat INSERT IGNORE yesaccurate
                     return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
                     
         except Exception as e:
-            # rarecaseunderbatchfailed，downgrade逐item
-            logger.warning(f"    [{self.date}] batchinsertfailed，downgrade逐item: {e}")
+            # rarecaseunderbatchfailed，downgradeexpelitem
+            logger.warning(f"    [{self.date}] batchinsertfailed，downgradeexpelitem: {e}")
             inserted = 0
             for fp_data in fingerprints:
                 try:
@@ -532,7 +532,7 @@ class GDELTETLWorker:
         return updated
     
     async def _identify_hot_events(self) -> int:
-        """识别andupdatehoteventfingerprintreference"""
+        """recognizeandupdatehoteventfingerprintreference"""
         logger.info(f"🔥 [{self.date}] identify hot events")
         
         result = await self.pool.fetchone("""
@@ -580,7 +580,7 @@ async def run_etl_for_date(date: str) -> Dict:
 
 
 def run_etl_sync(date: str) -> Dict:
-    """syncpackage装handler（used for ProcessPoolExecutor）"""
+    """syncpackageinstallhandler（used for ProcessPoolExecutor）"""
     return asyncio.run(run_etl_for_date(date))
 
 
@@ -604,7 +604,7 @@ class ParallelETLPipeline:
         return dates
     
     def get_dates_from_file(self, filepath: str) -> List[str]:
-        """从filereaddatecolumntable"""
+        """fromfilereaddatecolumntable"""
         dates = []
         with open(filepath, 'r') as f:
             for line in f:
@@ -614,10 +614,10 @@ class ParallelETLPipeline:
         return dates
     
     async def get_missing_dates(self) -> List[str]:
-        """fetchneedprocessdate（基于fingerprintoverriderate）"""
+        """fetchneedprocessdate（baseatfingerprintoverriderate）"""
         pool = await DatabasePool.initialize()
         try:
-            # findoverrideratelow于 90% date
+            # findoverrideratelowat 90% date
             result = await pool.fetchall("""
                 SELECT 
                     e.SQLDATE as date,
@@ -693,7 +693,7 @@ class ParallelETLPipeline:
             for r in self.results 
             if r['status'] == 'success'
         )
-        logger.info(f"   总fingerprint: {total_fingerprints}")
+        logger.info(f"   totalfingerprint: {total_fingerprints}")
         logger.info("=" * 60)
         
         return self.results
@@ -705,7 +705,7 @@ def main():
     parser.add_argument('--end', help='enddate (YYYY-MM-DD)')
     parser.add_argument('--date-file', help='datecolumntablefile')
     parser.add_argument('--workers', type=int, default=4, help='parallel worker number (default: 4)')
-    parser.add_argument('--missing-only', action='store_true', help='onlyprocess缺failfingerprintdate')
+    parser.add_argument('--missing-only', action='store_true', help='onlyprocesslackfailfingerprintdate')
     parser.add_argument('--dry-run', action='store_true', help='onlycheck，notexecrow')
     
     args = parser.parse_args()
@@ -727,14 +727,14 @@ def main():
         logger.info("📋 nohasneedprocessdate")
         return
     
-    logger.info(f"📋 计划process {len(dates)} date")
+    logger.info(f"📋 planplanprocess {len(dates)} date")
     
     if args.dry_run:
-        logger.info("🔍 干runmodelpattern，onlyprintdatecolumntable:")
+        logger.info("🔍 dryrunmodelpattern，onlyprintdatecolumntable:")
         for d in dates[:10]:
             logger.info(f"   - {d}")
         if len(dates) > 10:
-            logger.info(f"   ... 还has {len(dates)-10} ")
+            logger.info(f"   ... stillhas {len(dates)-10} ")
         return
     
     # parallelrun

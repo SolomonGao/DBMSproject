@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test API join - 尝试different Headers 伪装"""
+"""test API join - tastetrydifferent Headers falseinstall"""
 import os
 import sys
 sys.path.insert(0, '.')
@@ -20,7 +20,7 @@ print(f"Testing API: {base_url}")
 print(f"API Key: {api_key[:10]}...{api_key[-4:]}")
 print()
 
-# Testdifferent User-Agent 伪装
+# Testdifferent User-Agent falseinstall
 headers_options = [
     {
         "name": "Claude Code",

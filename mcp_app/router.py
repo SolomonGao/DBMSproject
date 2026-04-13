@@ -129,7 +129,7 @@ class OllamaRouter:
             )
         
         # Simple greetings (Chinese + English)
-        greetings = ['你good', 'hello', 'hi', '在吗', '在']
+        greetings = ['yougood', 'hello', 'hi', 'ok', 'okay']
         if any(g in text_lower for g in greetings) and len(text) < 10:
             return RouterDecision(
                 intent="chat",
@@ -144,8 +144,8 @@ class OllamaRouter:
         # Daily brief keywords (Chinese + English)
         daily_brief_keywords = [
             'brief', 'daily report', 'daily brief', 'daily report', 'news brief',
-            '今daynews', '今日brief', 'What happened today', 'newssummary',
-            'newsbrief', 'each日news', 'daily news', '今日news'
+            'todaydaynews', 'todaybrief', 'What happened today', 'newssummary',
+            'newsbrief', 'eachdaynews', 'daily news', 'todaynews'
         ]
         if any(kw in text_lower for kw in daily_brief_keywords):
             return RouterDecision(
@@ -158,7 +158,7 @@ class OllamaRouter:
             )
         
         # Explicit database query keywords (Chinese)
-        if any(kw in text_lower for kw in ['queryinquiry', 'query找', '搜索', 'queryoneunder']):
+        if any(kw in text_lower for kw in ['queryinquiry', 'queryfind', 'searchsearch', 'queryoneunder']):
             return None  # Needs further model analysis
         
         return None
@@ -309,7 +309,7 @@ Notes:
             )
         
         # Analysis & Dashboard (Chinese + English)
-        if any(kw in text_lower for kw in ['statistics', 'analyze', 'trends', 'dashboard', '仪table盘']):
+        if any(kw in text_lower for kw in ['statistics', 'analyze', 'trends', 'dashboard', 'instrumenttabledisk']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -320,7 +320,7 @@ Notes:
             )
         
         # Geographic / Heatmap (Chinese + English)
-        if any(kw in text_lower for kw in ['map', 'heatmap', 'heatmap', 'locationprocess', 'distribution', 'can视ization']):
+        if any(kw in text_lower for kw in ['map', 'heatmap', 'heatmap', 'locationprocess', 'distribution', 'canviewization']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -331,7 +331,7 @@ Notes:
             )
         
         # Time series / trends (Chinese)
-        if any(kw in text_lower for kw in ['wheninterval序column', 'trends', 'variableization', '走势', 'time series']):
+        if any(kw in text_lower for kw in ['whenintervalordercolumn', 'trends', 'variableization', 'trend', 'time series']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,

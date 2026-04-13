@@ -33,16 +33,16 @@ def format_stats(stats: dict) -> str:
         "=" * 40,
     ]
     
-    # hitrate评估
+    # hitrateevaluate
     hit_rate_str = stats['hit_rate'].rstrip('%')
     try:
         hit_rate = float(hit_rate_str)
         if hit_rate >= 80:
-            lines.append("✅ hitrateopt秀 (≥80%)")
+            lines.append("✅ hitrateoptshow (≥80%)")
         elif hit_rate >= 50:
-            lines.append("⚠️ hitrateone般 (50-80%)")
+            lines.append("⚠️ hitrateonetype (50-80%)")
         else:
-            lines.append("❌ hitrate较low (<50%)，build议checkcacheconfig")
+            lines.append("❌ hitratecomparelow (<50%)，builddiscusscheckcacheconfig")
     except:
         pass
     
@@ -57,7 +57,7 @@ async def cmd_stats():
 
 async def cmd_clear():
     """clearsohascache"""
-    print("⚠️  OKwantclearsohascache吗？thiswillexport致undertimequeryvariableslow。")
+    print("⚠️  OKwantclearsohascache? thiswillexportcauseundertimequeryvariableslow.")
     confirm = input("input 'yes' Confirm: ")
     
     if confirm.lower() == 'yes':
@@ -79,12 +79,12 @@ async def cmd_cleanup():
 async def cmd_clear_pattern(pattern: str):
     """bymodelpatternclearremove"""
     count = await query_cache.invalidate_pattern(pattern)
-    print(f"✅ alreadyclearremove {count} package含 '{pattern}' itemproject")
+    print(f"✅ alreadyclearremove {count} packagecontain '{pattern}' itemproject")
 
 
 async def cmd_monitor(interval: int = 5):
     """real-timemonitormodelpattern"""
-    print(f"🔍 openstartmonitorcache（each {interval} 秒Refresh，by Ctrl+C 停stop）...")
+    print(f"🔍 openstartmonitorcache（each {interval} secondRefresh，by Ctrl+C stopstop）...")
     print("-" * 60)
     
     last_hits = 0
@@ -117,7 +117,7 @@ async def cmd_monitor(interval: int = 5):
             await asyncio.sleep(interval)
             
     except KeyboardInterrupt:
-        print("\n\n👋 monitoralready停stop")
+        print("\n\n👋 monitoralreadystopstop")
 
 
 async def main():
@@ -145,11 +145,11 @@ Example:
     
     # clear-pattern
     pattern_parser = subparsers.add_parser('clear-pattern', help='bymodelpatternclearremovecache')
-    pattern_parser.add_argument('pattern', help='匹allocatemodelpattern（if 2024-01-01）')
+    pattern_parser.add_argument('pattern', help='matchallocatemodelpattern（if 2024-01-01）')
     
     # monitor
     monitor_parser = subparsers.add_parser('monitor', help='real-timemonitormodelpattern')
-    monitor_parser.add_argument('--interval', '-i', type=int, default=5, help='Refreshinterval隔（秒）')
+    monitor_parser.add_argument('--interval', '-i', type=int, default=5, help='Refreshintervalseparate（second）')
     
     args = parser.parse_args()
     

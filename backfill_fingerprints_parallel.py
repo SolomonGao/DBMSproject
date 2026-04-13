@@ -52,7 +52,7 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
         )
         fp_count = int(fp_result.stdout.strip()) if fp_result.returncode == 0 else 0
         
-        # callback试transportoutput
+        # callbacktrytransportoutput
         if fp_count > 0 or evt_count > 0:
             print(f"  [check] {date}: {fp_count} fingerprint / {evt_count} event")
         
@@ -73,7 +73,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         
         print(f"  [{date}] openstartETL，whenbefore {fp_count}/{evt_count}...")
         
-        # runETL（increaseaddsuperwhento10minute，Because one day may have2-5万event）
+        # runETL（increaseaddsuperwhento10minute，Because one day may have2-5ten thousandevent）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
@@ -81,7 +81,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         )
         
         if result.returncode == 0:
-            # 再timecheck
+            # againtimecheck
             _, new_fp, evt = check_date_status(date)
             added = new_fp - fp_count
             if new_fp >= evt:
@@ -101,7 +101,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
 def main():
     parser = argparse.ArgumentParser(description='androwbackfilleventfingerprint')
     parser.add_argument('--start', default='2024-01-01', help='openstartdate (YYYY-MM-DD)')
-    parser.add_argument('--end', default='2024-12-31', help='result束date (YYYY-MM-DD)')
+    parser.add_argument('--end', default='2024-12-31', help='resultenddate (YYYY-MM-DD)')
     parser.add_argument('--workers', type=int, default=8, help='androwworkthreadnumber (default: 8)')
     parser.add_argument('--dry-run', action='store_true', help='onlycheckstatusstate，notexecrowETL')
     
@@ -116,7 +116,7 @@ def main():
     
     # generatedatelist
     dates = get_dates_to_process(args.start, args.end)
-    print(f"总total {len(dates)} dayneedhandleprocess")
+    print(f"totaltotal {len(dates)} dayneedhandleprocess")
     print()
     
     # firstcheckalldatestatusstate
@@ -129,7 +129,7 @@ def main():
             status_list.append((date, fp, evt))
     
     # statistics
-    # completewhole: fingerprintnumber >= eventnumber（package括eventnumberfor0case）
+    # completewhole: fingerprintnumber >= eventnumber（packagebracketeventnumberfor0case）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
     # part: hasfingerprintbutnotcompletewhole
     partial = sum(1 for _, fp, evt in status_list if 0 < fp < evt)
@@ -147,14 +147,14 @@ def main():
     print()
     
     if args.dry_run:
-        print("📝 干runmodelpattern，notexecrowETL")
+        print("📝 dryrunmodelpattern，notexecrowETL")
         return
     
-    # 筛selectneedhandleprocessdate
+    # filterselectneedhandleprocessdate
     need_process = [date for date, fp, evt in status_list if fp < evt]
     
     if not need_process:
-        print("✅ alldatealreadycompletewhole，no需handleprocess")
+        print("✅ alldatealreadycompletewhole，noneedhandleprocess")
         return
     
     print(f"🚀 openstarthandleprocess {len(need_process)} day...")

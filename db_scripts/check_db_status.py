@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 databasestatusstatechecktool
-used formonitorindexusecaseandquery性can
+used formonitorindexusecaseandquerysexcan
 """
 
 import sys
@@ -32,7 +32,7 @@ async def check_status():
         WHERE table_schema = 'gdelt' 
           AND table_name = 'events_table'
     """)
-    print(f"   总row count: {result['table_rows']:,}")
+    print(f"   totalrow count: {result['table_rows']:,}")
     print(f"   datasize: {result['data_gb']} GB")
     print(f"   indexsize: {result['index_gb']} GB")
     print(f"   total: {result['total_gb']} GB")
@@ -55,7 +55,7 @@ async def check_status():
     for idx in indexes:
         if idx['INDEX_NAME'] != current_idx:
             current_idx = idx['INDEX_NAME']
-            print(f"   📌 {current_idx} ({idx['INDEX_TYPE']}) - 基number: {idx['CARDINALITY']:,}")
+            print(f"   📌 {current_idx} ({idx['INDEX_TYPE']}) - basenumber: {idx['CARDINALITY']:,}")
         print(f"      └─ {idx['COLUMN_NAME']}")
     
     # 3. daterange
@@ -67,8 +67,8 @@ async def check_status():
             COUNT(DISTINCT SQLDATE) as unique_days
         FROM events_table
     """)
-    print(f"   most早: {result['min_date']}")
-    print(f"   most晚: {result['max_date']}")
+    print(f"   mostearly: {result['min_date']}")
+    print(f"   mostlate: {result['max_date']}")
     print(f"   daynumber: {result['unique_days']}")
     
     # 4. locationprocessdataoverride
@@ -84,7 +84,7 @@ async def check_status():
         FROM events_table
     """)
     geo_pct = result['with_geo'] / result['total'] * 100 if result['total'] > 0 else 0
-    print(f"   haslocationprocess坐mark: {result['with_geo']:,} / {result['total']:,} ({geo_pct:.1f}%)")
+    print(f"   haslocationprocesssitmark: {result['with_geo']:,} / {result['total']:,} ({geo_pct:.1f}%)")
     
     # 5. importrecordlog
     print("\n5️⃣  CSV importrecordlog:")
@@ -99,11 +99,11 @@ async def check_status():
             for log in logs[:5]:
                 print(f"   ✅ {log['file_name']}: {log['row_count']:,} row ({log['imported_at']})")
             if len(logs) > 5:
-                print(f"   ... 还has {len(logs) - 5} file")
+                print(f"   ... stillhas {len(logs) - 5} file")
         else:
-            print("   暂noimportrecordlog")
+            print("   pausenoimportrecordlog")
     except:
-        print("   importrecordlogtablenotsave在")
+        print("   importrecordlogtablenotsavein")
     
     # 6. querycachestatusstate
     print("\n6️⃣  querycachestatusstate:")

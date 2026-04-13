@@ -73,7 +73,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         
         print(f"  [{date}] startETL，whenbefore {fp_count}/{evt_count}...")
         
-        # runETL（increaseaddsuperwhento10minute，Because one day may have2-5万event）
+        # runETL（increaseaddsuperwhento10minute，Because one day may have2-5ten thousandevent）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
@@ -81,7 +81,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         )
         
         if result.returncode == 0:
-            # 再timecheck
+            # againtimecheck
             _, new_fp, evt = check_date_status(date)
             added = new_fp - fp_count
             if new_fp >= evt:
@@ -116,7 +116,7 @@ def main():
     
     # generatedatecolumntable
     dates = get_dates_to_process(args.start, args.end)
-    print(f"总total {len(dates)} dayneedprocess")
+    print(f"totaltotal {len(dates)} dayneedprocess")
     print()
     
     # firstcheckalldatestatusstate
@@ -129,7 +129,7 @@ def main():
             status_list.append((date, fp, evt))
     
     # statistics
-    # completewhole: fingerprintnumber >= eventnumber（package括eventnumberfor0case）
+    # completewhole: fingerprintnumber >= eventnumber（packagebracketeventnumberfor0case）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
     # part: hasfingerprintbutnotcompletewhole
     partial = sum(1 for _, fp, evt in status_list if 0 < fp < evt)
@@ -147,14 +147,14 @@ def main():
     print()
     
     if args.dry_run:
-        print("📝 干runmodelpattern，notexecrowETL")
+        print("📝 dryrunmodelpattern，notexecrowETL")
         return
     
-    # 筛selectneedprocessdate
+    # filterselectneedprocessdate
     need_process = [date for date, fp, evt in status_list if fp < evt]
     
     if not need_process:
-        print("✅ alldatealreadycompletewhole，no需process")
+        print("✅ alldatealreadycompletewhole，noneedprocess")
         return
     
     print(f"🚀 startprocess {len(need_process)} day...")

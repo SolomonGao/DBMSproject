@@ -248,16 +248,16 @@ class GeoHeatmapInput(BaseModel):
         default=2,
         ge=1,
         le=4,
-        description="坐standardPrecision(小datapositiondata)，exceedbigPrecisionexceedhigh"
+        description="sitstandardPrecision(smalldatapositiondata)，exceedbigPrecisionexceedhigh"
     )
 
 
 # ============================================================================
-# toolNote册函data
+# toolNotebookfunctiondata
 # ============================================================================
 
 def register_core_tools(mcp: FastMCP):
-    """Note册coretoolV2toMCPservicehandler"""
+    """NotebookcoretoolV2toMCPservicehandler"""
     
     @mcp.tool()
     async def search_events(params: SearchEventsInput) -> str:
@@ -267,9 +267,9 @@ def register_core_tools(mcp: FastMCP):
         Example:
         - "1monthWashington protests" → time_hint=2024-01, location_hint=Washington, event_type=protest
         - "ineastmilitaryconflict" → location_hint=Middle East, event_type=conflict
-        - "inUSeconomic往来" → query="China US economic"
+        - "inUSeconomictowardcome" → query="China US economic"
         """
-        # parseTimeHint（e.g.resultnohasprovide，tryfrom query 提fetch）
+        # parseTimeHint（e.g.resultnohasprovide，tryfrom query providefetch）
         time_hint = params.time_hint
         if not time_hint and params.query:
             # Extract time keywords from query
@@ -544,7 +544,7 @@ def register_core_tools(mcp: FastMCP):
     @mcp.tool()
     async def get_regional_overview(params: GetRegionalOverviewInput) -> str:
         """
-        GetRegional SituationOverview - 洞察Summaryandnon-rawData
+        GetRegional SituationOverview - insightSummaryandnon-rawData
         
         Example:
         - region="Middle East", time_range="week"
@@ -634,7 +634,7 @@ def register_core_tools(mcp: FastMCP):
                                 output.append(f"{i}. {actor1} vs {actor2} ({location}) - {evt[4]}articles")
                             output.append("")
                     else:
-                        output.append("⚠️ 该Time段withinnotFoundRelated Events")
+                        output.append("⚠️ thisTimesegmentwithinnotFoundRelated Events")
                     
                     return "\n".join(output)
                     
@@ -645,7 +645,7 @@ def register_core_tools(mcp: FastMCP):
     @mcp.tool()
     async def get_hot_events(params: GetHotEventsInput) -> str:
         """
-        GetdailyHot Events推荐
+        GetdailyHot Eventsrecommend
         
         Example:
         - date="2024-01-15", top_n=5
@@ -733,11 +733,11 @@ def register_core_tools(mcp: FastMCP):
                     for i, evt in enumerate(events, 1):
                         fingerprint = evt[0]
                         raw_headline = evt[1]
-                        # change进 headline display
+                        # changeenter headline display
                         if raw_headline and raw_headline not in ['One party vs Other party', ' vs ', 'NULL vs NULL']:
                             headline = raw_headline
                         else:
-                            # tryfromfingerprintorEvent type推断
+                            # tryfromfingerprintorEvent typepushbreak
                             gid = evt[8] if len(evt) > 8 else (fingerprint.split('-')[-1] if '-' in str(fingerprint) else 'notknow')
                             headline = f"Event #{gid}"
                         location = evt[4] or "notknowLocation"
@@ -790,7 +790,7 @@ def register_core_tools(mcp: FastMCP):
                     if params.region_filter:
                         region_input = params.region_filter.strip()
                         
-                        # intelligentparseuse户input
+                        # intelligentparseuseuserinput
                         parsed_regions = _parse_region_input(region_input)
                         
                         # Buildindex-friendlymatchitem(s)item
@@ -801,7 +801,7 @@ def register_core_tools(mcp: FastMCP):
                             region_conditions.append("ActionGeo_FullName LIKE %s")
                             query_params.append(f'{region}%')
                             
-                            # 2. 逗号afterbefore缀match: '%, Washington%'
+                            # 2. commaNo.afterbeforesuffixmatch: '%, Washington%'
                             region_conditions.append("ActionGeo_FullName LIKE %s")
                             query_params.append(f'%, {region}%')
                             
@@ -900,7 +900,7 @@ def register_core_tools(mcp: FastMCP):
                         # tablegridrow
                         output.append(f"| {i} | `{temp_fp}` | {title} [{event_label}] | {hot_score:.0f} | {date} | {location_short} |")
                         
-                        # Detailed Information（used forafter续expand）
+                        # Detailed Information（used foraftercontinueexpand）
                         detail_list.append({
                             'rank': i,
                             'fingerprint': temp_fp,
@@ -989,21 +989,21 @@ def register_core_tools(mcp: FastMCP):
                         }
                     
                     output = []
-                    output.append(f"# 📰 {query_date} 全球Eventsimplereport")
+                    output.append(f"# 📰 {query_date} allglobeEventsimplereport")
                     output.append("")
                     
-                    # one句wordsummary
+                    # onesentencewordsummary
                     total = data.get('total_events', 0)
                     conflict = data.get('conflict_events', 0)
                     conflict_pct = (conflict / max(total, 1)) * 100
                     goldstein = data.get('avg_goldstein', 0) or 0
                     
-                    output.append(f"📊 **Overview**: Today recorded a total of **{total:,}** occurrencecountry际Event，")
+                    output.append(f"📊 **Overview**: Today recorded a total of **{total:,}** occurrencecountryborderEvent，")
                     output.append(f"Conflict Events {conflict} occurrence ({conflict_pct:.1f}%)，")
                     output.append(f"Average Goldstein Indexfor {goldstein:.2f}")
                     output.append("")
                     
-                    # according toformatreturndifferentdetailed程degree
+                    # according toformatreturndifferentdetailedprocessdegree
                     if params.format == 'summary':
                         # Summary version
                         if brief and data.get('hot_event_fingerprints'):
@@ -1044,11 +1044,11 @@ def register_core_tools(mcp: FastMCP):
                                 pass
                     
                     elif params.format == 'executive':
-                        # execrowSummary版
+                        # execrowSummaryversion
                         output.append("## 📋 execrowSummary")
                         trend = "⚠️ conflict trend rising" if goldstein < -3 else "✅ situation relatively stable"
                         output.append(f"- {trend}")
-                        output.append(f"- Event密degree: {total/1000:.1f}K/day")
+                        output.append(f"- Eventsecretdegree: {total/1000:.1f}K/day")
                         output.append("")
                     
                     return "\n".join(output)
@@ -1065,13 +1065,13 @@ def register_core_tools(mcp: FastMCP):
     @mcp.tool()
     async def search_news_context(params: NewsSearchInput) -> str:
         """
-        【RAG semanticsearch】querynewsknow识libraryGettruerealarticlesdetails
+        【RAG semanticsearch】querynewsknowknowledgelibraryGettruerealarticlesdetails
         
         When users need to know:
         - Eventspecificoccurrencebecause
         - Specific demands of crowds
         - Police response
-        - Eventdetailed背scenario
+        - Eventdetailedbackgroundscenario
         
         call this tool to search real news text in vector knowledge base。
         
@@ -1123,7 +1123,7 @@ def register_core_tools(mcp: FastMCP):
                 url = results['metadatas'][0][i].get('source_url', 'Unknown')
                 date = results['metadatas'][0][i].get('date', 'Unknown')
                 
-                # 截fetchbefore1000character
+                # interceptfetchbefore1000character
                 snippet = doc_text[:1000] + "..." if len(doc_text) > 1000 else doc_text
                 
                 output.append(f"## 📰 Result {i+1}")
@@ -1135,7 +1135,7 @@ def register_core_tools(mcp: FastMCP):
             return "\n".join(output)
             
         except ImportError:
-            return "❌ ChromaDB not安装，pleaseRun: pip install chromadb sentence-transformers"
+            return "❌ ChromaDB notsafeinstall，pleaseRun: pip install chromadb sentence-transformers"
         except Exception as e:
             logger.error(f"RAG search failed: {e}")
             return f"❌ RAG search failed: {str(e)}"
@@ -1150,7 +1150,7 @@ def register_core_tools(mcp: FastMCP):
         """
         【streamingquery】handleprocessbigamountEventData，withinmemory-friendly
         
-        whenneedhandleprocessbigamountEventwhenUse（e.g."analysis全yearallprotestEvent"），
+        whenneedhandleprocessbigamountEventwhenUse（e.g."analysisallyearallprotestEvent"），
         Streaming read avoids loading everything into memory at once。
         
         Applicable scenarios:
@@ -1160,7 +1160,7 @@ def register_core_tools(mcp: FastMCP):
         
         Example:
         - actor_name="Protest" - findallprotestRelated Events
-        - actor_name="USA" + Timerange - UScountry全yearEvent
+        - actor_name="USA" + Timerange - UScountryallyearEvent
         """
         try:
             from ..database.streaming import StreamingQuery
@@ -1223,11 +1223,11 @@ def register_core_tools(mcp: FastMCP):
         """
         [Optimized] Dashboard data - concurrent multi-dimensional statistics
         
-        simultaneouslyreturn：dailyTrend、Top Actors、placeprocessdistribution、Event typedistribution、综合statistics
+        simultaneouslyreturn：dailyTrend、Top Actors、placeprocessdistribution、Event typedistribution、comprehensivecombinestatistics
         3-5x faster than serial queries。
         
         Applicable scenarios:
-        - fast速Overviewsome段Timewhole体state势
+        - fastspeedOverviewsomesegmentTimewholebodystatetrend
         - Get multi-dimensional statistics
         - Dashboard display
         """
@@ -1243,8 +1243,8 @@ def register_core_tools(mcp: FastMCP):
             if "data" in summary and summary["data"]:
                 s = summary["data"][0]
                 lines.append(f"**Statistics Period**: {params.start_date} to {params.end_date}")
-                lines.append(f"- 总Eventdata: {s.get('total_events', 0):,}")
-                lines.append(f"- 独特Actors: {s.get('unique_actors', 0):,}")
+                lines.append(f"- totalEventdata: {s.get('total_events', 0):,}")
+                lines.append(f"- uniqueActors: {s.get('unique_actors', 0):,}")
                 lines.append(f"- Average Goldstein: {s.get('avg_goldstein', 0):.2f}")
                 lines.append("")
             
@@ -1262,7 +1262,7 @@ def register_core_tools(mcp: FastMCP):
                     lines.append(f"{i}. {row.get('Actor1Name')}: {row.get('cnt')} Event")
                 lines.append("")
             
-            # calculate总耗when（onlystatistics字典TypeResult）
+            # calculatetotalconsumewhen（onlystatisticscharacterclassicTypeResult）
             total_time = sum(
                 v.get("elapsed_ms", 0) 
                 for v in dashboard.values() 
@@ -1283,10 +1283,10 @@ def register_core_tools(mcp: FastMCP):
         【optization】advancedTimeseriesanalysis - Datalibraryendaggregate
         
         supportday/week/monthgranularitydegreeTimeTrendanalysis，All aggregation completed on database side，
-        onlytransmittransportResult，极bigreducenetworkopen销。
+        onlytransmittransportResult，extremebigreducenetworkopensell。
         
         Applicable scenarios:
-        - analysisEvent随TimevariableizationTrend
+        - analysisEventfollowTimevariableizationTrend
         - tothandifferentTimegranularitydegreemodelformat
         - Identify periodic patterns
         """
@@ -1314,7 +1314,7 @@ def register_core_tools(mcp: FastMCP):
                 lines.append("")
             
             if len(results) > 20:
-                lines.append(f"_... also have {len(results) - 20} Timeweek期_")
+                lines.append(f"_... also have {len(results) - 20} Timeweekperiod_")
             
             return "\n".join(lines)
             
@@ -1329,10 +1329,10 @@ def register_core_tools(mcp: FastMCP):
         [Optimized] Geographic heatmap data - grid aggregation
         
         Aggregate nearby coordinates to grids, reducing frontend rendering pressure。
-        returnhot经纬degree、intensity、averageconflictvalueetc.infoinfo。
+        returnhotlatlondegree、intensity、averageconflictvalueetc.infoinfo。
         
         Applicable scenarios:
-        - inplacemapabovecan视izationEventdistribution
+        - inplacemapabovecanviewizationEventdistribution
         - Identify hot spot areas
         - Geographic density analysis
         """
@@ -1369,7 +1369,7 @@ def register_core_tools(mcp: FastMCP):
 *completeDatatotal {len(heatmap_data)} item(s)*
 
 **Description**: 
-- `intensity`: 该gridwithinEventdataamount
+- `intensity`: thisgridwithinEventdataamount
 - `avg_conflict`: Average conflict index (GoldsteinScale)
 - Use `lat` and `lng` can mark hotspots on map
 """
@@ -1383,7 +1383,7 @@ def register_core_tools(mcp: FastMCP):
         """
         [Optimized] Streaming query - process large data
         
-        Useservicehandlerend游standardstreaming readData，withinmemory usage稳定，
+        Useservicehandlerendtravelstandardstreaming readData，withinmemory usagestablefix，
         Can handle regardless of data volume。
         
         Applicable scenarios:
@@ -1406,7 +1406,7 @@ def register_core_tools(mcp: FastMCP):
             async for row in service.stream_events_by_actor(
                 params.actor_name, params.start_date, params.end_date
             ):
-                # Use sanitize_text preventstop Markdown tablegridby破bad
+                # Use sanitize_text preventstop Markdown tablegridbybreakbad
                 lines.append(
                     f"| {sanitize_text(row.get('SQLDATE'))} | "
                     f"{sanitize_text(row.get('Actor1Name', 'N/A'))[:15]} | "
@@ -1418,7 +1418,7 @@ def register_core_tools(mcp: FastMCP):
                 
                 count += 1
                 if count >= params.max_results:
-                    lines.append("| ... | (updatemultiResult截断) | ... | ... | ... | ... |")
+                    lines.append("| ... | (updatemultiResultinterceptbreak) | ... | ... | ... | ... |")
                     break
             
             lines.append(f"\n*Total returned {count} item(s)Result (streaming read)*")
@@ -1448,7 +1448,7 @@ def sanitize_text(text) -> str:
         char for char in text 
         if unicodedata.category(char)[0] != 'C' or char in '\n\t\r'
     )
-    # remove null bytes and Markdown tablegrid特殊character
+    # remove null bytes and Markdown tablegridspecialcharacter
     text = text.replace('\x00', '').replace('|', ' ').replace('\n', ' ')
     return text.strip()
 
@@ -1507,63 +1507,63 @@ def _parse_region_input(region_input: str) -> list:
     # Common Chinese to English mappings
     cn_to_en = {
         'Washington': ['Washington', 'DC'],
-        '纽约': ['New York', 'NYC'],
-        '洛杉矶': ['Los Angeles', 'LA'],
-        '芝add哥': ['Chicago'],
-        '休斯顿': ['Houston'],
-        'old金山': ['San Francisco', 'SF'],
-        'west雅map': ['Seattle'],
-        '波士顿': ['Boston'],
-        '迈阿密': ['Miami'],
-        '达拉斯': ['Dallas'],
-        '奥斯汀': ['Austin'],
-        '费城': ['Philadelphia'],
-        '亚特兰big': ['Atlanta'],
-        '丹佛': ['Denver'],
-        '凤凰城': ['Phoenix'],
-        '底特律': ['Detroit'],
+        'New York': ['New York', 'NYC'],
+        'Los Angeles': ['Los Angeles', 'LA'],
+        'zhiaddbrother': ['Chicago'],
+        'xiusiton': ['Houston'],
+        'oldGolden Hill': ['San Francisco', 'SF'],
+        'westyamap': ['Seattle'],
+        'waveshidun': ['Boston'],
+        'maiasecret': ['Miami'],
+        'reachpullsi': ['Dallas'],
+        'aositin': ['Austin'],
+        'Philadelphia': ['Philadelphia'],
+        'Atlantabig': ['Atlanta'],
+        'Denver': ['Denver'],
+        'Phoenix': ['Phoenix'],
+        'Detroit': ['Detroit'],
         'UScountry': ['United States', 'USA', 'US'],
         'incountry': ['China', 'CHN', 'CN'],
-        '英country': ['United Kingdom', 'UK', 'GBR', 'GB'],
+        'yingcountry': ['United Kingdom', 'UK', 'GBR', 'GB'],
         'methodcountry': ['France', 'FRA', 'FR'],
-        '德country': ['Germany', 'DEU', 'DE'],
+        'virtuecountry': ['Germany', 'DEU', 'DE'],
         'daythis': ['Japan', 'JPN', 'JP'],
-        '俄罗斯': ['Russia', 'RUS', 'RU'],
-        'add拿big': ['Canada', 'CAN', 'CA'],
-        '墨west哥': ['Mexico', 'MEX', 'MX'],
+        'Rusiasi': ['Russia', 'RUS', 'RU'],
+        'addnabig': ['Canada', 'CAN', 'CA'],
+        'mowestbrother': ['Mexico', 'MEX', 'MX'],
         'printdegree': ['India', 'IND', 'IN'],
-        '澳big利亚': ['Australia', 'AUS', 'AU'],
-        '巴west': ['Brazil', 'BRA', 'BR'],
+        'aobiglia': ['Australia', 'AUS', 'AU'],
+        'bawest': ['Brazil', 'BRA', 'BR'],
         'ineast': ['Middle East', 'Mideast'],
-        '欧洲': ['Europe', 'European'],
-        '亚洲': ['Asia', 'Asian'],
-        'non-洲': ['Africa', 'African'],
-        '德state': ['Texas', 'TX'],
-        '得克萨斯': ['Texas', 'TX'],
+        'Europe': ['Europe', 'European'],
+        'Asia': ['Asia', 'Asian'],
+        'non-continent': ['Africa', 'African'],
+        'virtuestate': ['Texas', 'TX'],
+        'Texasi': ['Texas', 'TX'],
         'addstate': ['California', 'CA'],
-        'add利福尼亚': ['California', 'CA'],
-        '佛state': ['Florida', 'FL'],
-        '佛罗here达': ['Florida', 'FL'],
-        '宾state': ['Pennsylvania', 'PA'],
-        '宾夕method尼亚': ['Pennsylvania', 'PA'],
-        '伊利诺伊': ['Illinois', 'IL'],
-        '俄亥俄': ['Ohio', 'OH'],
-        '密歇根': ['Michigan', 'MI'],
-        '乔治亚': ['Georgia', 'GA'],
-        'north卡': ['North Carolina', 'NC'],
-        'south卡': ['South Carolina', 'SC'],
-        '弗吉尼亚': ['Virginia', 'VA'],
-        '马here兰': ['Maryland', 'MD'],
+        'addlifornia': ['California', 'CA'],
+        'fostate': ['Florida', 'FL'],
+        'foroherereach': ['Florida', 'FL'],
+        'binstate': ['Pennsylvania', 'PA'],
+        'binximethodvania': ['Pennsylvania', 'PA'],
+        'Illinois': ['Illinois', 'IL'],
+        'Ohio': ['Ohio', 'OH'],
+        'secretxieroot': ['Michigan', 'MI'],
+        'Georgia': ['Georgia', 'GA'],
+        'northcard': ['North Carolina', 'NC'],
+        'southcard': ['South Carolina', 'SC'],
+        'Virgivania': ['Virginia', 'VA'],
+        'maherelan': ['Maryland', 'MD'],
         'New Jersey': ['New Jersey', 'NJ'],
-        '马萨诸塞': ['Massachusetts', 'MA'],
-        '亚利桑that': ['Arizona', 'AZ'],
-        '科罗拉multi': ['Colorado', 'CO'],
-        '犹他': ['Utah', 'UT'],
-        'within华达': ['Nevada', 'NV'],
-        '俄勒冈': ['Oregon', 'OR'],
+        'machusetts': ['Massachusetts', 'MA'],
+        'Arizothat': ['Arizona', 'AZ'],
+        'Colopullmulti': ['Colorado', 'CO'],
+        'Utah': ['Utah', 'UT'],
+        'withinhuareach': ['Nevada', 'NV'],
+        'Oregon': ['Oregon', 'OR'],
         'Washingtonstate': ['Washington State', 'WA'],
-        '夏威夷': ['Hawaii', 'HI'],
-        '阿拉斯add': ['Alaska', 'AK'],
+        'xiathreatyi': ['Hawaii', 'HI'],
+        'apullsiadd': ['Alaska', 'AK'],
     }
     
     # Check for Chinese mappings
@@ -1619,7 +1619,7 @@ def _parse_region_input(region_input: str) -> list:
 def _calculate_risk_level(intensity: float) -> str:
     """calculateRisk Level"""
     if intensity > 7:
-        return "极high"
+        return "extremehigh"
     elif intensity > 5:
         return "high"
     elif intensity > 3:
@@ -1686,7 +1686,7 @@ def _format_search_results_v2(rows: list, columns: list, original_query: str) ->
         
         summary = data.get('summary')
         if summary:
-            # 截断longSummary
+            # interceptbreaklongSummary
             short_summary = summary[:100] + "..." if len(summary) > 100 else summary
             output.append(f"**Summary**: {short_summary}")
         
@@ -1703,7 +1703,7 @@ def _format_regional_overview_precomputed(rows: list, region: str,
                                           start_date, end_date,
                                           include_trend: bool, 
                                           include_risks: bool) -> str:
-    """Formatizationprecalculatedistrict域Overview"""
+    """FormatizationprecalculatedistrictregionOverview"""
     output = []
     output.append(f"# 🌍 {region} Regional Situation (pre-computed data)")
     output.append(f"**Timerange**: {start_date} ~ {end_date}")
@@ -1722,20 +1722,20 @@ def _format_regional_overview_precomputed(rows: list, region: str,
     
     output.append("## 📈 Key Metrics")
     output.append(f"- Total Events: {total_events}")
-    output.append(f"- day均Event: {total_events / len(rows):.1f}")
+    output.append(f"- dayaverageEvent: {total_events / len(rows):.1f}")
     output.append(f"- averageconflictintensity: {avg_conflict:.2f}")
     output.append("")
     
     if include_trend and len(rows) > 1:
         output.append("## 📊 Trend")
-        # simpleTrend判断
+        # simpleTrendjudgebreak
         first_half = sum(r[5] for r in rows[:len(rows)//2] if r[5]) / (len(rows)//2) if rows else 0
         second_half = sum(r[5] for r in rows[len(rows)//2:] if r[5]) / (len(rows) - len(rows)//2) if rows else 0
         
         if second_half > first_half * 1.1:
-            output.append("- conflictintensity: 📈 above升Trend")
+            output.append("- conflictintensity: 📈 aboveriseTrend")
         elif second_half < first_half * 0.9:
-            output.append("- conflictintensity: 📉 under降Trend")
+            output.append("- conflictintensity: 📉 underfallTrend")
         else:
             output.append("- conflictintensity: ➡️ relatively stable")
         output.append("")
@@ -1743,7 +1743,7 @@ def _format_regional_overview_precomputed(rows: list, region: str,
     if include_risks:
         output.append("## ⚠️ Risk Assessment")
         if intensity > 7:
-            output.append("- **High risk**: conflictintensity持续highposition")
+            output.append("- **High risk**: conflictintensityholdcontinuehighposition")
         elif intensity > 5:
             output.append("- **Medium risk**: Local conflicts occur from time to time")
         else:
@@ -1770,15 +1770,15 @@ def _format_event_detail_from_raw(event_data: dict, fingerprint: str, params) ->
     
     # Event typelabel
     type_labels = {
-        '01': 'diplomacystatement', '02': 'diplomacyappeal', '03': '政策intention',
-        '04': 'diplomacyconsultation', '05': 'paramWithcooperation', '06': '物资aid',
-        '07': '人员aid', '08': '保护aid', '09': 'concession缓and',
-        '10': '提outputdemand', '11': 'table达dissatisfaction', '12': 'reject反to',
-        '13': 'threatalertnotification', '14': 'protestshow威', '15': 'show of force',
+        '01': 'diplomacystatement', '02': 'diplomacyappeal', '03': 'policyintention',
+        '04': 'diplomacyconsultation', '05': 'paramWithcooperation', '06': 'suppliesaid',
+        '07': 'personnelaid', '08': 'protectaid', '09': 'concessionslowand',
+        '10': 'provideoutputdemand', '11': 'tablereachdissatisfaction', '12': 'rejectantito',
+        '13': 'threatalertnotification', '14': 'protestshowthreat', '15': 'show of force',
         '16': 'relationship downgrade', '17': 'coercion', '18': 'militaryfriction',
-        '19': 'big规modelconflict', '20': '武装attack'
+        '19': 'bigrulemodelconflict', '20': 'militaryinstallattack'
     }
-    event_label = type_labels.get(event_root, '其他Event')
+    event_label = type_labels.get(event_root, 'otherEvent')
     
     # Severity
     severity = min(10, max(1, abs(goldstein) * 2))
@@ -1805,9 +1805,9 @@ def _format_event_detail_from_raw(event_data: dict, fingerprint: str, params) ->
     
     coverage = ""
     if articles > 100:
-        coverage = f"，受towidespreadarticles({articles})"
+        coverage = f"，accepttowidespreadarticles({articles})"
     elif articles > 10:
-        coverage = f"，受toone定articles({articles})"
+        coverage = f"，accepttoonefixarticles({articles})"
     
     summary = f"{actor1}With{actor2}in{location}occur{intensity_desc}interaction{coverage}。"
     output.append(f"**Summary**: {summary}")

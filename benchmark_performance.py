@@ -4,7 +4,7 @@ performance comparisontest：optimizationbefore vs optimizationafter
 testproject：
 1. serial vs androwqueryinquiry
 2. cachecommandinrate
-3. streamingqueryinquirymemory占use
+3. streamingqueryinquirymemoryoccupyuse
 4. datalibraryendaggregation vs Python endaggregation
 """
 
@@ -36,7 +36,7 @@ class PerformanceBenchmark:
         await GDELTServiceOptimized.warmup_connections(3)
     
     def benchmark(self, name: str):
-        """装饰handler：autotimingandmemorystatistics"""
+        """installdecoratehandler：autotimingandmemorystatistics"""
         def decorator(func):
             async def wrapper(*args, **kwargs):
                 # openstartmemorytracetrack
@@ -76,7 +76,7 @@ class PerformanceBenchmark:
         
         print("="*80)
         
-        # calculateadd速比
+        # calculateaddspeed ratio
         baseline_times = {}
         for r in self.results:
             if "serial" in r['name'] or "originalstart" in r['name']:
@@ -87,7 +87,7 @@ class PerformanceBenchmark:
             for baseline_name, baseline_time in baseline_times.items():
                 if baseline_name.replace("serial", "").replace("originalstart", "") in r['name'] and r['name'] != baseline_name:
                     speedup = baseline_time / r['time_ms'] if r['time_ms'] > 0 else 0
-                    print(f"  {baseline_name} → {r['name']}: add速 {speedup:.2f}x")
+                    print(f"  {baseline_name} → {r['name']}: addspeed {speedup:.2f}x")
 
 
 async def main():
@@ -101,7 +101,7 @@ async def main():
     start_date, end_date = "2024-01-01", "2024-01-31"
     
     print("openstartperformance test...")
-    print(f"testdaterange: {start_date} 至 {end_date}")
+    print(f"testdaterange: {start_date} to {end_date}")
     print("-"*80)
     
     # ========== test 1: serial vs androwqueryinquiry ==========
@@ -128,7 +128,7 @@ async def main():
     
     query = f"SELECT * FROM events_table WHERE SQLDATE BETWEEN '{start_date}' AND '{start_date}' LIMIT 50"
     
-    @bench.benchmark("2a. 首timequeryinquiry (nocache)")
+    @bench.benchmark("2a. firsttimequeryinquiry (nocache)")
     async def test_cache_miss():
         await query_cache.clear()
         return await service_new.execute_sql_cached(query, cache_ttl=60)
@@ -142,9 +142,9 @@ async def main():
     
     # ========== test 3: datalibraryendaggregation vs Python end ==========
     
-    @bench.benchmark("3a. Python end分groupaggregation (originalstart)")
+    @bench.benchmark("3a. Python enddividegroupaggregation (originalstart)")
     async def test_python_aggregate():
-        # originalstartmethodpattern：fetchoutputalldata，Python 分group
+        # originalstartmethodpattern：fetchoutputalldata，Python dividegroup
         rows = await pool.fetchall(
             f"SELECT SQLDATE, GoldsteinScale FROM events_table "
             f"WHERE SQLDATE BETWEEN '{start_date}' AND '{end_date}' LIMIT 1000"

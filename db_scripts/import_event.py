@@ -24,7 +24,7 @@ db_config = {
     'allow_local_infile': True 
 }
 
-# 🌟 optization1：addupload sorted，by 0000 to 0075 顺序execrow
+# 🌟 optization1：addupload sorted，by 0000 to 0075 smoothorderexecrow
 csv_files = sorted(glob.glob("data/gdelt_2024_na_*.csv"))
 
 temp_file = os.path.abspath('temp_bulk_load.csv').replace('\\', '/')
@@ -69,20 +69,20 @@ def record_import(cursor, file_path, row_count):
 
 def fast_ingest():
     if not csv_files:
-        logging.error("❌ 在 data/ directoryNo results found under gdelt_2024_na_*.csv file，pleasecheckpath！")
+        logging.error("❌ in data/ directoryNo results found under gdelt_2024_na_*.csv file，pleasecheckpath！")
         return
 
-    logging.info(f"📂 total扫描to {len(csv_files)} shardfileprepareimport。")
+    logging.info(f"📂 totalscandescribeto {len(csv_files)} shardfileprepareimport。")
     
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
     
     # checkwhetherhas CSV file
     if not csv_files:
-        logging.error("❌ not找to CSV file (data/gdelt_2024_na_*.csv)")
+        logging.error("❌ notfindto CSV file (data/gdelt_2024_na_*.csv)")
         return
     
-    logging.info(f"📁 找to {len(csv_files)}  CSV file")
+    logging.info(f"📁 findto {len(csv_files)}  CSV file")
     logging.info("-" * 60)
     
     # checkalreadyhasdataamount
@@ -99,7 +99,7 @@ def fast_ingest():
         
         # checkwhetheralreadyimport
         if check_already_imported(cursor, file):
-            logging.info(f"   ⏭️  alreadyimport过，skip")
+            logging.info(f"   ⏭️  alreadyimportpass，skip")
             skipped_count += 1
             continue
         
@@ -116,7 +116,7 @@ def fast_ingest():
             df.loc[(df['ActionGeo_Lat'] < -90) | (df['ActionGeo_Lat'] > 90), 'ActionGeo_Lat'] = float('nan')
             df.loc[(df['ActionGeo_Long'] < -180) | (df['ActionGeo_Long'] > 180), 'ActionGeo_Long'] = float('nan')
 
-            # 把all缺failorerror坐mark，统one流放to "Null Island" (0.0, 0.0)
+            # holdalllackfailorerrorsitmark，unifyoneflowfreeto "Null Island" (0.0, 0.0)
             df['ActionGeo_Lat'] = df['ActionGeo_Lat'].fillna(0.0)
             df['ActionGeo_Long'] = df['ActionGeo_Long'].fillna(0.0)
             
@@ -125,16 +125,16 @@ def fast_ingest():
             if 'DATEADDED' in df.columns:
                 df['DATEADDED'] = pd.to_datetime(df['DATEADDED'], format='%Y%m%d%H%M%S', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
 
-            # 拼装 WKT character串column
+            # spellinstall WKT characterstringcolumn
             df['ActionGeo_Point_WKT'] = 'POINT(' + df['ActionGeo_Lat'].astype(str) + ' ' + df['ActionGeo_Long'].astype(str) + ')'
 
-            # 2. Save as temporary without any interferencefile (na_rep='\N' yes MySQL 识别 NULL 专属markrecord)
+            # 2. Save as temporary without any interferencefile (na_rep='\N' yes MySQL recognize NULL specialbelongmarkrecord)
             df.to_csv(temp_file, index=False, header=False, na_rep=r'\N')
             row_count = len(df)
             
-            logging.info(f"   ⚡ 呼叫bottom LOAD DATA 指令灌input MySQL... ({row_count:,} row)")
+            logging.info(f"   ⚡ callbottom LOAD DATA fingerpourinput MySQL... ({row_count:,} row)")
             
-            # 3. execrow极速import指令
+            # 3. execrowextremespeedimportfingerorder
             load_query = f"""
             LOAD DATA LOCAL INFILE '{temp_file}'
             IGNORE INTO TABLE events_table
@@ -159,9 +159,9 @@ def fast_ingest():
             logging.info(f"   ✅ importcompleted！\n")
             
         except Exception as e:
-            logging.error(f"❌ process {file} whenoccurerror: {str(e)}。alreadyskip此file。\n")
+            logging.error(f"❌ process {file} whenoccurerror: {str(e)}。alreadyskipthisfile。\n")
 
-    # clearprocess临whenfile
+    # clearprocesstemporarywhenfile
     if os.path.exists(temp_file):
         os.remove(temp_file)
     
@@ -169,7 +169,7 @@ def fast_ingest():
     logging.info("-" * 60)
     logging.info(f"📊 importstatistics:")
     logging.info(f"   thistimeimport: {imported_count} file")
-    logging.info(f"   skip（alreadysave在）: {skipped_count} file")
+    logging.info(f"   skip（alreadysavein）: {skipped_count} file")
     
     cursor.execute("SELECT COUNT(*) FROM events_table")
     final_count = cursor.fetchone()[0]
@@ -178,7 +178,7 @@ def fast_ingest():
     cursor.close()
     conn.close()
     logging.info("-" * 60)
-    logging.info("🎉 极速importallend！")
+    logging.info("🎉 extremespeedimportallend！")
 
 if __name__ == "__main__":
     fast_ingest()

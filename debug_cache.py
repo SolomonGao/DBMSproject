@@ -32,43 +32,43 @@ async def test_cache():
     for k, v in stats.items():
         print(f"  {k}: {v}")
     
-    # execrow第onetimequery
-    print("\n🔍 第onetimequery 'Virginia'...")
+    # execrowNo.onetimequery
+    print("\n🔍 No.onetimequery 'Virginia'...")
     start = asyncio.get_event_loop().time()
     result1 = await service.query_by_actor("Virginia", limit=10)
     elapsed1 = asyncio.get_event_loop().time() - start
-    print(f"   耗when: {elapsed1:.3f}s")
+    print(f"   consumewhen: {elapsed1:.3f}s")
     print(f"   resultresultlongschedule: {len(result1)} character")
     
     # queryseecachestatusstate
-    print("\n📊 第onetimequeryaftercachestatusstate:")
+    print("\n📊 No.onetimequeryaftercachestatusstate:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
     
-    # execrow第二timesamequery
-    print("\n🔍 第二timequery 'Virginia' (应该hitcache)...")
+    # execrowNo.twotimesamequery
+    print("\n🔍 No.twotimequery 'Virginia' (shouldthishitcache)...")
     start = asyncio.get_event_loop().time()
     result2 = await service.query_by_actor("Virginia", limit=10)
     elapsed2 = asyncio.get_event_loop().time() - start
-    print(f"   耗when: {elapsed2:.3f}s")
+    print(f"   consumewhen: {elapsed2:.3f}s")
     print(f"   resultresultlongschedule: {len(result2)} character")
     
     # queryseecachestatusstate
-    print("\n📊 第二timequeryaftercachestatusstate:")
+    print("\n📊 No.twotimequeryaftercachestatusstate:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
     
-    # calculateadd速比
+    # calculateaddspeed ratio
     if elapsed1 > 0:
         speedup = elapsed1 / elapsed2
-        print(f"\n🚀 add速比: {speedup:.1f}x")
+        print(f"\n🚀 addspeed ratio: {speedup:.1f}x")
         
         if speedup > 10:
             print("✅ cacheworknormal！")
         elif elapsed2 < 0.01:
-            print("✅ cancaniscachehit（or者querythis身就很fast）")
+            print("✅ cancaniscachehit（orpersonquerythisbodyveryfast）")
         else:
             print("⚠️  cancannohashitcache")
     

@@ -20,7 +20,7 @@ logger = get_logger("config_wizard")
 class ConfigWizard:
     """interactive configuration wizard"""
     
-    # 彩色transportoutput
+    # colortransportoutput
     COLORS = {
         'reset': '\033[0m',
         'bold': '\033[1m',
@@ -37,7 +37,7 @@ class ConfigWizard:
         self.config: Dict[str, Any] = {}
     
     def _print(self, text: str, color: str = '', bold: bool = False):
-        """彩色print"""
+        """colorprint"""
         prefix = ''
         if bold:
             prefix += self.COLORS['bold']
@@ -48,7 +48,7 @@ class ConfigWizard:
         print(f"{prefix}{text}{suffix}")
     
     def _print_header(self, title: str):
-        """printmark题"""
+        """printmarktopic"""
         print()
         self._print("=" * 60, 'cyan', bold=True)
         self._print(f"  {title}", 'cyan', bold=True)
@@ -68,7 +68,7 @@ class ConfigWizard:
         self._print(f"ℹ️  {message}", 'blue')
     
     def _input_required(self, prompt: str, hide_input: bool = False) -> str:
-        """fetch必填input"""
+        """fetchrequiredinput"""
         while True:
             if hide_input:
                 import getpass
@@ -78,13 +78,13 @@ class ConfigWizard:
             
             if value:
                 return value
-            self._print_error("This field cannot be empty，please重newinput")
+            self._print_error("This field cannot be empty，pleaseheavynewinput")
     
     def _select_provider(self) -> ProviderConfig:
         """stepstep 1: selectselect LLM provider"""
         self._print_header("stepstep 1/3: selectselect LLM provider")
         
-        self._print("pleaseselectselect您wantuse AI serviceprovider：\n", bold=True)
+        self._print("pleaseselectselectyouwantuse AI serviceprovider：\n", bold=True)
         
         providers = list(LLM_PROVIDERS.items())
         for idx, (key, provider) in enumerate(providers, 1):
@@ -95,7 +95,7 @@ class ConfigWizard:
         
         while True:
             try:
-                choice = input(f"pleaseinputselectitem编号 (1-{len(providers)}): ").strip()
+                choice = input(f"pleaseinputselectitemcompileNo. (1-{len(providers)}): ").strip()
                 idx = int(choice) - 1
                 if 0 <= idx < len(providers):
                     provider_id, provider = providers[idx]
@@ -105,7 +105,7 @@ class ConfigWizard:
                 else:
                     self._print_error(f"noeffectselectitem，pleaseinput 1-{len(providers)}")
             except ValueError:
-                self._print_error("pleaseinputhaseffectnumber字")
+                self._print_error("pleaseinputhaseffectnumbercharacter")
     
     def _input_api_key(self, provider: ProviderConfig) -> str:
         """stepstep 2: input API Key"""
@@ -114,7 +114,7 @@ class ConfigWizard:
         self._print(f"provider: {provider.name}", bold=True)
         print()
         self._print_info(provider.api_key_hint)
-        print(f"gridpattern提show: {provider.api_key_pattern}")
+        print(f"gridpatternprovideshow: {provider.api_key_pattern}")
         print()
         
         # Check if configuration already exists
@@ -129,10 +129,10 @@ class ConfigWizard:
                     self.config['api_key'] = existing_key
                     return existing_key
             else:
-                self._print_error("detecttonowhas API Key gridpatternasyncconstant，please重newinput")
+                self._print_error("detecttonowhas API Key gridpatternasyncconstant，pleaseheavynewinput")
         
         print()
-        print("please粘贴您 API Key (inputWill not display on screen):")
+        print("pleasestickpasteyou API Key (inputWill not display on screen):")
         api_key = self._input_required(
             f"{provider.env_key}=", 
             hide_input=True
@@ -142,7 +142,7 @@ class ConfigWizard:
         if not self._validate_api_key(api_key, provider):
             self._print_error("API Key Format seems incorrect，butstillcontinuesave")
         else:
-            self._print_success("API Key gridpatternverifynotify过")
+            self._print_success("API Key gridpatternverifynotifypass")
         
         self.config['api_key'] = api_key
         return api_key
@@ -152,13 +152,13 @@ class ConfigWizard:
         if not api_key or len(api_key) < 10:
             return False
         
-        # 根据differentproviderverifybefore缀
+        # according todifferentproviderverifybeforesuffix
         if provider.env_key == "MOONSHOT_API_KEY":
             return api_key.startswith("sk-")
         elif provider.env_key == "ANTHROPIC_API_KEY":
             return api_key.startswith("sk-ant-")
         elif provider.env_key == "GEMINI_API_KEY":
-            return len(api_key) > 30  # Gemini key notifyconstant较long
+            return len(api_key) > 30  # Gemini key notifyconstantcomparelong
         
         return True
     
@@ -197,13 +197,13 @@ class ConfigWizard:
                 else:
                     self._print_error(f"noeffectselectitem，pleaseinput 1-{len(provider.models)}")
             except ValueError:
-                self._print_error("pleaseinputhaseffectnumber字")
+                self._print_error("pleaseinputhaseffectnumbercharacter")
     
     def _advanced_options(self):
         """advancedconfigselectitem"""
         self._print_header("advancedconfigselectitem（canselect）")
         
-        print("thereforeunderconfigusedefaultvalue即can，if需modifychangepleaseinputnewvalue，directenterskip:")
+        print("thereforeunderconfigusedefaultvalueeven ifcan，ifneedmodifychangepleaseinputnewvalue，directenterskip:")
         print()
         
         # Temperature
@@ -254,21 +254,21 @@ class ConfigWizard:
             "# transmittransportmodelpattern: stdio or sse",
             "MCP_TRANSPORT=stdio",
             "",
-            "# SSE modelpatternend口（仅 transport=sse whenhaseffect）",
+            "# SSE modelpatternendmouth（only transport=sse whenhaseffect）",
             "MCP_PORT=8000",
             "",
             "# ============================================",
             "# LLM paramnumberconfig",
             "# ============================================",
             "",
-            f"# 温scheduleparamnumber (0.0 - 1.0)",
+            f"# warmscheduleparamnumber (0.0 - 1.0)",
             f"LLM_TEMPERATURE={self.config['temperature']}",
             "",
             f"# mostbig Token number",
             f"LLM_MAX_TOKENS={self.config['max_tokens']}",
             "",
             "# ============================================",
-            "# 日志config",
+            "# daywillconfig",
             "# ============================================",
             "",
             f"# log level: DEBUG, INFO, WARNING, ERROR",
@@ -281,7 +281,7 @@ class ConfigWizard:
             "# opensendconfig",
             "# ============================================",
             "",
-            "# callback试modelpattern",
+            "# callbacktrymodelpattern",
             "DEBUG=false",
             "",
         ]
@@ -318,7 +318,7 @@ class ConfigWizard:
         try:
             self._print_header("🚀 GDELT MCP Client configwizard")
             print()
-            print("欢迎use！This wizard will help you configure AI serviceprovider。")
+            print("welcomeuse！This wizard will help you configure AI serviceprovider。")
             print()
             
             # stepstep 1: selectselectprovider
@@ -395,5 +395,5 @@ class ConfigWizard:
         if response in ('', 'y', 'yes'):
             return self.run()
         else:
-            self._print_error("缺少config，unablestartapplication")
+            self._print_error("lackfewconfig，unablestartapplication")
             return False

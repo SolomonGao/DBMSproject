@@ -9,13 +9,13 @@ usemethod:
 selectitem:
     --config               Force start configuration wizard
     --log-level {DEBUG,INFO,WARNING,ERROR}  Setloglevel
-    --no-file-log          禁usefilelog
+    --no-file-log          forbidusefilelog
     -h, --help             displayHelp
 
 feature:
-    - 交互pattern LLM Provides商selectselect (Kimi/Claude/Gemini)
+    - handmutualpattern LLM Providesbusinessselectselect (Kimi/Claude/Gemini)
     - autodetectandHintconfig
-    - SupportsmultiProvides商切换
+    - SupportsmultiProvidesbusinessswitch
 """
 
 import argparse
@@ -23,7 +23,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-# 确保canthereforeImport mcp_app
+# confirmkeepcanthereforeImport mcp_app
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
@@ -38,7 +38,7 @@ logger = get_logger("main")
 
 
 async def main():
-    """主function"""
+    """mainfunction"""
     
     # parsecommandrowArgs
     parser = argparse.ArgumentParser(
@@ -46,8 +46,8 @@ async def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-  python run_v1.py                          # startApply（首timewillHintconfig）
-  python run_v1.py --config                 # strongsystem重newconfig
+  python run_v1.py                          # startApply（firsttimewillHintconfig）
+  python run_v1.py --config                 # strongsystemheavynewconfig
   python run_v1.py --log-level DEBUG        # Debugmodelpattern
         """
     )
@@ -65,7 +65,7 @@ Example:
     parser.add_argument(
         '--no-file-log',
         action='store_true',
-        help='禁usefilelog'
+        help='forbidusefilelog'
     )
     args = parser.parse_args()
     
@@ -81,7 +81,7 @@ Example:
             sys.exit(1)
         print("\nconfigcompleted！correctinstartApply...\n")
     else:
-        # Checkconfig，ifdoes not exist则Hint
+        # Checkconfig，ifdoes not existruleHint
         if not wizard.check_and_prompt():
             sys.exit(1)
     
@@ -92,7 +92,7 @@ Example:
         config = load_config()
     except ValueError as e:
         print(f"❌ configerror: {e}")
-        print("\nbuild议运row: python run_v1.py --config")
+        print("\nbuilddiscussrunrow: python run_v1.py --config")
         sys.exit(1)
     
     # 2. Setlog
@@ -112,7 +112,7 @@ Example:
     # 3. printconfig
     print_config(config)
     
-    # 4. Initialize MCP 客户end
+    # 4. Initialize MCP clientend
     mcp_client = MCPClient(
         server_path=config.mcp_server_path,
         transport=config.mcp_transport,
@@ -125,7 +125,7 @@ Example:
         if not connected:
             logger.error("unablejointo MCP Server，pleasecheck:")
             logger.error("  1. MCP Server fileisNosavein")
-            logger.error("  2. Python environmentisNocorrect确")
+            logger.error("  2. Python environmentisNocorrectconfirm")
             sys.exit(1)
         
         # 6. sendnowtool
@@ -135,7 +135,7 @@ Example:
         logger.exception(f"MCP Initializefailed: {e}")
         sys.exit(1)
     
-    # 7. Initialize LLM 客户end
+    # 7. Initialize LLM clientend
     try:
         llm_client = LLMClient(
             provider=config.llm_provider,
@@ -145,7 +145,7 @@ Example:
             temperature=config.llm_temperature,
             max_tokens=config.llm_max_tokens
         )
-        logger.info(f"LLM 客户endInitializecompleted (Provides商: {config.llm_provider})")
+        logger.info(f"LLM clientendInitializecompleted (Providesbusiness: {config.llm_provider})")
     except Exception as e:
         logger.exception(f"LLM Initializefailed: {e}")
         sys.exit(1)
@@ -153,10 +153,10 @@ Example:
     # 8. start CLI
     cli = ChatCLI(config, llm_client, mcp_client)
     
-    # Processinfo号
+    # ProcessinfoNo.
     import signal
     def signal_handler(sig, frame):
-        logger.info(f"accepttoinfo号 {sig}，correctinExit...")
+        logger.info(f"accepttoinfoNo. {sig}，correctinExit...")
         asyncio.create_task(mcp_client.close())
         sys.exit(0)
     
@@ -166,8 +166,8 @@ Example:
     try:
         await cli.chat_loop()
     finally:
-        # cleanup资源
-        logger.info("correctincleanup资源...")
+        # cleanupresource
+        logger.info("correctincleanupresource...")
         await mcp_client.close()
         if 'llm_client' in locals():      # <--- adduploadthisonerow
             await llm_client.close()      # <--- adduploadthisonerow
@@ -178,8 +178,8 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n\n👋 再view！")
+        print("\n\n👋 againview！")
         sys.exit(0)
     except Exception as e:
-        logger.exception(f"程序error: {e}")
+        logger.exception(f"processordererror: {e}")
         sys.exit(1)
