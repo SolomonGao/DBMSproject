@@ -8,6 +8,7 @@ const state = {
     activeSessionId: null,
     serverInfo: null,
     requestInFlight: false,
+    abortController: null,
 };
 
 const elements = {
@@ -25,10 +26,12 @@ const elements = {
     errorBanner: document.getElementById("errorBanner"),
     messageTemplate: document.getElementById("messageTemplate"),
     typingTemplate: document.getElementById("typingTemplate"),
+    thinkingTemplate: document.getElementById("thinkingTemplate"),
     promptCards: document.querySelectorAll(".prompt-card"),
 };
 
 function bootstrap() {
+    console.log("[GDELT Chat UI] Version 2.0 loaded");
     loadSessions();
     bindEvents();
     selectOrCreateSession();
@@ -65,7 +68,13 @@ function bindEvents() {
         focusComposer();
     });
 
-    elements.sendButton.addEventListener("click", () => sendCurrentPrompt());
+    elements.sendButton.addEventListener("click", () => {
+        if (state.requestInFlight && state.abortController) {
+            state.abortController.abort();
+            return;
+        }
+        sendCurrentPrompt();
+    });
 
     elements.composerInput.addEventListener("input", autoResizeComposer);
     elements.composerInput.addEventListener("keydown", (event) => {
@@ -245,7 +254,15 @@ function renderConversation() {
     }
 
     session.messages.forEach((message) => {
-        elements.messageList.appendChild(buildMessageNode(message));
+        try {
+            elements.messageList.appendChild(buildMessageNode(message));
+        } catch (err) {
+            console.error("Failed to render message:", message, err);
+            const errorNode = document.createElement("div");
+            errorNode.className = "message message--assistant";
+            errorNode.textContent = "[Error rendering message]";
+            elements.messageList.appendChild(errorNode);
+        }
     });
 
     scrollMessagesToBottom();
@@ -263,9 +280,84 @@ function buildMessageNode(message) {
     avatar.textContent = message.role === "user" ? "You" : "AI";
     role.textContent = message.role === "user" ? "You" : "Assistant";
     time.textContent = formatTime(message.createdAt);
-    content.textContent = message.content;
+    content.textContent = message.content || "(No response content)";
+
+    if (message.thinking_process && message.thinking_process.length > 0) {
+        const isEmptyContent = !message.content || !message.content.trim();
+        const thinkingNode = buildThinkingNode(message.thinking_process, isEmptyContent);
+        article.querySelector(".message__body").appendChild(thinkingNode);
+    }
 
     return article;
+}
+
+function buildThinkingNode(steps, openByDefault = false) {
+    try {
+        const fragment = elements.thinkingTemplate.content.cloneNode(true);
+        const details = fragment.querySelector(".thinking-process");
+        const container = fragment.querySelector(".thinking-process__content");
+        if (openByDefault) {
+            details.setAttribute("open", "");
+        }
+
+        steps.forEach((step) => {
+            try {
+                const row = document.createElement("div");
+                row.className = "thinking-step";
+
+                const badge = document.createElement("span");
+                badge.className = "thinking-step__badge";
+                badge.textContent = step.type || "unknown";
+
+                const text = document.createElement("span");
+                text.className = "thinking-step__text";
+
+                switch (step.type) {
+                    case "router_decision":
+                        text.textContent = `Router: ${step.intent || "?"} (confidence: ${((step.confidence != null ? step.confidence : 0)).toFixed(2)})` +
+                            (step.suggested_tools?.length ? ` → suggested: ${step.suggested_tools.join(", ")}` : "");
+                        break;
+                    case "system_hint":
+                        text.textContent = `System hint: suggested tools = ${(step.suggested_tools || []).join(", ")}`;
+                        break;
+                    case "history_truncated":
+                        text.textContent = `History truncated to ${step.max_messages != null ? step.max_messages : "?"} messages`;
+                        break;
+                    case "llm_reasoning":
+                        text.textContent = `LLM reasoning: ${step.reasoning || ""}`.slice(0, 180) + "...";
+                        break;
+                    case "tool_calls":
+                        text.textContent = `AI requests tools: ${(step.tools || []).map(t => t.name || "?").join(", ")}`;
+                        break;
+                    case "tool_call_start":
+                        text.textContent = `Calling tool: ${step.name || "?"}`;
+                        break;
+                    case "tool_result":
+                        text.textContent = `Tool ${step.name || "?"} returned (${step.elapsed != null ? step.elapsed : "?"}s): ${step.result_preview || ""}`;
+                        break;
+                    case "router_error":
+                        text.textContent = `Router error: ${step.error || ""}`;
+                        break;
+                    default:
+                        text.textContent = JSON.stringify(step);
+                }
+
+                row.appendChild(badge);
+                row.appendChild(text);
+                container.appendChild(row);
+            } catch (innerErr) {
+                console.error("Failed to render thinking step:", step, innerErr);
+            }
+        });
+
+        return details;
+    } catch (err) {
+        console.error("Failed to build thinking node:", err);
+        const fallback = document.createElement("details");
+        fallback.className = "thinking-process";
+        fallback.innerHTML = '<summary class="thinking-process__summary">Thinking Process (error)</summary>';
+        return fallback;
+    }
 }
 
 function buildTypingNode() {
@@ -347,12 +439,15 @@ async function sendCurrentPrompt() {
     autoResizeComposer();
 
     state.requestInFlight = true;
-    elements.sendButton.disabled = true;
+    state.abortController = new AbortController();
+    elements.sendButton.textContent = "Stop";
+    elements.sendButton.classList.add("is-stopping");
     elements.messageList.appendChild(buildTypingNode());
     scrollMessagesToBottom();
 
     try {
-        const response = await fetch("/api/chat", {
+        console.log("[UI] Sending chat request...");
+        const response = await fetchWithTimeout("/api/chat", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -361,35 +456,99 @@ async function sendCurrentPrompt() {
                 message: prompt,
                 history,
             }),
-        });
+            signal: state.abortController.signal,
+        }, 120000);
 
+        console.log("[UI] Response received, parsing JSON...");
         const payload = await response.json();
+        console.log("[UI] Payload:", payload);
         if (!response.ok || !payload.ok) {
             throw new Error(payload.error || "Chat request failed.");
         }
 
-        session.messages.push(createMessage("assistant", payload.reply));
+        console.log("[UI] Appending assistant message...");
+        session.messages.push(createMessage("assistant", payload.reply, payload.thinking_process));
         session.updatedAt = new Date().toISOString();
         state.sessions.sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt));
         persistSessions();
+        console.log("[UI] Message saved.");
+        if (window.gdeltMap && payload.reply) {
+            try {
+                console.log("[UI] Initializing map...");
+                if (!window.gdeltMap.initialized) {
+                    window.gdeltMap.init();
+                }
+                
+                console.log("[UI] Extracting events from response...");
+                window.gdeltMap.showEventsFromText(payload.reply);
+                
+                const events = window.gdeltMap.getEvents();
+                console.log(`[UI] Found ${events.length} events`);
+                
+                if (events.length > 0) {
+                    document.getElementById('mapContainer').style.display = 'block';
+                    console.log("[UI] Map displayed successfully");
+                } else {
+                    document.getElementById('mapContainer').style.display = 'none';
+                }
+            } catch (mapError) {
+                console.error("[UI] Map integration error:", mapError);
+            }
+        }
+        
     } catch (error) {
-        console.error(error);
-        showError(error.message || "Failed to send the message.");
+        if (error.name === "AbortError") {
+            console.log("[UI] Request aborted by user.");
+            session.messages.push(createMessage("assistant", "[Stopped thinking]"));
+            session.updatedAt = new Date().toISOString();
+            state.sessions.sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt));
+            persistSessions();
+        } else {
+            console.error(error);
+            showError(error.message || "Failed to send the message.");
+        }
     } finally {
         state.requestInFlight = false;
-        elements.sendButton.disabled = false;
+        state.abortController = null;
+        elements.sendButton.textContent = "Send";
+        elements.sendButton.classList.remove("is-stopping");
         render();
         focusComposer();
     }
+
+    
 }
 
-function createMessage(role, content) {
+
+function createMessage(role, content, thinking_process = null) {
     return {
         id: crypto.randomUUID(),
         role,
         content,
         createdAt: new Date().toISOString(),
+        thinking_process: thinking_process || null,
     };
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 120000) {
+    const internalController = new AbortController();
+    const externalSignal = options.signal;
+
+    const onExternalAbort = () => internalController.abort();
+    if (externalSignal) {
+        externalSignal.addEventListener("abort", onExternalAbort);
+    }
+
+    const id = setTimeout(() => internalController.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { ...options, signal: internalController.signal });
+        return response;
+    } finally {
+        clearTimeout(id);
+        if (externalSignal) {
+            externalSignal.removeEventListener("abort", onExternalAbort);
+        }
+    }
 }
 
 function normalizeSession(session) {
@@ -407,6 +566,7 @@ function normalizeSession(session) {
         ...session,
         title: session.title === "\u65b0\u5bf9\u8bdd" ? DEFAULT_CHAT_TITLE : (session.title || DEFAULT_CHAT_TITLE),
         messages: Array.isArray(session.messages) ? session.messages : [],
+        thinking_process: session.thinking_process || null,
     };
 }
 
