@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 class GDELTETLWorker:
-    """ETL 工作单元（每个date一个instance）"""
+    """ETL work单元（每个date一个instance）"""
     
     def __init__(self, date: str):
         self.date = date
@@ -56,7 +56,7 @@ class GDELTETLWorker:
         await DatabasePool.close()
         
     async def run_etl(self) -> Dict:
-        """运行完整 ETL 流程"""
+        """run完整 ETL 流程"""
         result = {
             'date': self.date,
             'status': 'success',
@@ -106,7 +106,7 @@ class GDELTETLWorker:
         return result
     
     async def _check_data_exists(self) -> bool:
-        """check指定date是否有data"""
+        """check指定datewhether有data"""
         result = await self.pool.fetchone(
             "SELECT COUNT(*) as cnt FROM events_table WHERE SQLDATE = %s",
             (self.date,)
@@ -187,7 +187,7 @@ class GDELTETLWorker:
         """, (self.date,))
         type_dist = {row['event_type']: row['cnt'] for row in types_result}
         
-        # hoteventfingerprint（临时用GID，after续update为fingerprint）
+        # hoteventfingerprint（临when用GID，after续update为fingerprint）
         hot_result = await self.pool.fetchall("""
             SELECT GlobalEventID, NumArticles * ABS(GoldsteinScale) as hot_score
             FROM events_table
@@ -262,9 +262,9 @@ class GDELTETLWorker:
             # batchinsert（一次性insert整批，避免死锁）
             inserted = await self._batch_insert_fingerprints(fingerprints)
             total_processed += inserted
-            logger.info(f"  ✓ [{self.date}] 批次: +{inserted}, 累计 {total_processed}")
+            logger.info(f"  ✓ [{self.date}] batch: +{inserted}, 累计 {total_processed}")
             
-            # 如果本批次不足 batch_size，descriptionprocess完了
+            # ifthisbatchinsufficient batch_size，descriptionprocess完了
             if len(batch) < batch_size:
                 break
         
@@ -279,7 +279,7 @@ class GDELTETLWorker:
         actor2 = evt['Actor2Name'] or '对方'
         event_root = str(evt['EventRootCode'] or '')[:2]
         goldstein = evt['GoldsteinScale'] or 0
-        location = evt['ActionGeo_FullName'] or '未知地点'
+        location = evt['ActionGeo_FullName'] or 'unknown地点'
         country = evt['ActionGeo_CountryCode'] or 'XX'
         articles = evt['NumArticles'] or 0
         
@@ -291,7 +291,7 @@ class GDELTETLWorker:
         
         # 地点缩写
         location_code = 'UNK'
-        if location and location != '未知地点':
+        if location and location != 'unknown地点':
             parts = location.split(',')
             if parts:
                 location_code = parts[0].strip()[:3].upper()
@@ -344,8 +344,8 @@ class GDELTETLWorker:
             '11': f"{a1}对{a2}table示不满", '12': f"{a1}拒绝{a2}",
             '13': f"{a1}威胁{a2}", '14': f"{a1}发起抗议",
             '15': f"{a1}展示武力", '16': f"{a1}reduce对{a2}关系",
-            '17': f"{a1}胁迫{a2}", '18': f"{a1}与{a2}发生摩擦",
-            '19': f"{a1}与{a2}发生conflict", '20': f"{a1}对{a2}use武力"
+            '17': f"{a1}胁迫{a2}", '18': f"{a1}与{a2}occur摩擦",
+            '19': f"{a1}与{a2}occurconflict", '20': f"{a1}对{a2}use武力"
         }
         
         action = action_map.get(event_root, f"{a1}与{a2}互动")
@@ -369,11 +369,11 @@ class GDELTETLWorker:
         
         coverage = ""
         if articles > 100:
-            coverage = f"，受到广泛报道({articles}篇)"
+            coverage = f"，receivewidespreadreport({articles}篇)"
         elif articles > 10:
-            coverage = f"，受到一定报道({articles}篇)"
+            coverage = f"，receivecertainreport({articles}篇)"
         
-        return f"{a1}与{a2}在{loc}发生{intensity}互动{coverage}。"
+        return f"{a1}与{a2}在{loc}occur{intensity}互动{coverage}。"
     
     def _get_event_label(self, event_root: str) -> str:
         """fetcheventtypetag"""
@@ -392,7 +392,7 @@ class GDELTETLWorker:
         """
         batchinsertfingerprint（use INSERT IGNORE，无死锁，rowcount 准确）
         
-        策略：INSERT IGNORE 遇到重复key直接ignore，返回实际insertrow count
+        策略：INSERT IGNORE 遇到duplicatekeydirectignore，返回实际insertrow count
         避免use ON DUPLICATE KEY UPDATE（可能触发死锁）
         
         Args:
@@ -407,7 +407,7 @@ class GDELTETLWorker:
         try:
             async with self.pool._pool.acquire() as conn:
                 async with conn.cursor() as cursor:
-                    # INSERT IGNORE：重复则ignore，rowcount 准确
+                    # INSERT IGNORE：duplicate则ignore，rowcount 准确
                     await cursor.executemany("""
                         INSERT IGNORE INTO event_fingerprints 
                         (global_event_id, fingerprint, headline, summary, 
@@ -420,7 +420,7 @@ class GDELTETLWorker:
                     return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
                     
         except Exception as e:
-            # 极少数情况下batchfailed，downgrade逐条
+            # rarecaseunderbatchfailed，downgrade逐条
             logger.warning(f"    [{self.date}] batchinsertfailed，downgrade逐条: {e}")
             inserted = 0
             for fp_data in fingerprints:
@@ -574,13 +574,13 @@ class GDELTETLWorker:
 
 
 async def run_etl_for_date(date: str) -> Dict:
-    """为单个date运行 ETL（用于parallel执行）"""
+    """为单个daterun ETL（used forparallel执row）"""
     worker = GDELTETLWorker(date)
     return await worker.run_etl()
 
 
 def run_etl_sync(date: str) -> Dict:
-    """syncpackage装器（用于 ProcessPoolExecutor）"""
+    """syncpackage装器（used for ProcessPoolExecutor）"""
     return asyncio.run(run_etl_for_date(date))
 
 
@@ -637,8 +637,8 @@ class ParallelETLPipeline:
             await DatabasePool.close()
     
     def run_parallel(self, dates: List[str]):
-        """parallel运行 ETL"""
-        logger.info(f"🚀 启动parallel ETL: {len(dates)} 个date, {self.workers} 个 worker")
+        """parallelrun ETL"""
+        logger.info(f"🚀 startparallel ETL: {len(dates)} 个date, {self.workers} 个 worker")
         
         completed = 0
         failed = 0
@@ -704,9 +704,9 @@ def main():
     parser.add_argument('--start', help='startdate (YYYY-MM-DD)')
     parser.add_argument('--end', help='enddate (YYYY-MM-DD)')
     parser.add_argument('--date-file', help='date列tablefile')
-    parser.add_argument('--workers', type=int, default=4, help='parallel worker 数 (default: 4)')
+    parser.add_argument('--workers', type=int, default=4, help='parallel worker number (default: 4)')
     parser.add_argument('--missing-only', action='store_true', help='只process缺失fingerprintdate')
-    parser.add_argument('--dry-run', action='store_true', help='只check，不执行')
+    parser.add_argument('--dry-run', action='store_true', help='只check，不执row')
     
     args = parser.parse_args()
     
@@ -730,14 +730,14 @@ def main():
     logger.info(f"📋 计划process {len(dates)} 个date")
     
     if args.dry_run:
-        logger.info("🔍 干运行模式，只打印date列table:")
+        logger.info("🔍 干run模式，只printdate列table:")
         for d in dates[:10]:
             logger.info(f"   - {d}")
         if len(dates) > 10:
             logger.info(f"   ... 还有 {len(dates)-10} 个")
         return
     
-    # parallel运行
+    # parallelrun
     pipeline.run_parallel(dates)
 
 

@@ -158,7 +158,7 @@ class OllamaRouter:
             )
         
         # Explicit database query keywords (Chinese)
-        if any(kw in text_lower for kw in ['查询', '查找', '搜索', '查一下']):
+        if any(kw in text_lower for kw in ['查询', '查找', '搜索', '查一under']):
             return None  # Needs further model analysis
         
         return None
@@ -331,7 +331,7 @@ Notes:
             )
         
         # Time series / trends (Chinese)
-        if any(kw in text_lower for kw in ['时间序列', 'trends', '变化', '走势', 'time series']):
+        if any(kw in text_lower for kw in ['when间序列', 'trends', '变化', '走势', 'time series']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,

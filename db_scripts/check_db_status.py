@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-database状态check工具
-用于监控索引use情况和query性能
+database状态checktool
+used formonitorindexusecase和query性能
 """
 
 import sys
@@ -34,11 +34,11 @@ async def check_status():
     """)
     print(f"   总row count: {result['table_rows']:,}")
     print(f"   datasize: {result['data_gb']} GB")
-    print(f"   索引size: {result['index_gb']} GB")
+    print(f"   indexsize: {result['index_gb']} GB")
     print(f"   总计: {result['total_gb']} GB")
     
-    # 2. 索引列table
-    print("\n2️⃣  索引列table:")
+    # 2. index列table
+    print("\n2️⃣  index列table:")
     indexes = await pool.fetchall("""
         SELECT 
             INDEX_NAME,
@@ -55,11 +55,11 @@ async def check_status():
     for idx in indexes:
         if idx['INDEX_NAME'] != current_idx:
             current_idx = idx['INDEX_NAME']
-            print(f"   📌 {current_idx} ({idx['INDEX_TYPE']}) - 基数: {idx['CARDINALITY']:,}")
+            print(f"   📌 {current_idx} ({idx['INDEX_TYPE']}) - 基number: {idx['CARDINALITY']:,}")
         print(f"      └─ {idx['COLUMN_NAME']}")
     
-    # 3. date范围
-    print("\n3️⃣  datatime范围:")
+    # 3. daterange
+    print("\n3️⃣  datatimerange:")
     result = await pool.fetchone("""
         SELECT 
             MIN(SQLDATE) as min_date,
@@ -69,7 +69,7 @@ async def check_status():
     """)
     print(f"   最早: {result['min_date']}")
     print(f"   最晚: {result['max_date']}")
-    print(f"   天数: {result['unique_days']}")
+    print(f"   天number: {result['unique_days']}")
     
     # 4. 地理data覆盖
     print("\n4️⃣  地理data覆盖:")
@@ -97,7 +97,7 @@ async def check_status():
         """)
         if logs:
             for log in logs[:5]:
-                print(f"   ✅ {log['file_name']}: {log['row_count']:,} 行 ({log['imported_at']})")
+                print(f"   ✅ {log['file_name']}: {log['row_count']:,} row ({log['imported_at']})")
             if len(logs) > 5:
                 print(f"   ... 还有 {len(logs) - 5} 个file")
         else:
@@ -110,7 +110,7 @@ async def check_status():
     from app.cache import query_cache
     stats = query_cache.get_stats()
     print(f"   cache条目: {stats['size']} / {stats['maxsize']}")
-    print(f"   命中次数: {stats['hits']:,}")
+    print(f"   命中次number: {stats['hits']:,}")
     print(f"   未命中: {stats['misses']:,}")
     print(f"   命中率: {stats['hit_rate']}")
     

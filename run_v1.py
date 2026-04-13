@@ -14,7 +14,7 @@ selectitem:
 
 特性:
     - 交互式 LLM Provides商select择 (Kimi/Claude/Gemini)
-    - 自动检测andHint配置
+    - 自动detectandHintconfig
     - SupportsmultiProvides商切换
 """
 
@@ -40,14 +40,14 @@ logger = get_logger("main")
 async def main():
     """主function"""
     
-    # 解析命令rowArgs
+    # 解析commandrowArgs
     parser = argparse.ArgumentParser(
         description="GDELT MCP Client App v1",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-  python run_v1.py                          # 启动Apply（首次会Hint配置）
-  python run_v1.py --config                 # 强制重新配置
+  python run_v1.py                          # startApply（首次willHintconfig）
+  python run_v1.py --config                 # 强制重新config
   python run_v1.py --log-level DEBUG        # Debug模式
         """
     )
@@ -60,7 +60,7 @@ Example:
         '--log-level',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
         default=None,
-        help='loglevel（覆盖 .env 配置）'
+        help='loglevel（覆盖 .env config）'
     )
     parser.add_argument(
         '--no-file-log',
@@ -69,29 +69,29 @@ Example:
     )
     args = parser.parse_args()
     
-    # Initialize配置向导
+    # Initializeconfigwizard
     wizard = ConfigWizard()
     
-    # Check/启动配置
+    # Check/startconfig
     if args.config:
         # Force start configuration wizard
         print("🚀 Force start configuration wizard...")
         success = wizard.run()
         if not success:
             sys.exit(1)
-        print("\n配置completed！正in启动Apply...\n")
+        print("\nconfigcompleted！正instartApply...\n")
     else:
-        # Check配置，如does not exist则Hint
+        # Checkconfig，如does not exist则Hint
         if not wizard.check_and_prompt():
             sys.exit(1)
     
-    # 1. Load配置
-    print("🚀 启动 GDELT MCP Client App v1...")
+    # 1. Loadconfig
+    print("🚀 start GDELT MCP Client App v1...")
     
     try:
         config = load_config()
     except ValueError as e:
-        print(f"❌ 配置error: {e}")
+        print(f"❌ configerror: {e}")
         print("\n建议运row: python run_v1.py --config")
         sys.exit(1)
     
@@ -106,10 +106,10 @@ Example:
     )
     
     logger.info("=" * 60)
-    logger.info("GDELT MCP Client App v1 启动")
+    logger.info("GDELT MCP Client App v1 start")
     logger.info("=" * 60)
     
-    # 3. 打印配置
+    # 3. printconfig
     print_config(config)
     
     # 4. Initialize MCP 客户端
@@ -123,7 +123,7 @@ Example:
         # 5. jointo MCP Server
         connected = await mcp_client.connect()
         if not connected:
-            logger.error("无法jointo MCP Server，请check:")
+            logger.error("unablejointo MCP Server，请check:")
             logger.error("  1. MCP Server 文件isNo存in")
             logger.error("  2. Python environmentisNo正确")
             sys.exit(1)
@@ -150,7 +150,7 @@ Example:
         logger.exception(f"LLM Initializefailed: {e}")
         sys.exit(1)
     
-    # 8. 启动 CLI
+    # 8. start CLI
     cli = ChatCLI(config, llm_client, mcp_client)
     
     # Process信号
@@ -171,7 +171,7 @@ Example:
         await mcp_client.close()
         if 'llm_client' in locals():      # <--- 加上这一row
             await llm_client.close()      # <--- 加上这一row
-        logger.info("Apply已Exit")
+        logger.info("ApplyalreadyExit")
 
 
 if __name__ == "__main__":

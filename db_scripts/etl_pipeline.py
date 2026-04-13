@@ -2,7 +2,7 @@
 """
 GDELT ETL Pipeline
 purpose: precalculateday报data、generateeventfingerprint、updatestatisticsdata
-运行frequency: 每day一次（建议凌晨2点）
+runfrequency: 每day一次（建议凌晨2点）
 
 use:
     python db_scripts/etl_pipeline.py [YYYY-MM-DD]
@@ -44,16 +44,16 @@ class GDELTETLPipeline:
     async def initialize(self):
         """初始化databaseconnection"""
         self.pool = await DatabasePool.initialize()
-        logger.info("✅ databaseconnection池已初始化")
+        logger.info("✅ databaseconnection池already初始化")
     
     async def close(self):
         """关闭connection"""
         await DatabasePool.close()
-        logger.info("✅ databaseconnection已关闭")
+        logger.info("✅ databaseconnectionalready关闭")
     
     async def run_daily_etl(self, target_date: Optional[str] = None):
         """
-        运行每dayETLtask
+        run每dayETLtask
         
         Args:
             target_date: 目标date (YYYY-MM-DD)，default昨天
@@ -64,7 +64,7 @@ class GDELTETLPipeline:
         logger.info(f"🚀 startETLprocess: {target_date}")
         
         try:
-            # 1. check该date是否有data
+            # 1. check该datewhether有data
             has_data = await self._check_data_exists(target_date)
             if not has_data:
                 logger.warning(f"⚠️ {target_date} 无data，skipETL")
@@ -92,7 +92,7 @@ class GDELTETLPipeline:
             raise
     
     async def _check_data_exists(self, date: str) -> bool:
-        """check指定date是否有data"""
+        """check指定datewhether有data"""
         result = await self.pool.fetchone(
             "SELECT COUNT(*) as cnt FROM events_table WHERE SQLDATE = %s",
             (date,)
@@ -175,7 +175,7 @@ class GDELTETLPipeline:
         
         type_dist = {row['event_type']: row['cnt'] for row in types_result}
         
-        # hoteventfingerprint（临时用GID，after续update为fingerprint）
+        # hoteventfingerprint（临when用GID，after续update为fingerprint）
         hot_result = await self.pool.fetchall("""
             SELECT GlobalEventID, NumArticles * ABS(GoldsteinScale) as hot_score
             FROM events_table
@@ -216,7 +216,7 @@ class GDELTETLPipeline:
             json.dumps(hot_events)
         ))
         
-        logger.info(f"  ✓ day报已generate: {stats['total_events']} event, {len(top_actors)} 个活跃Actor")
+        logger.info(f"  ✓ day报alreadygenerate: {stats['total_events']} event, {len(top_actors)} 个活跃Actor")
     
     async def _generate_event_fingerprints(self, date: str):
         """为新eventgeneratefingerprint"""
@@ -262,12 +262,12 @@ class GDELTETLPipeline:
                     """, fp_data)
                     inserted += 1
                 except Exception as e:
-                    logger.warning(f"    skip重复fingerprint: {e}")
+                    logger.warning(f"    skipduplicatefingerprint: {e}")
             
             total_processed += inserted
-            logger.info(f"  ✓ 本批次generate {inserted} 个fingerprint，累计 {total_processed}")
+            logger.info(f"  ✓ thisbatchgenerate {inserted} 个fingerprint，累计 {total_processed}")
             
-            # 如果本批次不足 batch_size，descriptionprocess完了
+            # ifthisbatchinsufficient batch_size，descriptionprocess完了
             if len(batch) < batch_size:
                 break
         
@@ -286,7 +286,7 @@ class GDELTETLPipeline:
         actor2 = evt['Actor2Name'] or '对方'
         event_root = str(evt['EventRootCode'] or '')[:2]
         goldstein = evt['GoldsteinScale'] or 0
-        location = evt['ActionGeo_FullName'] or '未知地点'
+        location = evt['ActionGeo_FullName'] or 'unknown地点'
         country = evt['ActionGeo_CountryCode'] or 'XX'
         articles = evt['NumArticles'] or 0
         
@@ -298,7 +298,7 @@ class GDELTETLPipeline:
         
         # 地点缩写 (取before3个字母大写)
         location_code = 'UNK'
-        if location and location != '未知地点':
+        if location and location != 'unknown地点':
             parts = location.split(',')
             if parts:
                 location_code = parts[0].strip()[:3].upper()
@@ -360,8 +360,8 @@ class GDELTETLPipeline:
             '11': f"{a1}对{a2}table示不满", '12': f"{a1}拒绝{a2}",
             '13': f"{a1}威胁{a2}", '14': f"{a1}发起抗议",
             '15': f"{a1}展示武力", '16': f"{a1}reduce对{a2}关系",
-            '17': f"{a1}胁迫{a2}", '18': f"{a1}与{a2}发生摩擦",
-            '19': f"{a1}与{a2}发生conflict", '20': f"{a1}对{a2}use武力"
+            '17': f"{a1}胁迫{a2}", '18': f"{a1}与{a2}occur摩擦",
+            '19': f"{a1}与{a2}occurconflict", '20': f"{a1}对{a2}use武力"
         }
         
         action = action_map.get(event_root, f"{a1}与{a2}互动")
@@ -386,11 +386,11 @@ class GDELTETLPipeline:
         
         coverage = ""
         if articles > 100:
-            coverage = f"，受到广泛报道({articles}篇)"
+            coverage = f"，receivewidespreadreport({articles}篇)"
         elif articles > 10:
-            coverage = f"，受到一定报道({articles}篇)"
+            coverage = f"，receivecertainreport({articles}篇)"
         
-        return f"{a1}与{a2}在{loc}发生{intensity}互动{coverage}。"
+        return f"{a1}与{a2}在{loc}occur{intensity}互动{coverage}。"
     
     def _get_event_label(self, event_root: str) -> str:
         """fetcheventtypetag"""
@@ -558,7 +558,7 @@ async def main():
             print("   正确format: YYYY-MM-DD")
             sys.exit(1)
     
-    # 运行ETL
+    # runETL
     pipeline = GDELTETLPipeline()
     try:
         await pipeline.initialize()

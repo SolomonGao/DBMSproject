@@ -28,7 +28,7 @@ BATCH_SIZE = 100
 # 🎯 将目标调大，For example, this time we set a 2000 篇小目标
 TOTAL_TARGET = 300000 
 
-# 新增：用于保存progress本地file
+# 新增：used forsaveprogressthis地file
 PROGRESS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sync_progress.txt'))
 
 def get_last_offset():
@@ -39,21 +39,21 @@ def get_last_offset():
     return 0
 
 def save_offset(offset):
-    """保存whenbeforeprogress"""
+    """savewhenbeforeprogress"""
     with open(PROGRESS_FILE, 'w') as f:
         f.write(str(offset))
 
 # ==========================================
-# 2. core函数定义
+# 2. core函number定义
 # ==========================================
 def init_chromadb():
-    """初始化 ChromaDB 和向量模型"""
+    """初始化 ChromaDB 和向量model"""
     logging.info("🚀 初始化 ChromaDB 向量database...")
-    # 确保存放在project根directory下 chroma_db file夹中
+    # 确save放在project根directoryunder chroma_db file夹中
     db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../chroma_db'))
     chroma_client = chromadb.PersistentClient(path=db_path)
     
-    logging.info("⏳ 正在加载 Embedding 模型 (all-MiniLM-L6-v2)...")
+    logging.info("⏳ 正在加载 Embedding model (all-MiniLM-L6-v2)...")
     sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
     
     collection = chroma_client.get_or_create_collection(
@@ -98,11 +98,11 @@ async def scrape_article(session, event_id, date, url):
                     }
             return None
     except Exception:
-        # ignore网络超时或抓取failed链接
+        # ignorenetwork超whenorfetchfailed链接
         return None
 
 # ==========================================
-# 3. 主流水线编排 (Supports resumable transfer version)
+# 3. 主pipeline编排 (Supports resumable transfer version)
 # ==========================================
 async def main():
     collection = init_chromadb()
@@ -113,7 +113,7 @@ async def main():
     
     # 🌟 core改动：从file中read上次progress
     current_offset = get_last_offset()
-    logging.info(f"🔄 检测到历史progress，本次将从database第 {current_offset} 行start抓取。")
+    logging.info(f"🔄 detect到历史progress，this次将从database第 {current_offset} rowstartfetch。")
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -122,10 +122,10 @@ async def main():
                 records = await fetch_urls_batch(pool, BATCH_SIZE, current_offset)
                 
                 if not records:
-                    logging.info("database中没有更multi记录了，all URL 已process完毕！")
+                    logging.info("database中没有更multi记录了，all URL alreadyprocess完毕！")
                     break
                 
-                # createand发抓取任务
+                # createand发fetch任务
                 tasks = [scrape_article(session, r['GlobalEventID'], r['SQLDATE'], r['SOURCEURL']) for r in records]
                 scraped_results = await asyncio.gather(*tasks)
                 
@@ -138,20 +138,20 @@ async def main():
                     
                     collection.upsert(documents=texts, metadatas=metadatas, ids=ids)
                     total_saved += len(valid_docs)
-                    logging.info(f"✅ 批次completed！success抓取and向量化 {len(valid_docs)} 篇文章。(Cumulative storage for this run: {total_saved}/{TOTAL_TARGET})")
+                    logging.info(f"✅ batchcompleted！successfetchandvectorize {len(valid_docs)} 篇文章。(Cumulative storage for this run: {total_saved}/{TOTAL_TARGET})")
                 else:
-                    logging.warning("⚠️ 本批次all链接抓取failed，继续下一批。")
+                    logging.warning("⚠️ thisbatchall链接fetchfailed，continueunder一批。")
                 
                 total_processed += len(records)
                 current_offset += BATCH_SIZE
                 
-                # 🌟 core改动：每completed一个批次，就保存一次progress
+                # 🌟 core改动：每completed一个batch，就save一次progress
                 save_offset(current_offset)
 
     finally:
         pool.close()
         await pool.wait_closed()
-        logging.info(f"🎉 任务end！本次共process链接: {total_processed}，success入库文本: {total_saved} 篇。最新 Offset 已保存为 {current_offset}。")
+        logging.info(f"🎉 任务end！this次共process链接: {total_processed}，success入库文this: {total_saved} 篇。最新 Offset alreadysave为 {current_offset}。")
 
 if __name__ == "__main__":
     import sys

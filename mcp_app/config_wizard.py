@@ -2,8 +2,8 @@
 """
 interactive configuration wizard：
 - guide user selection LLM provider
-- collect API Key 和配置
-- 保存到 .env 文件
+- collect API Key 和config
+- save到 .env 文件
 """
 
 import os
@@ -37,7 +37,7 @@ class ConfigWizard:
         self.config: Dict[str, Any] = {}
     
     def _print(self, text: str, color: str = '', bold: bool = False):
-        """彩色打印"""
+        """彩色print"""
         prefix = ''
         if bold:
             prefix += self.COLORS['bold']
@@ -48,7 +48,7 @@ class ConfigWizard:
         print(f"{prefix}{text}{suffix}")
     
     def _print_header(self, title: str):
-        """打印标题"""
+        """print标题"""
         print()
         self._print("=" * 60, 'cyan', bold=True)
         self._print(f"  {title}", 'cyan', bold=True)
@@ -56,15 +56,15 @@ class ConfigWizard:
         print()
     
     def _print_success(self, message: str):
-        """打印成功消息"""
+        """printsuccessmessage"""
         self._print(f"✅ {message}", 'green')
     
     def _print_error(self, message: str):
-        """打印错误消息"""
+        """printerrormessage"""
         self._print(f"❌ {message}", 'red')
     
     def _print_info(self, message: str):
-        """打印信息"""
+        """print信息"""
         self._print(f"ℹ️  {message}", 'blue')
     
     def _input_required(self, prompt: str, hide_input: bool = False) -> str:
@@ -90,7 +90,7 @@ class ConfigWizard:
         for idx, (key, provider) in enumerate(providers, 1):
             marker = " ⭐" if key == "kimi_code" else ""
             self._print(f"  [{idx}] {provider.name}{marker}", 'green' if key == "kimi_code" else 'cyan')
-            print(f"      默认模型: {provider.default_model}")
+            print(f"      默认model: {provider.default_model}")
             print()
         
         while True:
@@ -100,16 +100,16 @@ class ConfigWizard:
                 if 0 <= idx < len(providers):
                     provider_id, provider = providers[idx]
                     self.config['provider_id'] = provider_id
-                    self._print_success(f"已select择: {provider.name}")
+                    self._print_success(f"alreadyselect择: {provider.name}")
                     return provider
                 else:
                     self._print_error(f"无效selectitem，请input 1-{len(providers)}")
             except ValueError:
-                self._print_error("请input有效数字")
+                self._print_error("请input有效number字")
     
     def _input_api_key(self, provider: ProviderConfig) -> str:
         """步骤 2: input API Key"""
-        self._print_header("步骤 2/3: 配置 API Key")
+        self._print_header("步骤 2/3: config API Key")
         
         self._print(f"provider: {provider.name}", bold=True)
         print()
@@ -123,13 +123,13 @@ class ConfigWizard:
             # verify现有 key Not log error information（简单check）
             if '|' not in existing_key and 'ERROR' not in existing_key:
                 masked = f"{existing_key[:8]}...{existing_key[-4:]}"
-                self._print_info(f"检测到已有 API Key: {masked}")
-                keep = input("是否use已有配置? (y/n，默认 y): ").strip().lower()
+                self._print_info(f"detect到already有 API Key: {masked}")
+                keep = input("whetherusealready有config? (y/n，默认 y): ").strip().lower()
                 if keep in ('', 'y', 'yes'):
                     self.config['api_key'] = existing_key
                     return existing_key
             else:
-                self._print_error("检测到现有 API Key 格式异常，请重新input")
+                self._print_error("detect到现有 API Key 格式异常，请重新input")
         
         print()
         print("请粘贴您 API Key (inputWill not display on screen):")
@@ -140,7 +140,7 @@ class ConfigWizard:
         
         # 简单verify
         if not self._validate_api_key(api_key, provider):
-            self._print_error("API Key Format seems incorrect，但仍继续保存")
+            self._print_error("API Key Format seems incorrect，butstillcontinuesave")
         else:
             self._print_success("API Key 格式verify通过")
         
@@ -152,7 +152,7 @@ class ConfigWizard:
         if not api_key or len(api_key) < 10:
             return False
         
-        # 根据不同providerverifybefore缀
+        # 根据differentproviderverifybefore缀
         if provider.env_key == "MOONSHOT_API_KEY":
             return api_key.startswith("sk-")
         elif provider.env_key == "ANTHROPIC_API_KEY":
@@ -163,12 +163,12 @@ class ConfigWizard:
         return True
     
     def _select_model(self, provider: ProviderConfig) -> str:
-        """步骤 3: select择模型"""
-        self._print_header("步骤 3/3: select择模型")
+        """步骤 3: select择model"""
+        self._print_header("步骤 3/3: select择model")
         
         self._print(f"provider: {provider.name}", bold=True)
         print()
-        print("可用模型列表:")
+        print("availablemodellist:")
         print()
         
         for idx, model in enumerate(provider.models, 1):
@@ -179,11 +179,11 @@ class ConfigWizard:
         print()
         
         while True:
-            choice = input(f"请select择模型 (1-{len(provider.models)}，直接回车use默认): ").strip()
+            choice = input(f"请select择model (1-{len(provider.models)}，directenteruse默认): ").strip()
             
             # use默认
             if not choice:
-                self._print_success(f"use默认模型: {provider.default_model}")
+                self._print_success(f"use默认model: {provider.default_model}")
                 self.config['model'] = provider.default_model
                 return provider.default_model
             
@@ -191,19 +191,19 @@ class ConfigWizard:
                 idx = int(choice) - 1
                 if 0 <= idx < len(provider.models):
                     selected = provider.models[idx]
-                    self._print_success(f"已select择模型: {selected}")
+                    self._print_success(f"alreadyselect择model: {selected}")
                     self.config['model'] = selected
                     return selected
                 else:
                     self._print_error(f"无效selectitem，请input 1-{len(provider.models)}")
             except ValueError:
-                self._print_error("请input有效数字")
+                self._print_error("请input有效number字")
     
     def _advanced_options(self):
-        """高级配置selectitem"""
-        self._print_header("高级配置selectitem（可select）")
+        """advancedconfigselectitem"""
+        self._print_header("advancedconfigselectitem（可select）")
         
-        print("以下配置use默认value即可，如需修改请input新value，直接回车跳过:")
+        print("以underconfiguse默认value即可，如需修改请input新value，directenterskip:")
         print()
         
         # Temperature
@@ -224,15 +224,15 @@ class ConfigWizard:
         self._print_success("Advanced configuration saved")
     
     def _generate_env_content(self) -> str:
-        """生成 .env 文件内容"""
+        """generate .env 文件内容"""
         provider = get_provider(self.config['provider_id'])
         
         lines = [
-            "# GDELT MCP Client App 配置",
+            "# GDELT MCP Client App config",
             "# Automatically generated by config wizard",
             "",
             "# ============================================",
-            "# LLM provider配置",
+            "# LLM providerconfig",
             "# ============================================",
             "",
             f"# provider: {provider.name}",
@@ -244,31 +244,31 @@ class ConfigWizard:
             "# API 地址",
             f"LLM_BASE_URL={provider.base_url}",
             "",
-            "# 模型",
+            "# model",
             f"LLM_MODEL={self.config['model']}",
             "",
             "# ============================================",
-            "# MCP Server 配置",
+            "# MCP Server config",
             "# ============================================",
             "",
-            "# 传输模式: stdio 或 sse",
+            "# 传输模式: stdio or sse",
             "MCP_TRANSPORT=stdio",
             "",
-            "# SSE 模式端口（仅 transport=sse 时有效）",
+            "# SSE 模式端口（仅 transport=sse when有效）",
             "MCP_PORT=8000",
             "",
             "# ============================================",
-            "# LLM 参数配置",
+            "# LLM 参numberconfig",
             "# ============================================",
             "",
-            f"# 温度参数 (0.0 - 1.0)",
+            f"# 温度参number (0.0 - 1.0)",
             f"LLM_TEMPERATURE={self.config['temperature']}",
             "",
-            f"# 最大 Token 数",
+            f"# 最大 Token number",
             f"LLM_MAX_TOKENS={self.config['max_tokens']}",
             "",
             "# ============================================",
-            "# 日志配置",
+            "# 日志config",
             "# ============================================",
             "",
             f"# 日志级别: DEBUG, INFO, WARNING, ERROR",
@@ -278,7 +278,7 @@ class ConfigWizard:
             "LOG_TO_FILE=true",
             "",
             "# ============================================",
-            "# 开发配置",
+            "# 开发config",
             "# ============================================",
             "",
             "# 调试模式",
@@ -289,34 +289,34 @@ class ConfigWizard:
         return '\n'.join(lines)
     
     def _save_config(self):
-        """保存配置到 .env 文件"""
-        self._print_header("保存配置")
+        """saveconfig到 .env 文件"""
+        self._print_header("saveconfig")
         
-        # 生成内容
+        # generate内容
         content = self._generate_env_content()
         
-        # backup旧配置
+        # backupoldconfig
         if self.env_file.exists():
             backup = self.env_file.with_suffix('.env.backup')
             backup.write_text(self.env_file.read_text(encoding='utf-8'), encoding='utf-8')
-            self._print_info(f"已backup旧配置到: {backup.name}")
+            self._print_info(f"alreadybackupoldconfig到: {backup.name}")
         
-        # 写入新配置
+        # 写入新config
         self.env_file.write_text(content, encoding='utf-8')
         
-        self._print_success(f"配置已保存到: {self.env_file}")
+        self._print_success(f"configalreadysave到: {self.env_file}")
         print()
         self._print("You can edit this file at any time to modify configuration", 'yellow')
     
     def run(self) -> bool:
         """
-        运行配置向导
+        runconfigwizard
         
         Returns:
             Whether configuration completed successfully
         """
         try:
-            self._print_header("🚀 GDELT MCP Client 配置向导")
+            self._print_header("🚀 GDELT MCP Client configwizard")
             print()
             print("欢迎use！This wizard will help you configure AI 服务provider。")
             print()
@@ -327,12 +327,12 @@ class ConfigWizard:
             # 步骤 2: input API Key
             self._input_api_key(provider)
             
-            # 步骤 3: select择模型
+            # 步骤 3: select择model
             self._select_model(provider)
             
-            # 高级selectitem
+            # advancedselectitem
             print()
-            advanced = input("是否配置高级selectitem? (y/n，默认 n): ").strip().lower()
+            advanced = input("whetherconfigadvancedselectitem? (y/n，默认 n): ").strip().lower()
             if advanced in ('y', 'yes'):
                 self._advanced_options()
             else:
@@ -341,11 +341,11 @@ class ConfigWizard:
                 self.config['max_tokens'] = 4096
                 self.config['log_level'] = 'INFO'
             
-            # 保存配置
+            # saveconfig
             self._save_config()
             
             # 完成
-            self._print_header("配置完成！")
+            self._print_header("config完成！")
             print()
             self._print_success("You can now run: python run.py")
             print()
@@ -355,11 +355,11 @@ class ConfigWizard:
         except KeyboardInterrupt:
             print()
             print()
-            self._print_error("配置已取消")
+            self._print_error("configalready取消")
             return False
         except Exception as e:
-            logger.exception(f"配置向导错误: {e}")
-            self._print_error(f"配置失败: {e}")
+            logger.exception(f"configwizarderror: {e}")
+            self._print_error(f"config失败: {e}")
             return False
     
     def check_and_prompt(self) -> bool:
@@ -367,7 +367,7 @@ class ConfigWizard:
         Check if configuration exists，Start wizard if not exists
         
         Returns:
-            配置是否就绪
+            configwhetherready
         """
         # Try to load existing configuration
         from dotenv import load_dotenv
@@ -386,14 +386,14 @@ class ConfigWizard:
         if has_config:
             return True
         
-        # 没有配置，启动向导
+        # 没有config，startwizard
         print()
-        self._print("⚠️  未检测到有效 API Key 配置", 'yellow', bold=True)
+        self._print("⚠️  未detect到有效 API Key config", 'yellow', bold=True)
         print()
         
         response = input("Whether to start configuration wizard? (y/n，默认 y): ").strip().lower()
         if response in ('', 'y', 'yes'):
             return self.run()
         else:
-            self._print_error("缺少配置，无法启动应用")
+            self._print_error("缺少config，unablestartapplication")
             return False

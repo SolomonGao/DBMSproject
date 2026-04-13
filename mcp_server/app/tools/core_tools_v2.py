@@ -897,7 +897,7 @@ def register_core_tools(mcp: FastMCP):
                         # 简izationTitle
                         title = f"{actor1[:10]} vs {actor2[:10]}"
                         
-                        # table格行
+                        # table格row
                         output.append(f"| {i} | `{temp_fp}` | {title} [{event_label}] | {hot_score:.0f} | {date} | {location_short} |")
                         
                         # Detailed Information（used forafter续expand）
@@ -1044,8 +1044,8 @@ def register_core_tools(mcp: FastMCP):
                                 pass
                     
                     elif params.format == 'executive':
-                        # 执行Summary版
-                        output.append("## 📋 执行Summary")
+                        # 执rowSummary版
+                        output.append("## 📋 执rowSummary")
                         trend = "⚠️ conflict trend rising" if goldstein < -3 else "✅ situation relatively stable"
                         output.append(f"- {trend}")
                         output.append(f"- Event密degree: {total/1000:.1f}K/天")
@@ -1068,7 +1068,7 @@ def register_core_tools(mcp: FastMCP):
         【RAG semanticsearch】querynewsknow识libraryGet真实articlesdetails
         
         When users need to know:
-        - Event具体occurrence因
+        - Eventspecificoccurrence因
         - Specific demands of crowds
         - Police response
         - Event详细背scenario
@@ -1150,7 +1150,7 @@ def register_core_tools(mcp: FastMCP):
         """
         【streamingquery】处理大amountEventData，withinmemory-friendly
         
-        whenneed处理大amountEvent时Use（e.g."analysis全yearallprotestEvent"），
+        whenneed处理大amountEventwhenUse（e.g."analysis全yearallprotestEvent"），
         Streaming read avoids loading everything into memory at once。
         
         Applicable scenarios:
@@ -1215,7 +1215,7 @@ def register_core_tools(mcp: FastMCP):
             return f"❌ streamingQuery failed: {str(e)}"
 
     # =======================================================================
-    # optizationanalysistool (and行query + streaming处理)
+    # optizationanalysistool (androwquery + streaming处理)
     # =======================================================================
     
     @mcp.tool()
@@ -1262,7 +1262,7 @@ def register_core_tools(mcp: FastMCP):
                     lines.append(f"{i}. {row.get('Actor1Name')}: {row.get('cnt')} Event")
                 lines.append("")
             
-            # calculate总耗时（onlystatistics字典TypeResult）
+            # calculate总耗when（onlystatistics字典TypeResult）
             total_time = sum(
                 v.get("elapsed_ms", 0) 
                 for v in dashboard.values() 
@@ -1283,7 +1283,7 @@ def register_core_tools(mcp: FastMCP):
         【optization】advancedTimeseriesanalysis - Datalibrary端aggregate
         
         supportday/week/monthgranularitydegreeTimeTrendanalysis，All aggregation completed on database side，
-        only传输Result，极大reduce网络开销。
+        only传输Result，极大reducenetwork开销。
         
         Applicable scenarios:
         - analysisEvent随Time变izationTrend
@@ -1392,7 +1392,7 @@ def register_core_tools(mcp: FastMCP):
         - Memory-sensitive environment
         
         With `stream_events` difference:
-        - 本tool按Actors名称search
+        - thistool按Actors名称search
         - supports fuzzy matching Actor1Name and Actor2Name
         """
         try:
@@ -1511,7 +1511,7 @@ def _parse_region_input(region_input: str) -> list:
         '洛杉矶': ['Los Angeles', 'LA'],
         '芝加哥': ['Chicago'],
         '休斯顿': ['Houston'],
-        '旧金山': ['San Francisco', 'SF'],
+        'old金山': ['San Francisco', 'SF'],
         '西雅map': ['Seattle'],
         '波士顿': ['Boston'],
         '迈阿密': ['Miami'],
@@ -1527,7 +1527,7 @@ def _parse_region_input(region_input: str) -> list:
         '英country': ['United Kingdom', 'UK', 'GBR', 'GB'],
         'methodcountry': ['France', 'FRA', 'FR'],
         '德country': ['Germany', 'DEU', 'DE'],
-        'day本': ['Japan', 'JPN', 'JP'],
+        'daythis': ['Japan', 'JPN', 'JP'],
         '俄罗斯': ['Russia', 'RUS', 'RU'],
         '加拿大': ['Canada', 'CAN', 'CA'],
         '墨西哥': ['Mexico', 'MEX', 'MX'],
@@ -1755,7 +1755,7 @@ def _format_regional_overview_precomputed(rows: list, region: str,
 
 def _format_event_detail_from_raw(event_data: dict, fingerprint: str, params) -> str:
     """
-    fromrawEventDataFormatizationDetails（无fingerprinttableData时）
+    fromrawEventDataFormatizationDetails（无fingerprinttableDatawhen）
     """
     actor1 = event_data.get('Actor1Name', '') or 'Some country'
     actor2 = event_data.get('Actor2Name', '') or 'Other party'
@@ -1805,11 +1805,11 @@ def _format_event_detail_from_raw(event_data: dict, fingerprint: str, params) ->
     
     coverage = ""
     if articles > 100:
-        coverage = f"，受to广泛articles({articles})"
+        coverage = f"，受towidespreadarticles({articles})"
     elif articles > 10:
         coverage = f"，受toone定articles({articles})"
     
-    summary = f"{actor1}With{actor2}in{location}发生{intensity_desc}interaction{coverage}。"
+    summary = f"{actor1}With{actor2}in{location}occur{intensity_desc}interaction{coverage}。"
     output.append(f"**Summary**: {summary}")
     output.append("")
     

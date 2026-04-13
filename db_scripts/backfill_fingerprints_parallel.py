@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 parallel补全eventfingerprint
-usemulti线程parallelprocessmulti天ETL
+usemultithreadparallelprocessmulti天ETL
 
 usage:
     python backfill_fingerprints_parallel.py --workers 8
@@ -35,7 +35,7 @@ def get_dates_to_process(start_date: str, end_date: str) -> List[str]:
 def check_date_status(date: str) -> Tuple[str, int, int]:
     """check某天fingerprint状态"""
     try:
-        # fetchevent数
+        # fetcheventnumber
         evt_result = subprocess.run(
             ["docker", "exec", "gdelt_mysql", "mysql", "-u", "root", "-prootpassword", 
              "-N", "-e", f"SELECT COUNT(*) FROM gdelt.events_table WHERE SQLDATE = '{date}'"],
@@ -43,7 +43,7 @@ def check_date_status(date: str) -> Tuple[str, int, int]:
         )
         evt_count = int(evt_result.stdout.strip()) if evt_result.returncode == 0 else 0
         
-        # fetchfingerprint数（fingerprintformat: US-20240101-WDC-PROTEST-001）
+        # fetchfingerprintnumber（fingerprintformat: US-20240101-WDC-PROTEST-001）
         date_no_dash = date.replace('-', '')
         fp_result = subprocess.run(
             ["docker", "exec", "gdelt_mysql", "mysql", "-u", "root", "-prootpassword",
@@ -69,15 +69,15 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         date_str, fp_count, evt_count = check_date_status(date)
         
         if fp_count >= evt_count:
-            return (date, True, f"已完整 ({fp_count}/{evt_count})")
+            return (date, True, f"already完整 ({fp_count}/{evt_count})")
         
         print(f"  [{date}] startETL，whenbefore {fp_count}/{evt_count}...")
         
-        # 运行ETL（增加超时到10minute，Because one day may have2-5万event）
+        # runETL（增加超when到10minute，Because one day may have2-5万event）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
-            capture_output=True, text=True, timeout=600  # 10minute超时
+            capture_output=True, text=True, timeout=600  # 10minute超when
         )
         
         if result.returncode == 0:
@@ -89,11 +89,11 @@ def process_date(date: str) -> Tuple[str, bool, str]:
             else:
                 return (date, True, f"部分 (+{added}, {new_fp}/{evt})")
         else:
-            error_msg = result.stderr[:200] if result.stderr else "未知error"
+            error_msg = result.stderr[:200] if result.stderr else "unknownerror"
             return (date, False, f"failed: {error_msg}")
             
     except subprocess.TimeoutExpired:
-        return (date, False, "超时(10minute)")
+        return (date, False, "超when(10minute)")
     except Exception as e:
         return (date, False, f"异常: {str(e)}")
 
@@ -102,16 +102,16 @@ def main():
     parser = argparse.ArgumentParser(description='parallel补全eventfingerprint')
     parser.add_argument('--start', default='2024-01-01', help='startdate (YYYY-MM-DD)')
     parser.add_argument('--end', default='2024-12-31', help='enddate (YYYY-MM-DD)')
-    parser.add_argument('--workers', type=int, default=8, help='parallel工作线程数 (default: 8)')
-    parser.add_argument('--dry-run', action='store_true', help='只check状态，不执行ETL')
+    parser.add_argument('--workers', type=int, default=8, help='parallelworkthreadnumber (default: 8)')
+    parser.add_argument('--dry-run', action='store_true', help='只check状态，不执rowETL')
     
     args = parser.parse_args()
     
     print("=" * 60)
     print("🔧 parallel补全eventfingerprint")
     print("=" * 60)
-    print(f"date范围: {args.start} ~ {args.end}")
-    print(f"parallel度: {args.workers} 线程")
+    print(f"daterange: {args.start} ~ {args.end}")
+    print(f"parallel度: {args.workers} thread")
     print()
     
     # generatedate列table
@@ -129,11 +129,11 @@ def main():
             status_list.append((date, fp, evt))
     
     # statistics
-    # 完整: fingerprint数 >= event数（package括event数为0情况）
+    # 完整: fingerprintnumber >= eventnumber（package括eventnumber为0case）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
-    # 部分: 有fingerprint但未完整
+    # 部分: 有fingerprintbut未完整
     partial = sum(1 for _, fp, evt in status_list if 0 < fp < evt)
-    # 空缺: 有event但无fingerprint
+    # 空缺: 有eventbut无fingerprint
     empty = sum(1 for _, fp, evt in status_list if fp == 0 and evt > 0)
     # error: queryfailed
     error = sum(1 for _, fp, evt in status_list if fp < 0 or evt < 0)
@@ -147,14 +147,14 @@ def main():
     print()
     
     if args.dry_run:
-        print("📝 干运行模式，不执行ETL")
+        print("📝 干run模式，不执rowETL")
         return
     
     # 筛selectneedprocessdate
     need_process = [date for date, fp, evt in status_list if fp < evt]
     
     if not need_process:
-        print("✅ alldate已完整，无需process")
+        print("✅ alldatealready完整，无需process")
         return
     
     print(f"🚀 startprocess {len(need_process)} 天...")

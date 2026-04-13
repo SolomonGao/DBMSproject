@@ -2,7 +2,7 @@
 performance comparisontest：optimizationbefore vs optimizationafter
 
 testproject：
-1. serial vs and行查询
+1. serial vs androw查询
 2. cache命中率
 3. streaming查询memory占用
 4. data库端aggregation vs Python 端aggregation
@@ -64,11 +64,11 @@ class PerformanceBenchmark:
         return decorator
     
     def print_results(self):
-        """打印testresults"""
+        """printtestresults"""
         print("\n" + "="*80)
         print("📊 performance testreport")
         print("="*80)
-        print(f"{'testproject':<30} {'time cost(ms)':<12} {'memory(KB)':<12} {'results数':<10}")
+        print(f"{'testproject':<30} {'time cost(ms)':<12} {'memory(KB)':<12} {'resultsnumber':<10}")
         print("-"*80)
         
         for r in self.results:
@@ -101,12 +101,12 @@ async def main():
     start_date, end_date = "2024-01-01", "2024-01-31"
     
     print("开始performance test...")
-    print(f"test日期范围: {start_date} 至 {end_date}")
+    print(f"testdaterange: {start_date} 至 {end_date}")
     print("-"*80)
     
-    # ========== test 1: serial vs and行查询 ==========
+    # ========== test 1: serial vs androw查询 ==========
     
-    @bench.benchmark("1a. serial执行 4 个statistics查询 (原始)")
+    @bench.benchmark("1a. serial执row 4 个statistics查询 (原始)")
     async def test_serial_queries():
         results = []
         results.append(await service_old.analyze_events_by_date(start_date, end_date))
@@ -117,7 +117,7 @@ async def main():
         results.append(await service_old.execute_sql(query))
         return results
     
-    @bench.benchmark("1b. and行执行 4 个statistics查询 (optimization)")
+    @bench.benchmark("1b. androw执row 4 个statistics查询 (optimization)")
     async def test_parallel_queries():
         return await service_new.get_dashboard_data(start_date, end_date)
     
@@ -167,7 +167,7 @@ async def main():
     await test_python_aggregate()
     await test_db_aggregate()
     
-    # ========== test 4: 批量查询 vs 单条查询 ==========
+    # ========== test 4: batch查询 vs 单条查询 ==========
     
     @bench.benchmark("4a. serial单条查询 10 次")
     async def test_single_queries():
@@ -180,7 +180,7 @@ async def main():
             results.append(row)
         return results
     
-    @bench.benchmark("4b. 批量查询 10 条")
+    @bench.benchmark("4b. batch查询 10 条")
     async def test_batch_query():
         ids = list(range(1000, 1010))  # 示例 ID
         return await service_new.batch_fetch_by_ids(ids)
@@ -188,7 +188,7 @@ async def main():
     await test_single_queries()
     await test_batch_query()
     
-    # 打印results
+    # printresults
     bench.print_results()
     
     # cachestatistics

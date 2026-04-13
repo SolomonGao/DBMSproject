@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-cache管理 CLI 工具
+cache管理 CLI tool
 
 Usage:
     python manage_cache.py stats          # 查看statistics
     python manage_cache.py clear          # 清空所hascache
     python manage_cache.py cleanup        # cleanupexpired条目
     python manage_cache.py clear-pattern <pattern>  # 按模式清除
-    python manage_cache.py monitor        # real-time监控模式
+    python manage_cache.py monitor        # real-timemonitor模式
 """
 
 import sys
@@ -26,10 +26,10 @@ def format_stats(stats: dict) -> str:
         "📊 querycachestatistics",
         "=" * 40,
         f"  cache条目: {stats['size']:,} / {stats['maxsize']:,}",
-        f"  hit次数: {stats['hits']:,}",
+        f"  hit次number: {stats['hits']:,}",
         f"  未hit:   {stats['misses']:,}",
         f"  hit率:   {stats['hit_rate']}",
-        f"  eviction次数: {stats['evictions']:,}",
+        f"  eviction次number: {stats['evictions']:,}",
         "=" * 40,
     ]
     
@@ -42,7 +42,7 @@ def format_stats(stats: dict) -> str:
         elif hit_rate >= 50:
             lines.append("⚠️ hit率一般 (50-80%)")
         else:
-            lines.append("❌ hit率较低 (<50%)，建议checkcache配置")
+            lines.append("❌ hit率较低 (<50%)，建议checkcacheconfig")
     except:
         pass
     
@@ -57,14 +57,14 @@ async def cmd_stats():
 
 async def cmd_clear():
     """清空所hascache"""
-    print("⚠️  OKwant清空所hascache吗？这会导致下次query变慢。")
+    print("⚠️  OKwant清空所hascache吗？这will导致under次query变慢。")
     confirm = input("input 'yes' Confirm: ")
     
     if confirm.lower() == 'yes':
         count = await query_cache.clear()
-        print(f"✅ 已清空 {count} 个cache条目")
+        print(f"✅ already清空 {count} 个cache条目")
     else:
-        print("已Cancel")
+        print("alreadyCancel")
 
 
 async def cmd_cleanup():
@@ -79,12 +79,12 @@ async def cmd_cleanup():
 async def cmd_clear_pattern(pattern: str):
     """按模式清除"""
     count = await query_cache.invalidate_pattern(pattern)
-    print(f"✅ 已清除 {count} 个包含 '{pattern}' 条目")
+    print(f"✅ already清除 {count} 个包含 '{pattern}' 条目")
 
 
 async def cmd_monitor(interval: int = 5):
-    """real-time监控模式"""
-    print(f"🔍 开始监控cache（每 {interval} 秒Refresh，按 Ctrl+C 停止）...")
+    """real-timemonitor模式"""
+    print(f"🔍 开始monitorcache（每 {interval} 秒Refresh，按 Ctrl+C 停止）...")
     print("-" * 60)
     
     last_hits = 0
@@ -99,7 +99,7 @@ async def cmd_monitor(interval: int = 5):
             last_total = last_hits + last_misses
             qps = (total_reqs - last_total) / interval
             
-            # 打印状态row
+            # print状态row
             timestamp = datetime.now().strftime("%H:%M:%S")
             print(
                 f"\r[{timestamp}] "
@@ -117,12 +117,12 @@ async def cmd_monitor(interval: int = 5):
             await asyncio.sleep(interval)
             
     except KeyboardInterrupt:
-        print("\n\n👋 监控已停止")
+        print("\n\n👋 monitoralready停止")
 
 
 async def main():
     parser = argparse.ArgumentParser(
-        description='cache管理工具',
+        description='cache管理tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
@@ -132,7 +132,7 @@ Example:
         """
     )
     
-    subparsers = parser.add_subparsers(dest='command', help='可用命令')
+    subparsers = parser.add_subparsers(dest='command', help='availablecommand')
     
     # stats
     subparsers.add_parser('stats', help='查看cachestatistics')
@@ -148,7 +148,7 @@ Example:
     pattern_parser.add_argument('pattern', help='匹配模式（如 2024-01-01）')
     
     # monitor
-    monitor_parser = subparsers.add_parser('monitor', help='real-time监控模式')
+    monitor_parser = subparsers.add_parser('monitor', help='real-timemonitor模式')
     monitor_parser.add_argument('--interval', '-i', type=int, default=5, help='Refresh间隔（秒）')
     
     args = parser.parse_args()
