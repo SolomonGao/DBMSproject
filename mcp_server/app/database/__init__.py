@@ -1,14 +1,14 @@
 """
-异步数据库连接池模块
+Async Database Connection Pool Module
 
-提供统一的异步数据库连接池管理和查询执行接口。
+Provides unified async database connection pool management and query execution interface.
 """
 
 from .pool import DatabasePool, get_db_pool, close_db_pool
 from .errors import (
-    # 错误码
+    # Error codes
     DBErrorCode,
-    # 异常类
+    # Exception classes
     DatabaseError,
     ConnectionLostError,
     ConnectionTimeoutError,
@@ -18,18 +18,18 @@ from .errors import (
     QuerySyntaxError,
     TableNotFoundError,
     ColumnNotFoundError,
-    # 函数
+    # Functions
     classify_mysql_error,
 )
 
 __all__ = [
-    # 连接池
+    # Connection pool
     "DatabasePool",
     "get_db_pool",
     "close_db_pool",
-    # 错误码
+    # Error codes
     "DBErrorCode",
-    # 异常类
+    # Exception classes
     "DatabaseError",
     "ConnectionLostError",
     "ConnectionTimeoutError",
@@ -39,6 +39,6 @@ __all__ = [
     "QuerySyntaxError",
     "TableNotFoundError",
     "ColumnNotFoundError",
-    # 函数
+    # Functions
     "classify_mysql_error",
 ]
