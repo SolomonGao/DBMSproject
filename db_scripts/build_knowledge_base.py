@@ -8,12 +8,12 @@ from chromadb.utils import embedding_functions
 import logging
 from dotenv import load_dotenv
 
-# 配置日志
+# configurationlog
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 load_dotenv()
 
 # ==========================================
-# 1. 配置参数
+# 1. configurationarguments
 # ==========================================
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'db'),
@@ -28,18 +28,18 @@ BATCH_SIZE = 100
 # 🎯 将目标调大，比如这次我们定个 2000 篇的小目标
 TOTAL_TARGET = 300000 
 
-# 新增：用于保存进度的本地文件
+# 新增：用于保存progress的本地file
 PROGRESS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sync_progress.txt'))
 
 def get_last_offset():
-    """读取上一次处理到的数据库行数"""
+    """read上一次process到的databaserow count"""
     if os.path.exists(PROGRESS_FILE):
         with open(PROGRESS_FILE, 'r') as f:
             return int(f.read().strip())
     return 0
 
 def save_offset(offset):
-    """保存当前的进度"""
+    """保存当前的progress"""
     with open(PROGRESS_FILE, 'w') as f:
         f.write(str(offset))
 
@@ -48,8 +48,8 @@ def save_offset(offset):
 # ==========================================
 def init_chromadb():
     """初始化 ChromaDB 和向量模型"""
-    logging.info("🚀 初始化 ChromaDB 向量数据库...")
-    # 确保存放在项目根目录下的 chroma_db 文件夹中
+    logging.info("🚀 初始化 ChromaDB 向量database...")
+    # 确保存放在项目根directory下的 chroma_db file夹中
     db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../chroma_db'))
     chroma_client = chromadb.PersistentClient(path=db_path)
     
@@ -63,7 +63,7 @@ def init_chromadb():
     return collection
 
 async def fetch_urls_batch(pool, limit, offset=0):
-    """从 MySQL 中批量获取包含 SOURCEURL 的事件记录"""
+    """从 MySQL 中batch获取包含 SOURCEURL 的事件记录"""
     query = """
         SELECT GlobalEventID, SQLDATE, SOURCEURL 
         FROM events_table 
@@ -77,7 +77,7 @@ async def fetch_urls_batch(pool, limit, offset=0):
             return await cur.fetchall()
 
 async def scrape_article(session, event_id, date, url):
-    """异步抓取单篇新闻正文"""
+    """async抓取单篇新闻正文"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     timeout = aiohttp.ClientTimeout(total=10)
     
@@ -98,7 +98,7 @@ async def scrape_article(session, event_id, date, url):
                     }
             return None
     except Exception:
-        # 忽略网络超时或抓取失败的链接
+        # ignore网络超时或抓取failed的链接
         return None
 
 # ==========================================
@@ -111,21 +111,21 @@ async def main():
     total_processed = 0
     total_saved = 0
     
-    # 🌟 核心改动：从文件中读取上次的进度
+    # 🌟 核心改动：从file中read上次的progress
     current_offset = get_last_offset()
-    logging.info(f"🔄 检测到历史进度，本次将从数据库的第 {current_offset} 行开始抓取。")
+    logging.info(f"🔄 检测到历史progress，本次将从database的第 {current_offset} 行start抓取。")
     
     try:
         async with aiohttp.ClientSession() as session:
             while total_saved < TOTAL_TARGET:
-                logging.info(f"\n📦 正在从数据库拉取第 {current_offset} 到 {current_offset + BATCH_SIZE} 条记录...")
+                logging.info(f"\n📦 正在从database拉取第 {current_offset} 到 {current_offset + BATCH_SIZE} 条记录...")
                 records = await fetch_urls_batch(pool, BATCH_SIZE, current_offset)
                 
                 if not records:
-                    logging.info("数据库中没有更多记录了，所有 URL 已处理完毕！")
+                    logging.info("database中没有更多记录了，所有 URL 已process完毕！")
                     break
                 
-                # 创建并发抓取任务
+                # create并发抓取任务
                 tasks = [scrape_article(session, r['GlobalEventID'], r['SQLDATE'], r['SOURCEURL']) for r in records]
                 scraped_results = await asyncio.gather(*tasks)
                 
@@ -138,20 +138,20 @@ async def main():
                     
                     collection.upsert(documents=texts, metadatas=metadatas, ids=ids)
                     total_saved += len(valid_docs)
-                    logging.info(f"✅ 批次完成！成功抓取并向量化 {len(valid_docs)} 篇文章。(本次运行累计存入: {total_saved}/{TOTAL_TARGET})")
+                    logging.info(f"✅ 批次completed！success抓取并向量化 {len(valid_docs)} 篇文章。(本次运行累计存入: {total_saved}/{TOTAL_TARGET})")
                 else:
-                    logging.warning("⚠️ 本批次所有链接抓取失败，继续下一批。")
+                    logging.warning("⚠️ 本批次所有链接抓取failed，继续下一批。")
                 
                 total_processed += len(records)
                 current_offset += BATCH_SIZE
                 
-                # 🌟 核心改动：每完成一个批次，就保存一次进度
+                # 🌟 核心改动：每completed一个批次，就保存一次progress
                 save_offset(current_offset)
 
     finally:
         pool.close()
         await pool.wait_closed()
-        logging.info(f"🎉 任务结束！本次共处理链接: {total_processed}，成功入库文本: {total_saved} 篇。最新 Offset 已保存为 {current_offset}。")
+        logging.info(f"🎉 任务end！本次共process链接: {total_processed}，success入库文本: {total_saved} 篇。最新 Offset 已保存为 {current_offset}。")
 
 if __name__ == "__main__":
     import sys

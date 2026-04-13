@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-数据库状态检查工具
-用于监控索引使用情况和查询性能
+database状态check工具
+用于监控索引使用情况和query性能
 """
 
 import sys
@@ -12,16 +12,16 @@ from app.database.pool import DatabasePool
 import asyncio
 
 async def check_status():
-    """检查数据库状态"""
+    """checkdatabase状态"""
     await DatabasePool.initialize()
     pool = DatabasePool()
     
     print("=" * 70)
-    print("📊 GDELT 数据库状态检查")
+    print("📊 GDELT database状态check")
     print("=" * 70)
     
-    # 1. 表大小和行数
-    print("\n1️⃣  表大小统计:")
+    # 1. tablesize和row count
+    print("\n1️⃣  tablesizestatistics:")
     result = await pool.fetchone("""
         SELECT 
             table_rows,
@@ -32,13 +32,13 @@ async def check_status():
         WHERE table_schema = 'gdelt' 
           AND table_name = 'events_table'
     """)
-    print(f"   总行数: {result['table_rows']:,}")
-    print(f"   数据大小: {result['data_gb']} GB")
-    print(f"   索引大小: {result['index_gb']} GB")
+    print(f"   总row count: {result['table_rows']:,}")
+    print(f"   数据size: {result['data_gb']} GB")
+    print(f"   索引size: {result['index_gb']} GB")
     print(f"   总计: {result['total_gb']} GB")
     
-    # 2. 索引列表
-    print("\n2️⃣  索引列表:")
+    # 2. 索引列table
+    print("\n2️⃣  索引列table:")
     indexes = await pool.fetchall("""
         SELECT 
             INDEX_NAME,
@@ -58,8 +58,8 @@ async def check_status():
             print(f"   📌 {current_idx} ({idx['INDEX_TYPE']}) - 基数: {idx['CARDINALITY']:,}")
         print(f"      └─ {idx['COLUMN_NAME']}")
     
-    # 3. 日期范围
-    print("\n3️⃣  数据时间范围:")
+    # 3. date范围
+    print("\n3️⃣  数据time范围:")
     result = await pool.fetchone("""
         SELECT 
             MIN(SQLDATE) as min_date,
@@ -86,8 +86,8 @@ async def check_status():
     geo_pct = result['with_geo'] / result['total'] * 100 if result['total'] > 0 else 0
     print(f"   有地理坐标: {result['with_geo']:,} / {result['total']:,} ({geo_pct:.1f}%)")
     
-    # 5. 导入记录
-    print("\n5️⃣  CSV 导入记录:")
+    # 5. import记录
+    print("\n5️⃣  CSV import记录:")
     try:
         logs = await pool.fetchall("""
             SELECT file_name, imported_at, row_count 
@@ -99,14 +99,14 @@ async def check_status():
             for log in logs[:5]:
                 print(f"   ✅ {log['file_name']}: {log['row_count']:,} 行 ({log['imported_at']})")
             if len(logs) > 5:
-                print(f"   ... 还有 {len(logs) - 5} 个文件")
+                print(f"   ... 还有 {len(logs) - 5} 个file")
         else:
-            print("   暂无导入记录")
+            print("   暂无import记录")
     except:
-        print("   导入记录表不存在")
+        print("   import记录table不存在")
     
-    # 6. 查询缓存状态
-    print("\n6️⃣  查询缓存状态:")
+    # 6. query缓存状态
+    print("\n6️⃣  query缓存状态:")
     from app.cache import query_cache
     stats = query_cache.get_stats()
     print(f"   缓存条目: {stats['size']} / {stats['maxsize']}")
@@ -115,7 +115,7 @@ async def check_status():
     print(f"   命中率: {stats['hit_rate']}")
     
     print("\n" + "=" * 70)
-    print("检查完成！")
+    print("checkcompleted！")
     print("=" * 70)
     
     await pool.close()

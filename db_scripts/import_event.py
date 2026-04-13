@@ -7,14 +7,14 @@ import os
 import logging
 import hashlib
 
-# 配置日志格式，让终端输出更好看
+# configurationlogformat，让终端输出更好看
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(message)s')
 
 dotenv.load_dotenv()
 
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
-# 1. 数据库配置
+# 1. databaseconfiguration
 db_config = {
     'host': os.getenv('DB_HOST', 'db'),
     'user': 'root',
@@ -30,15 +30,15 @@ csv_files = sorted(glob.glob("data/gdelt_2024_na_*.csv"))
 temp_file = os.path.abspath('temp_bulk_load.csv').replace('\\', '/')
 
 def get_file_signature(file_path):
-    """获取文件签名（文件名 + 修改时间 + 大小）用于检测重复导入"""
+    """获取file签名（file名 + 修改time + size）用于检测重复import"""
     stat = os.stat(file_path)
     signature = f"{os.path.basename(file_path)}_{stat.st_mtime}_{stat.st_size}"
     return hashlib.md5(signature.encode()).hexdigest()
 
 def check_already_imported(cursor, file_path):
-    """检查文件是否已导入"""
+    """checkfile是否已import"""
     try:
-        # 创建导入记录表
+        # createimport记录table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS _import_log (
                 file_signature VARCHAR(32) PRIMARY KEY,
@@ -53,11 +53,11 @@ def check_already_imported(cursor, file_path):
         result = cursor.fetchone()
         return result is not None
     except Exception as e:
-        logging.warning(f"⚠️  检查导入记录失败: {e}")
+        logging.warning(f"⚠️  checkimport记录failed: {e}")
         return False
 
 def record_import(cursor, file_path, row_count):
-    """记录导入完成"""
+    """记录importcompleted"""
     try:
         signature = get_file_signature(file_path)
         cursor.execute(
@@ -65,49 +65,49 @@ def record_import(cursor, file_path, row_count):
             (signature, os.path.basename(file_path), row_count)
         )
     except Exception as e:
-        logging.warning(f"⚠️  记录导入日志失败: {e}")
+        logging.warning(f"⚠️  记录importlogfailed: {e}")
 
 def fast_ingest():
     if not csv_files:
-        logging.error("❌ 在 data/ 目录下没有找到任何 gdelt_2024_na_*.csv 文件，请检查路径！")
+        logging.error("❌ 在 data/ directory下没有找到任何 gdelt_2024_na_*.csv file，请checkpath！")
         return
 
-    logging.info(f"📂 共扫描到 {len(csv_files)} 个分片文件准备导入。")
+    logging.info(f"📂 共扫描到 {len(csv_files)} 个分片file准备import。")
     
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
     
-    # 检查是否有 CSV 文件
+    # check是否有 CSV file
     if not csv_files:
-        logging.error("❌ 未找到 CSV 文件 (data/gdelt_2024_na_*.csv)")
+        logging.error("❌ 未找到 CSV file (data/gdelt_2024_na_*.csv)")
         return
     
-    logging.info(f"📁 找到 {len(csv_files)} 个 CSV 文件")
+    logging.info(f"📁 找到 {len(csv_files)} 个 CSV file")
     logging.info("-" * 60)
     
-    # 检查已有数据量
+    # check已有数据量
     cursor.execute("SELECT COUNT(*) FROM events_table")
     existing_count = cursor.fetchone()[0]
-    logging.info(f"📊 数据库已有 {existing_count:,} 条记录")
+    logging.info(f"📊 database已有 {existing_count:,} 条记录")
     logging.info("-" * 60)
 
     imported_count = 0
     skipped_count = 0
     
     for i, file in enumerate(csv_files):
-        logging.info(f"📄 处理文件: {os.path.basename(file)}")
+        logging.info(f"📄 processfile: {os.path.basename(file)}")
         
-        # 检查是否已导入
+        # check是否已import
         if check_already_imported(cursor, file):
-            logging.info(f"   ⏭️  已导入过，跳过")
+            logging.info(f"   ⏭️  已import过，skip")
             skipped_count += 1
             continue
         
-        logging.info(f"   🚀 开始清洗和导入...")
+        logging.info(f"   🚀 startclean和import...")
         
-        # 🌟 优化2：增加 try-except，防止单文件报错中断整体进程
+        # 🌟 优化2：增加 try-except，防止单file报错中断整体进程
         try:
-            # 1. 读取并清洗 
+            # 1. read并clean 
             df = pd.read_csv(file, dtype={'EventCode': str, 'EventRootCode': str})
 
             df['ActionGeo_Lat'] = pd.to_numeric(df['ActionGeo_Lat'], errors='coerce')
@@ -116,11 +116,11 @@ def fast_ingest():
             df.loc[(df['ActionGeo_Lat'] < -90) | (df['ActionGeo_Lat'] > 90), 'ActionGeo_Lat'] = float('nan')
             df.loc[(df['ActionGeo_Long'] < -180) | (df['ActionGeo_Long'] > 180), 'ActionGeo_Long'] = float('nan')
 
-            # 把所有缺失或错误的坐标，统一流放到 "Null Island" (0.0, 0.0)
+            # 把所有缺失或error的坐标，统一流放到 "Null Island" (0.0, 0.0)
             df['ActionGeo_Lat'] = df['ActionGeo_Lat'].fillna(0.0)
             df['ActionGeo_Long'] = df['ActionGeo_Long'].fillna(0.0)
             
-            # 转换日期格式
+            # 转换dateformat
             df['SQLDATE'] = pd.to_datetime(df['SQLDATE'], format='%Y%m%d').dt.strftime('%Y-%m-%d')
             if 'DATEADDED' in df.columns:
                 df['DATEADDED'] = pd.to_datetime(df['DATEADDED'], format='%Y%m%d%H%M%S', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -128,13 +128,13 @@ def fast_ingest():
             # 拼装 WKT 字符串列
             df['ActionGeo_Point_WKT'] = 'POINT(' + df['ActionGeo_Lat'].astype(str) + ' ' + df['ActionGeo_Long'].astype(str) + ')'
 
-            # 2. 存为没有任何干扰的临时文件 (na_rep='\N' 是 MySQL 识别 NULL 的专属标记)
+            # 2. 存为没有任何干扰的临时file (na_rep='\N' 是 MySQL 识别 NULL 的专属标记)
             df.to_csv(temp_file, index=False, header=False, na_rep=r'\N')
             row_count = len(df)
             
             logging.info(f"   ⚡ 呼叫底层 LOAD DATA 指令灌入 MySQL... ({row_count:,} 行)")
             
-            # 3. 执行极速导入指令
+            # 3. 执行极速import指令
             load_query = f"""
             LOAD DATA LOCAL INFILE '{temp_file}'
             IGNORE INTO TABLE events_table
@@ -151,34 +151,34 @@ def fast_ingest():
             cursor.execute(load_query)
             conn.commit()
             
-            # 记录导入完成
+            # 记录importcompleted
             record_import(cursor, file, row_count)
             conn.commit()
             
             imported_count += 1
-            logging.info(f"   ✅ 导入完成！\n")
+            logging.info(f"   ✅ importcompleted！\n")
             
         except Exception as e:
-            logging.error(f"❌ 处理 {file} 时发生错误: {str(e)}。已跳过此文件。\n")
+            logging.error(f"❌ process {file} 时发生error: {str(e)}。已skip此file。\n")
 
-    # 清理临时文件
+    # 清理临时file
     if os.path.exists(temp_file):
         os.remove(temp_file)
     
-    # 显示统计
+    # 显示statistics
     logging.info("-" * 60)
-    logging.info(f"📊 导入统计:")
-    logging.info(f"   本次导入: {imported_count} 个文件")
-    logging.info(f"   跳过（已存在）: {skipped_count} 个文件")
+    logging.info(f"📊 importstatistics:")
+    logging.info(f"   本次import: {imported_count} 个file")
+    logging.info(f"   skip（已存在）: {skipped_count} 个file")
     
     cursor.execute("SELECT COUNT(*) FROM events_table")
     final_count = cursor.fetchone()[0]
-    logging.info(f"   数据库总计: {final_count:,} 条记录")
+    logging.info(f"   database总计: {final_count:,} 条记录")
         
     cursor.close()
     conn.close()
     logging.info("-" * 60)
-    logging.info("🎉 极速导入全部结束！")
+    logging.info("🎉 极速import全部end！")
 
 if __name__ == "__main__":
     fast_ingest()

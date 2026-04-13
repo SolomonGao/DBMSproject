@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-GDELT 并行 ETL Pipeline
-用途: 并行处理多日期数据，预计算所有统计表
+GDELT parallel ETL Pipeline
+用途: parallelprocess多date数据，预calculate所有statisticstable
 特点: 
-    - 全量处理（无 LIMIT 限制）
-    - 多日期并行（每日期独立 worker）
-    - 批量插入优化
+    - 全量process（无 LIMIT 限制）
+    - 多dateparallel（每date独立 worker）
+    - batchinsert优化
 
 使用:
     python db_scripts/parallel_etl_pipeline.py --start 2024-01-01 --end 2024-12-31 --workers 8
@@ -23,12 +23,12 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-# 添加项目路径
+# 添加项目path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'mcp_server'))
 
 from app.database.pool import DatabasePool
 
-# 配置日志
+# configurationlog
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(process)d - %(name)s - %(levelname)s - %(message)s',
@@ -41,18 +41,18 @@ logger = logging.getLogger(__name__)
 
 
 class GDELTETLWorker:
-    """ETL 工作单元（每个日期一个实例）"""
+    """ETL 工作单元（每个date一个实例）"""
     
     def __init__(self, date: str):
         self.date = date
         self.pool: Optional[DatabasePool] = None
         
     async def initialize(self):
-        """初始化数据库连接"""
+        """初始化databaseconnection"""
         self.pool = await DatabasePool.initialize()
         
     async def close(self):
-        """关闭连接"""
+        """关闭connection"""
         await DatabasePool.close()
         
     async def run_etl(self) -> Dict:
@@ -67,26 +67,26 @@ class GDELTETLWorker:
         try:
             await self.initialize()
             
-            # 1. 检查数据
+            # 1. check数据
             has_data = await self._check_data_exists()
             if not has_data:
                 result['status'] = 'skipped'
                 result['error'] = '无数据'
                 return result
             
-            # 2. 生成每日摘要
+            # 2. generate每day摘要
             summary_count = await self._generate_daily_summary()
             result['steps']['daily_summary'] = summary_count
             
-            # 3. 生成事件指纹（全量）
+            # 3. generate事件指纹（全量）
             fingerprint_count = await self._generate_event_fingerprints()
             result['steps']['fingerprints'] = fingerprint_count
             
-            # 4. 更新地区统计
+            # 4. update地区statistics
             region_count = await self._update_region_stats()
             result['steps']['region_stats'] = region_count
             
-            # 5. 更新地理网格
+            # 5. update地理网格
             grid_count = await self._update_geo_grid()
             result['steps']['geo_grid'] = grid_count
             
@@ -94,19 +94,19 @@ class GDELTETLWorker:
             hot_count = await self._identify_hot_events()
             result['steps']['hot_events'] = hot_count
             
-            logger.info(f"✅ [{self.date}] ETL 完成: {result['steps']}")
+            logger.info(f"✅ [{self.date}] ETL completed: {result['steps']}")
             
         except Exception as e:
             result['status'] = 'failed'
             result['error'] = str(e)
-            logger.error(f"❌ [{self.date}] ETL 失败: {e}", exc_info=True)
+            logger.error(f"❌ [{self.date}] ETL failed: {e}", exc_info=True)
         finally:
             await self.close()
             
         return result
     
     async def _check_data_exists(self) -> bool:
-        """检查指定日期是否有数据"""
+        """check指定date是否有数据"""
         result = await self.pool.fetchone(
             "SELECT COUNT(*) as cnt FROM events_table WHERE SQLDATE = %s",
             (self.date,)
@@ -117,10 +117,10 @@ class GDELTETLWorker:
         return count > 0
     
     async def _generate_daily_summary(self) -> int:
-        """生成每日摘要表"""
-        logger.info(f"📊 [{self.date}] 生成日报")
+        """generate每day摘要table"""
+        logger.info(f"📊 [{self.date}] generateday报")
         
-        # 统计基础数据
+        # statistics基础数据
         stats = await self.pool.fetchone("""
             SELECT 
                 COUNT(*) as total_events,
@@ -158,7 +158,7 @@ class GDELTETLWorker:
         """, (self.date,))
         top_locations = [{"name": row['name'], "count": row['cnt']} for row in locations_result]
         
-        # 事件类型分布
+        # 事件type分布
         types_result = await self.pool.fetchall("""
             SELECT 
                 CASE 
@@ -187,7 +187,7 @@ class GDELTETLWorker:
         """, (self.date,))
         type_dist = {row['event_type']: row['cnt'] for row in types_result}
         
-        # 热点事件指纹（临时用GID，后续更新为指纹）
+        # 热点事件指纹（临时用GID，后续update为指纹）
         hot_result = await self.pool.fetchall("""
             SELECT GlobalEventID, NumArticles * ABS(GoldsteinScale) as hot_score
             FROM events_table
@@ -197,7 +197,7 @@ class GDELTETLWorker:
         """, (self.date,))
         hot_events = [str(row['GlobalEventID']) for row in hot_result]
         
-        # 插入/更新日报
+        # insert/updateday报
         await self.pool.execute("""
             INSERT INTO daily_summary 
             (date, total_events, conflict_events, cooperation_events,
@@ -227,18 +227,18 @@ class GDELTETLWorker:
             json.dumps(hot_events)
         ))
         
-        logger.info(f"  ✓ [{self.date}] 日报: {stats['total_events']} 事件")
+        logger.info(f"  ✓ [{self.date}] day报: {stats['total_events']} 事件")
         return stats['total_events']
     
     async def _generate_event_fingerprints(self) -> int:
-        """为新事件生成指纹（全量处理，无 LIMIT）"""
-        logger.info(f"🔖 [{self.date}] 生成事件指纹")
+        """为新事件generate指纹（全量process，无 LIMIT）"""
+        logger.info(f"🔖 [{self.date}] generate事件指纹")
         
         total_processed = 0
         batch_size = 5000
         
         while True:
-            # 批量获取尚未生成指纹的事件
+            # batch获取尚未generate指纹的事件
             batch = await self.pool.fetchall("""
                 SELECT e.GlobalEventID, e.SQLDATE, e.Actor1Name, e.Actor2Name,
                        e.EventCode, e.EventRootCode, e.GoldsteinScale,
@@ -253,18 +253,18 @@ class GDELTETLWorker:
             if not batch:
                 break
             
-            # 批量生成指纹数据
+            # batchgenerate指纹数据
             fingerprints = []
             for evt in batch:
                 fp_data = self._create_fingerprint(evt)
                 fingerprints.append(fp_data)
             
-            # 批量插入（一次性插入整批，避免死锁）
+            # batchinsert（一次性insert整批，避免死锁）
             inserted = await self._batch_insert_fingerprints(fingerprints)
             total_processed += inserted
             logger.info(f"  ✓ [{self.date}] 批次: +{inserted}, 累计 {total_processed}")
             
-            # 如果本批次不足 batch_size，说明处理完了
+            # 如果本批次不足 batch_size，descriptionprocess完了
             if len(batch) < batch_size:
                 break
         
@@ -272,7 +272,7 @@ class GDELTETLWorker:
         return total_processed
     
     def _create_fingerprint(self, evt: Dict) -> Tuple:
-        """为事件创建指纹"""
+        """为事件create指纹"""
         gid = evt['GlobalEventID']
         sqldate = evt['SQLDATE']
         actor1 = evt['Actor1Name'] or '某国'
@@ -283,7 +283,7 @@ class GDELTETLWorker:
         country = evt['ActionGeo_CountryCode'] or 'XX'
         articles = evt['NumArticles'] or 0
         
-        # 解析日期
+        # 解析date
         if isinstance(sqldate, str):
             date_str = sqldate.replace('-', '')
         else:
@@ -296,7 +296,7 @@ class GDELTETLWorker:
             if parts:
                 location_code = parts[0].strip()[:3].upper()
         
-        # 事件类型
+        # 事件type
         type_map = {
             '01': 'STATEMENT', '02': 'APPEAL', '03': 'INTENT',
             '04': 'CONSULT', '05': 'ENGAGE', '06': 'AID',
@@ -312,7 +312,7 @@ class GDELTETLWorker:
         seq = str(gid)[-3:].zfill(3)
         fingerprint = f"{country}-{date_str}-{location_code}-{event_type}-{seq}"
         
-        # 生成内容
+        # generate内容
         headline = self._generate_headline(actor1, actor2, event_root, location)
         summary = self._generate_summary(actor1, actor2, location, goldstein, articles)
         key_actors = json.dumps([a for a in [actor1, actor2] if a and a not in ['某国', '对方']])
@@ -330,18 +330,18 @@ class GDELTETLWorker:
     
     def _generate_headline(self, actor1: str, actor2: str, 
                           event_root: str, location: str) -> str:
-        """生成事件标题"""
+        """generate事件标题"""
         a1 = actor1 or '某国'
         a2 = actor2 or '对方'
         loc = location or '某地'
         
         action_map = {
-            '01': f"{a1}发表声明", '02': f"{a1}向{a2}呼吁",
-            '03': f"{a1}表达意图", '04': f"{a1}与{a2}磋商",
+            '01': f"{a1}发table声明", '02': f"{a1}向{a2}呼吁",
+            '03': f"{a1}table达意图", '04': f"{a1}与{a2}磋商",
             '05': f"{a1}参与{a2}事务", '06': f"{a1}向{a2}提供物资",
             '07': f"{a1}向{a2}提供援助", '08': f"{a1}向{a2}提供援助",
             '09': f"{a1}向{a2}让步", '10': f"{a1}向{a2}提出要求",
-            '11': f"{a1}对{a2}表示不满", '12': f"{a1}拒绝{a2}",
+            '11': f"{a1}对{a2}table示不满", '12': f"{a1}拒绝{a2}",
             '13': f"{a1}威胁{a2}", '14': f"{a1}发起抗议",
             '15': f"{a1}展示武力", '16': f"{a1}减少对{a2}关系",
             '17': f"{a1}胁迫{a2}", '18': f"{a1}与{a2}发生摩擦",
@@ -355,7 +355,7 @@ class GDELTETLWorker:
     
     def _generate_summary(self, actor1: str, actor2: str, 
                          location: str, goldstein: float, articles: int) -> str:
-        """生成事件摘要"""
+        """generate事件摘要"""
         a1 = actor1 or '某国'
         a2 = actor2 or '对方'
         loc = location or '某地'
@@ -376,13 +376,13 @@ class GDELTETLWorker:
         return f"{a1}与{a2}在{loc}发生{intensity}互动{coverage}。"
     
     def _get_event_label(self, event_root: str) -> str:
-        """获取事件类型标签"""
+        """获取事件type标签"""
         labels = {
             '01': '外交声明', '02': '外交呼吁', '03': '政策意向',
             '04': '外交磋商', '05': '参与合作', '06': '物资援助',
             '07': '人员援助', '08': '保护援助', '09': '让步缓和',
-            '10': '提出要求', '11': '表达不满', '12': '拒绝反对',
-            '13': '威胁警告', '14': '抗议示威', '15': '展示武力',
+            '10': '提出要求', '11': 'table达不满', '12': '拒绝反对',
+            '13': '威胁warning', '14': '抗议示威', '15': '展示武力',
             '16': '关系降级', '17': '强制胁迫', '18': '军事摩擦',
             '19': '大规模冲突', '20': '武装攻击'
         }
@@ -390,16 +390,16 @@ class GDELTETLWorker:
     
     async def _batch_insert_fingerprints(self, fingerprints: List[Tuple]) -> int:
         """
-        批量插入指纹（使用 INSERT IGNORE，无死锁，rowcount 准确）
+        batchinsert指纹（使用 INSERT IGNORE，无死锁，rowcount 准确）
         
-        策略：INSERT IGNORE 遇到重复键直接忽略，返回实际插入的行数
+        策略：INSERT IGNORE 遇到重复键直接ignore，返回实际insert的row count
         避免使用 ON DUPLICATE KEY UPDATE（可能触发死锁）
         
         Args:
-            fingerprints: 指纹数据列表，每条是 9 个字段的 tuple
+            fingerprints: 指纹数据列table，每条是 9 个字段的 tuple
             
         Returns:
-            成功插入的行数
+            successinsert的row count
         """
         if not fingerprints:
             return 0
@@ -407,7 +407,7 @@ class GDELTETLWorker:
         try:
             async with self.pool._pool.acquire() as conn:
                 async with conn.cursor() as cursor:
-                    # INSERT IGNORE：重复则忽略，rowcount 准确
+                    # INSERT IGNORE：重复则ignore，rowcount 准确
                     await cursor.executemany("""
                         INSERT IGNORE INTO event_fingerprints 
                         (global_event_id, fingerprint, headline, summary, 
@@ -420,8 +420,8 @@ class GDELTETLWorker:
                     return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
                     
         except Exception as e:
-            # 极少数情况下批量失败，降级逐条
-            logger.warning(f"    [{self.date}] 批量插入失败，降级逐条: {e}")
+            # 极少数情况下batchfailed，降级逐条
+            logger.warning(f"    [{self.date}] batchinsertfailed，降级逐条: {e}")
             inserted = 0
             for fp_data in fingerprints:
                 try:
@@ -434,12 +434,12 @@ class GDELTETLWorker:
                     """, fp_data)
                     inserted += 1
                 except Exception:
-                    pass  # 忽略单条错误
+                    pass  # ignore单条error
             return inserted
     
     async def _update_region_stats(self) -> int:
-        """更新地区统计"""
-        logger.info(f"🌍 [{self.date}] 更新地区统计")
+        """update地区statistics"""
+        logger.info(f"🌍 [{self.date}] update地区statistics")
         
         regions = await self.pool.fetchall("""
             SELECT 
@@ -478,14 +478,14 @@ class GDELTETLWorker:
                 ))
                 updated += 1
             except Exception as e:
-                logger.warning(f"    [{self.date}] 跳过地区 {r['region']}: {e}")
+                logger.warning(f"    [{self.date}] skip地区 {r['region']}: {e}")
         
-        logger.info(f"  ✓ [{self.date}] 更新 {updated} 个地区")
+        logger.info(f"  ✓ [{self.date}] update {updated} 个地区")
         return updated
     
     async def _update_geo_grid(self) -> int:
-        """更新地理网格热点"""
-        logger.info(f"🗺️ [{self.date}] 更新地理网格")
+        """update地理网格热点"""
+        logger.info(f"🗺️ [{self.date}] update地理网格")
         
         grids = await self.pool.fetchall("""
             SELECT 
@@ -526,13 +526,13 @@ class GDELTETLWorker:
                 ))
                 updated += 1
             except Exception as e:
-                logger.warning(f"    [{self.date}] 跳过网格 {grid_id}: {e}")
+                logger.warning(f"    [{self.date}] skip网格 {grid_id}: {e}")
         
-        logger.info(f"  ✓ [{self.date}] 更新 {updated} 个网格")
+        logger.info(f"  ✓ [{self.date}] update {updated} 个网格")
         return updated
     
     async def _identify_hot_events(self) -> int:
-        """识别并更新热点事件的指纹引用"""
+        """识别并update热点事件的指纹引用"""
         logger.info(f"🔥 [{self.date}] 识别热点事件")
         
         result = await self.pool.fetchone("""
@@ -561,38 +561,38 @@ class GDELTETLWorker:
             if fp_result:
                 fingerprints.append(fp_result['fingerprint'])
         
-        # 更新日报
+        # updateday报
         if fingerprints:
             await self.pool.execute("""
                 UPDATE daily_summary 
                 SET hot_event_fingerprints = %s 
                 WHERE date = %s
             """, (json.dumps(fingerprints), self.date))
-            logger.info(f"  ✓ [{self.date}] 更新 {len(fingerprints)} 个热点事件指纹")
+            logger.info(f"  ✓ [{self.date}] update {len(fingerprints)} 个热点事件指纹")
         
         return len(fingerprints)
 
 
 async def run_etl_for_date(date: str) -> Dict:
-    """为单个日期运行 ETL（用于并行执行）"""
+    """为单个date运行 ETL（用于parallel执行）"""
     worker = GDELTETLWorker(date)
     return await worker.run_etl()
 
 
 def run_etl_sync(date: str) -> Dict:
-    """同步包装器（用于 ProcessPoolExecutor）"""
+    """sync包装器（用于 ProcessPoolExecutor）"""
     return asyncio.run(run_etl_for_date(date))
 
 
 class ParallelETLPipeline:
-    """并行 ETL 管道管理器"""
+    """parallel ETL 管道管理器"""
     
     def __init__(self, workers: int = 4):
         self.workers = workers
         self.results: List[Dict] = []
         
     def get_date_range(self, start: str, end: str) -> List[str]:
-        """生成日期列表"""
+        """generatedate列table"""
         dates = []
         current = datetime.strptime(start, '%Y-%m-%d')
         end_date = datetime.strptime(end, '%Y-%m-%d')
@@ -604,7 +604,7 @@ class ParallelETLPipeline:
         return dates
     
     def get_dates_from_file(self, filepath: str) -> List[str]:
-        """从文件读取日期列表"""
+        """从filereaddate列table"""
         dates = []
         with open(filepath, 'r') as f:
             for line in f:
@@ -614,10 +614,10 @@ class ParallelETLPipeline:
         return dates
     
     async def get_missing_dates(self) -> List[str]:
-        """获取需要处理的日期（基于指纹覆盖率）"""
+        """获取需要process的date（基于指纹覆盖率）"""
         pool = await DatabasePool.initialize()
         try:
-            # 查找覆盖率低于 90% 的日期
+            # 查找覆盖率低于 90% 的date
             result = await pool.fetchall("""
                 SELECT 
                     e.SQLDATE as date,
@@ -631,14 +631,14 @@ class ParallelETLPipeline:
             """)
             
             dates = [str(r['date']) for r in result]
-            logger.info(f"📋 发现 {len(dates)} 个需要处理的日期")
+            logger.info(f"📋 发现 {len(dates)} 个需要process的date")
             return dates
         finally:
             await DatabasePool.close()
     
     def run_parallel(self, dates: List[str]):
-        """并行运行 ETL"""
-        logger.info(f"🚀 启动并行 ETL: {len(dates)} 个日期, {self.workers} 个 worker")
+        """parallel运行 ETL"""
+        logger.info(f"🚀 启动parallel ETL: {len(dates)} 个date, {self.workers} 个 worker")
         
         completed = 0
         failed = 0
@@ -651,7 +651,7 @@ class ParallelETLPipeline:
                 for date in dates
             }
             
-            # 处理结果
+            # process结果
             for future in as_completed(future_to_date):
                 date = future_to_date[future]
                 try:
@@ -660,34 +660,34 @@ class ParallelETLPipeline:
                     
                     if result['status'] == 'success':
                         completed += 1
-                        logger.info(f"✅ [{date}] 完成: {result['steps']}")
+                        logger.info(f"✅ [{date}] completed: {result['steps']}")
                     elif result['status'] == 'skipped':
                         skipped += 1
-                        logger.info(f"⏭️  [{date}] 跳过: {result['error']}")
+                        logger.info(f"⏭️  [{date}] skip: {result['error']}")
                     else:
                         failed += 1
-                        logger.error(f"❌ [{date}] 失败: {result['error']}")
+                        logger.error(f"❌ [{date}] failed: {result['error']}")
                         
                 except Exception as e:
                     failed += 1
                     logger.error(f"❌ [{date}] 异常: {e}")
                 
-                # 进度报告
+                # progress报告
                 total = len(dates)
                 processed = completed + failed + skipped
                 if processed % 10 == 0 or processed == total:
-                    logger.info(f"📊 进度: {processed}/{total} ({processed/total*100:.1f}%) | "
-                              f"成功: {completed} | 失败: {failed} | 跳过: {skipped}")
+                    logger.info(f"📊 progress: {processed}/{total} ({processed/total*100:.1f}%) | "
+                              f"success: {completed} | failed: {failed} | skip: {skipped}")
         
         # 最终报告
         logger.info("=" * 60)
-        logger.info("📊 ETL 完成报告")
+        logger.info("📊 ETL completed报告")
         logger.info(f"   总计: {len(dates)}")
-        logger.info(f"   成功: {completed}")
-        logger.info(f"   失败: {failed}")
-        logger.info(f"   跳过: {skipped}")
+        logger.info(f"   success: {completed}")
+        logger.info(f"   failed: {failed}")
+        logger.info(f"   skip: {skipped}")
         
-        # 统计指纹生成
+        # statistics指纹generate
         total_fingerprints = sum(
             r['steps'].get('fingerprints', 0) 
             for r in self.results 
@@ -700,19 +700,19 @@ class ParallelETLPipeline:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='GDELT 并行 ETL Pipeline')
-    parser.add_argument('--start', help='开始日期 (YYYY-MM-DD)')
-    parser.add_argument('--end', help='结束日期 (YYYY-MM-DD)')
-    parser.add_argument('--date-file', help='日期列表文件')
-    parser.add_argument('--workers', type=int, default=4, help='并行 worker 数 (默认: 4)')
-    parser.add_argument('--missing-only', action='store_true', help='只处理缺失指纹的日期')
-    parser.add_argument('--dry-run', action='store_true', help='只检查，不执行')
+    parser = argparse.ArgumentParser(description='GDELT parallel ETL Pipeline')
+    parser.add_argument('--start', help='startdate (YYYY-MM-DD)')
+    parser.add_argument('--end', help='enddate (YYYY-MM-DD)')
+    parser.add_argument('--date-file', help='date列tablefile')
+    parser.add_argument('--workers', type=int, default=4, help='parallel worker 数 (default: 4)')
+    parser.add_argument('--missing-only', action='store_true', help='只process缺失指纹的date')
+    parser.add_argument('--dry-run', action='store_true', help='只check，不执行')
     
     args = parser.parse_args()
     
     pipeline = ParallelETLPipeline(workers=args.workers)
     
-    # 获取日期列表
+    # 获取date列table
     if args.missing_only:
         dates = asyncio.run(pipeline.get_missing_dates())
     elif args.date_file:
@@ -724,20 +724,20 @@ def main():
         sys.exit(1)
     
     if not dates:
-        logger.info("📋 没有需要处理的日期")
+        logger.info("📋 没有需要process的date")
         return
     
-    logger.info(f"📋 计划处理 {len(dates)} 个日期")
+    logger.info(f"📋 计划process {len(dates)} 个date")
     
     if args.dry_run:
-        logger.info("🔍 干运行模式，只打印日期列表:")
+        logger.info("🔍 干运行模式，只打印date列table:")
         for d in dates[:10]:
             logger.info(f"   - {d}")
         if len(dates) > 10:
             logger.info(f"   ... 还有 {len(dates)-10} 个")
         return
     
-    # 并行运行
+    # parallel运行
     pipeline.run_parallel(dates)
 
 

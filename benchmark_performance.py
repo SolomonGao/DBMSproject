@@ -1,10 +1,10 @@
 """
-性能对比测试：优化前 vs 优化后
+性能对比test：optimization前 vs optimization后
 
-测试项目：
+test项目：
 1. 串行 vs 并行查询
 2. 缓存命中率
-3. 流式查询内存占用
+3. 流式查询memory占用
 4. 数据库端聚合 vs Python 端聚合
 """
 
@@ -24,7 +24,7 @@ from app.database.streaming import ParallelQuery
 
 
 class PerformanceBenchmark:
-    """性能测试器"""
+    """performance test器"""
     
     def __init__(self):
         self.results = []
@@ -36,19 +36,19 @@ class PerformanceBenchmark:
         await GDELTServiceOptimized.warmup_connections(3)
     
     def benchmark(self, name: str):
-        """装饰器：自动计时和内存统计"""
+        """装饰器：自动timing和memory统计"""
         def decorator(func):
             async def wrapper(*args, **kwargs):
-                # 开始内存追踪
+                # 开始memory追踪
                 tracemalloc.start()
                 start_mem = tracemalloc.get_traced_memory()[0]
                 
-                # 计时
+                # timing
                 start_time = time.perf_counter()
                 result = await func(*args, **kwargs)
                 elapsed = time.perf_counter() - start_time
                 
-                # 内存统计
+                # memory统计
                 current, peak = tracemalloc.get_traced_memory()
                 tracemalloc.stop()
                 
@@ -64,11 +64,11 @@ class PerformanceBenchmark:
         return decorator
     
     def print_results(self):
-        """打印测试结果"""
+        """打印testresults"""
         print("\n" + "="*80)
-        print("📊 性能测试报告")
+        print("📊 performance testreport")
         print("="*80)
-        print(f"{'测试项目':<30} {'耗时(ms)':<12} {'内存(KB)':<12} {'结果数':<10}")
+        print(f"{'test项目':<30} {'time cost(ms)':<12} {'memory(KB)':<12} {'results数':<10}")
         print("-"*80)
         
         for r in self.results:
@@ -82,7 +82,7 @@ class PerformanceBenchmark:
             if "串行" in r['name'] or "原始" in r['name']:
                 baseline_times[r['name']] = r['time_ms']
         
-        print("\n🚀 优化效果：")
+        print("\n🚀 optimization效果：")
         for r in self.results:
             for baseline_name, baseline_time in baseline_times.items():
                 if baseline_name.replace("串行", "").replace("原始", "") in r['name'] and r['name'] != baseline_name:
@@ -100,11 +100,11 @@ async def main():
     
     start_date, end_date = "2024-01-01", "2024-01-31"
     
-    print("开始性能测试...")
-    print(f"测试日期范围: {start_date} 至 {end_date}")
+    print("开始performance test...")
+    print(f"test日期范围: {start_date} 至 {end_date}")
     print("-"*80)
     
-    # ========== 测试 1: 串行 vs 并行查询 ==========
+    # ========== test 1: 串行 vs 并行查询 ==========
     
     @bench.benchmark("1a. 串行执行 4 个统计查询 (原始)")
     async def test_serial_queries():
@@ -117,14 +117,14 @@ async def main():
         results.append(await service_old.execute_sql(query))
         return results
     
-    @bench.benchmark("1b. 并行执行 4 个统计查询 (优化)")
+    @bench.benchmark("1b. 并行执行 4 个统计查询 (optimization)")
     async def test_parallel_queries():
         return await service_new.get_dashboard_data(start_date, end_date)
     
     await test_serial_queries()
     await test_parallel_queries()
     
-    # ========== 测试 2: 缓存效果 ==========
+    # ========== test 2: 缓存效果 ==========
     
     query = f"SELECT * FROM events_table WHERE SQLDATE BETWEEN '{start_date}' AND '{start_date}' LIMIT 50"
     
@@ -140,7 +140,7 @@ async def main():
     await test_cache_miss()
     await test_cache_hit()
     
-    # ========== 测试 3: 数据库端聚合 vs Python 端 ==========
+    # ========== test 3: 数据库端聚合 vs Python 端 ==========
     
     @bench.benchmark("3a. Python 端分组聚合 (原始)")
     async def test_python_aggregate():
@@ -158,7 +158,7 @@ async def main():
             result[date]["sum"] += row['GoldsteinScale'] or 0
         return list(result.items())
     
-    @bench.benchmark("3b. 数据库端聚合 (优化)")
+    @bench.benchmark("3b. 数据库端聚合 (optimization)")
     async def test_db_aggregate():
         return await service_new.analyze_time_series_advanced(
             start_date, end_date, granularity="day"
@@ -167,7 +167,7 @@ async def main():
     await test_python_aggregate()
     await test_db_aggregate()
     
-    # ========== 测试 4: 批量查询 vs 单条查询 ==========
+    # ========== test 4: 批量查询 vs 单条查询 ==========
     
     @bench.benchmark("4a. 串行单条查询 10 次")
     async def test_single_queries():
@@ -188,7 +188,7 @@ async def main():
     await test_single_queries()
     await test_batch_query()
     
-    # 打印结果
+    # 打印results
     bench.print_results()
     
     # 缓存统计
