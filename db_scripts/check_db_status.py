@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 databasestatusstatechecktool
-used formonitorindexusecase和query性can
+used formonitorindexusecaseandquery性can
 """
 
 import sys
@@ -20,7 +20,7 @@ async def check_status():
     print("📊 GDELT databasestatusstatecheck")
     print("=" * 70)
     
-    # 1. tablesize和row count
+    # 1. tablesizeandrow count
     print("\n1️⃣  tablesizestatistics:")
     result = await pool.fetchone("""
         SELECT 
@@ -35,7 +35,7 @@ async def check_status():
     print(f"   总row count: {result['table_rows']:,}")
     print(f"   datasize: {result['data_gb']} GB")
     print(f"   indexsize: {result['index_gb']} GB")
-    print(f"   总计: {result['total_gb']} GB")
+    print(f"   total: {result['total_gb']} GB")
     
     # 2. indexcolumntable
     print("\n2️⃣  indexcolumntable:")
@@ -71,8 +71,8 @@ async def check_status():
     print(f"   most晚: {result['max_date']}")
     print(f"   daynumber: {result['unique_days']}")
     
-    # 4. locationprocessdata覆盖
-    print("\n4️⃣  locationprocessdata覆盖:")
+    # 4. locationprocessdataoverride
+    print("\n4️⃣  locationprocessdataoverride:")
     result = await pool.fetchone("""
         SELECT 
             COUNT(*) as total,
@@ -84,7 +84,7 @@ async def check_status():
         FROM events_table
     """)
     geo_pct = result['with_geo'] / result['total'] * 100 if result['total'] > 0 else 0
-    print(f"   haslocationprocess坐标: {result['with_geo']:,} / {result['total']:,} ({geo_pct:.1f}%)")
+    print(f"   haslocationprocess坐mark: {result['with_geo']:,} / {result['total']:,} ({geo_pct:.1f}%)")
     
     # 5. importrecordlog
     print("\n5️⃣  CSV importrecordlog:")
@@ -103,16 +103,16 @@ async def check_status():
         else:
             print("   暂noimportrecordlog")
     except:
-        print("   importrecordlogtable不save在")
+        print("   importrecordlogtablenotsave在")
     
     # 6. querycachestatusstate
     print("\n6️⃣  querycachestatusstate:")
     from app.cache import query_cache
     stats = query_cache.get_stats()
     print(f"   cacheitemproject: {stats['size']} / {stats['maxsize']}")
-    print(f"   命intimenumber: {stats['hits']:,}")
-    print(f"   未命in: {stats['misses']:,}")
-    print(f"   命in率: {stats['hit_rate']}")
+    print(f"   commandintimenumber: {stats['hits']:,}")
+    print(f"   notcommandin: {stats['misses']:,}")
+    print(f"   commandinrate: {stats['hit_rate']}")
     
     print("\n" + "=" * 70)
     print("checkcompleted！")

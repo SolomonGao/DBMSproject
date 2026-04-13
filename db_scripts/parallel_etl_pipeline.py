@@ -120,7 +120,7 @@ class GDELTETLWorker:
         """generate daily digesttable"""
         logger.info(f"📊 [{self.date}] generatedayreport")
         
-        # statistics基础data
+        # statisticsbasicdata
         stats = await self.pool.fetchone("""
             SELECT 
                 COUNT(*) as total_events,
@@ -238,7 +238,7 @@ class GDELTETLWorker:
         batch_size = 5000
         
         while True:
-            # batchfetch尚未generatefingerprintevent
+            # batchfetch尚notgeneratefingerprintevent
             batch = await self.pool.fetchall("""
                 SELECT e.GlobalEventID, e.SQLDATE, e.Actor1Name, e.Actor2Name,
                        e.EventCode, e.EventRootCode, e.GoldsteinScale,
@@ -259,7 +259,7 @@ class GDELTETLWorker:
                 fp_data = self._create_fingerprint(evt)
                 fingerprints.append(fp_data)
             
-            # batchinsert（一time性insertwhole批，避免死锁）
+            # batchinsert（onetime性insertwhole批，避免死锁）
             inserted = await self._batch_insert_fingerprints(fingerprints)
             total_processed += inserted
             logger.info(f"  ✓ [{self.date}] batch: +{inserted}, 累计 {total_processed}")
@@ -268,7 +268,7 @@ class GDELTETLWorker:
             if len(batch) < batch_size:
                 break
         
-        logger.info(f"  ✓ [{self.date}] fingerprint总计: {total_processed}")
+        logger.info(f"  ✓ [{self.date}] fingerprinttotal: {total_processed}")
         return total_processed
     
     def _create_fingerprint(self, evt: Dict) -> Tuple:
@@ -312,7 +312,7 @@ class GDELTETLWorker:
         seq = str(gid)[-3:].zfill(3)
         fingerprint = f"{country}-{date_str}-{location_code}-{event_type}-{seq}"
         
-        # generateinside容
+        # generateinsidecontent
         headline = self._generate_headline(actor1, actor2, event_root, location)
         summary = self._generate_summary(actor1, actor2, location, goldstein, articles)
         key_actors = json.dumps([a for a in [actor1, actor2] if a and a not in ['some country', 'objectmethod']])
@@ -330,25 +330,25 @@ class GDELTETLWorker:
     
     def _generate_headline(self, actor1: str, actor2: str, 
                           event_root: str, location: str) -> str:
-        """generateevent标题"""
+        """generateeventmark题"""
         a1 = actor1 or 'some country'
         a2 = actor2 or 'objectmethod'
-        loc = location or '某location'
+        loc = location or 'somelocation'
         
         action_map = {
             '01': f"{a1}sendtable声clear", '02': f"{a1}toward{a2}呼吁",
             '03': f"{a1}table达意graph", '04': f"{a1}and{a2}磋商",
             '05': f"{a1}paramand{a2}事务", '06': f"{a1}toward{a2}提供物资",
-            '07': f"{a1}toward{a2}提供援助", '08': f"{a1}toward{a2}提供援助",
-            '09': f"{a1}toward{a2}让step", '10': f"{a1}toward{a2}提outputwant求",
-            '11': f"{a1}object{a2}tableshow不满", '12': f"{a1}拒绝{a2}",
-            '13': f"{a1}威胁{a2}", '14': f"{a1}send起抗议",
-            '15': f"{a1}展show武力", '16': f"{a1}reduceobject{a2}关系",
-            '17': f"{a1}胁迫{a2}", '18': f"{a1}and{a2}occur摩擦",
-            '19': f"{a1}and{a2}occurconflict", '20': f"{a1}object{a2}use武力"
+            '07': f"{a1}toward{a2}provide aid", '08': f"{a1}toward{a2}provide aid",
+            '09': f"{a1}toward{a2}letstep", '10': f"{a1}toward{a2}提outputwantrequest",
+            '11': f"{a1}object{a2}tableshownot满", '12': f"{a1}reject{a2}",
+            '13': f"{a1}threat{a2}", '14': f"{a1}send起protest",
+            '15': f"{a1}expandshowforce", '16': f"{a1}reduceobject{a2}relationship",
+            '17': f"{a1}coerce{a2}", '18': f"{a1}and{a2}occur摩擦",
+            '19': f"{a1}and{a2}occurconflict", '20': f"{a1}object{a2}useforce"
         }
         
-        action = action_map.get(event_root, f"{a1}and{a2}互动")
+        action = action_map.get(event_root, f"{a1}and{a2}interaction")
         if loc and loc not in [a1, a2]:
             return f"{action} ({loc})"
         return action
@@ -358,42 +358,42 @@ class GDELTETLWorker:
         """generateeventdigest"""
         a1 = actor1 or 'some country'
         a2 = actor2 or 'objectmethod'
-        loc = location or '某location'
+        loc = location or 'somelocation'
         
-        intensity = "轻微"
+        intensity = "slight"
         if goldstein:
             if abs(goldstein) > 7:
-                intensity = "严重"
+                intensity = "serious"
             elif abs(goldstein) > 4:
                 intensity = "in等"
         
         coverage = ""
         if articles > 100:
-            coverage = f"，receivewidespreadreport({articles}篇)"
+            coverage = f"，receivewidespreadreport({articles}article)"
         elif articles > 10:
-            coverage = f"，receivecertainreport({articles}篇)"
+            coverage = f"，receivecertainreport({articles}article)"
         
-        return f"{a1}and{a2}在{loc}occur{intensity}互动{coverage}。"
+        return f"{a1}and{a2}在{loc}occur{intensity}interaction{coverage}。"
     
     def _get_event_label(self, event_root: str) -> str:
         """fetcheventtypetag"""
         labels = {
             '01': 'outside交声clear', '02': 'outside交呼吁', '03': '政策意toward',
-            '04': 'outside交磋商', '05': 'paramand合job', '06': '物资援助',
-            '07': '人员援助', '08': '保护援助', '09': '让step缓和',
-            '10': '提outputwant求', '11': 'table达不满', '12': '拒绝反object',
-            '13': '威胁warning', '14': '抗议show威', '15': '展show武力',
-            '16': '关系downgrade', '17': '强system胁迫', '18': '军事摩擦',
-            '19': 'big规modelconflict', '20': '武装攻击'
+            '04': 'outside交磋商', '05': 'paramand合job', '06': '物资aid',
+            '07': '人员aid', '08': '保护aid', '09': 'letstep缓and',
+            '10': '提outputwantrequest', '11': 'table达not满', '12': 'reject反object',
+            '13': 'threatwarning', '14': 'protestshow威', '15': 'expandshowforce',
+            '16': 'relationshipdowngrade', '17': 'strongsystemcoerce', '18': 'military摩擦',
+            '19': 'big规modelconflict', '20': '武装attack'
         }
         return labels.get(event_root, '其他event')
     
     async def _batch_insert_fingerprints(self, fingerprints: List[Tuple]) -> int:
         """
-        batchinsertfingerprint（use INSERT IGNORE，no死锁，rowcount 准确）
+        batchinsertfingerprint（use INSERT IGNORE，no死锁，rowcount accurate）
         
         策略：INSERT IGNORE 遇toduplicatekeydirectignore，returnbackreal际insertrow count
-        避免use ON DUPLICATE KEY UPDATE（可can触send死锁）
+        避免use ON DUPLICATE KEY UPDATE（cancan触send死锁）
         
         Args:
             fingerprints: fingerprintdatacolumntable，eachitemyes 9 字段 tuple
@@ -407,7 +407,7 @@ class GDELTETLWorker:
         try:
             async with self.pool._pool.acquire() as conn:
                 async with conn.cursor() as cursor:
-                    # INSERT IGNORE：duplicate则ignore，rowcount 准确
+                    # INSERT IGNORE：duplicate则ignore，rowcount accurate
                     await cursor.executemany("""
                         INSERT IGNORE INTO event_fingerprints 
                         (global_event_id, fingerprint, headline, summary, 
@@ -416,7 +416,7 @@ class GDELTETLWorker:
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, fingerprints)
                     await conn.commit()
-                    # cursor.rowcount object于 INSERT IGNORE yes准确
+                    # cursor.rowcount object于 INSERT IGNORE yesaccurate
                     return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
                     
         except Exception as e:
@@ -478,9 +478,9 @@ class GDELTETLWorker:
                 ))
                 updated += 1
             except Exception as e:
-                logger.warning(f"    [{self.date}] skiplocation区 {r['region']}: {e}")
+                logger.warning(f"    [{self.date}] skiplocationarea {r['region']}: {e}")
         
-        logger.info(f"  ✓ [{self.date}] update {updated} location区")
+        logger.info(f"  ✓ [{self.date}] update {updated} locationarea")
         return updated
     
     async def _update_geo_grid(self) -> int:
@@ -551,7 +551,7 @@ class GDELTETLWorker:
         else:
             gids = hot_data
         
-        # 将GIDconvertforfingerprint
+        # willGIDconvertforfingerprint
         fingerprints = []
         for gid in gids[:10]:
             fp_result = await self.pool.fetchone("""
@@ -614,10 +614,10 @@ class ParallelETLPipeline:
         return dates
     
     async def get_missing_dates(self) -> List[str]:
-        """fetchneedprocessdate（基于fingerprint覆盖率）"""
+        """fetchneedprocessdate（基于fingerprintoverriderate）"""
         pool = await DatabasePool.initialize()
         try:
-            # find覆盖率low于 90% date
+            # findoverrideratelow于 90% date
             result = await pool.fetchall("""
                 SELECT 
                     e.SQLDATE as date,
@@ -631,7 +631,7 @@ class ParallelETLPipeline:
             """)
             
             dates = [str(r['date']) for r in result]
-            logger.info(f"📋 send现 {len(dates)} needprocessdate")
+            logger.info(f"📋 sendnow {len(dates)} needprocessdate")
             return dates
         finally:
             await DatabasePool.close()
@@ -682,7 +682,7 @@ class ParallelETLPipeline:
         # mostendreportwarn
         logger.info("=" * 60)
         logger.info("📊 ETL completedreportwarn")
-        logger.info(f"   总计: {len(dates)}")
+        logger.info(f"   total: {len(dates)}")
         logger.info(f"   success: {completed}")
         logger.info(f"   failed: {failed}")
         logger.info(f"   skip: {skipped}")
@@ -706,7 +706,7 @@ def main():
     parser.add_argument('--date-file', help='datecolumntablefile')
     parser.add_argument('--workers', type=int, default=4, help='parallel worker number (default: 4)')
     parser.add_argument('--missing-only', action='store_true', help='onlyprocess缺failfingerprintdate')
-    parser.add_argument('--dry-run', action='store_true', help='onlycheck，不execrow')
+    parser.add_argument('--dry-run', action='store_true', help='onlycheck，notexecrow')
     
     args = parser.parse_args()
     
@@ -724,7 +724,7 @@ def main():
         sys.exit(1)
     
     if not dates:
-        logger.info("📋 没hasneedprocessdate")
+        logger.info("📋 nohasneedprocessdate")
         return
     
     logger.info(f"📋 计划process {len(dates)} date")

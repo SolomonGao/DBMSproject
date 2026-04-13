@@ -14,7 +14,7 @@ selectitem:
 
 feature:
     - 交互pattern LLM Provides商selectselect (Kimi/Claude/Gemini)
-    - 自动detectandHintconfig
+    - autodetectandHintconfig
     - SupportsmultiProvides商切换
 """
 
@@ -23,7 +23,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-# 确保可thereforeImport mcp_app
+# 确保canthereforeImport mcp_app
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
@@ -47,7 +47,7 @@ async def main():
         epilog="""
 Example:
   python run_v1.py                          # startApply（首timewillHintconfig）
-  python run_v1.py --config                 # 强system重newconfig
+  python run_v1.py --config                 # strongsystem重newconfig
   python run_v1.py --log-level DEBUG        # Debugmodelpattern
         """
     )
@@ -60,7 +60,7 @@ Example:
         '--log-level',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
         default=None,
-        help='loglevel（覆盖 .env config）'
+        help='loglevel（override .env config）'
     )
     parser.add_argument(
         '--no-file-log',
@@ -128,7 +128,7 @@ Example:
             logger.error("  2. Python environmentisNocorrect确")
             sys.exit(1)
         
-        # 6. send现tool
+        # 6. sendnowtool
         await mcp_client.discover_tools()
         
     except Exception as e:
@@ -153,10 +153,10 @@ Example:
     # 8. start CLI
     cli = ChatCLI(config, llm_client, mcp_client)
     
-    # Process信号
+    # Processinfo号
     import signal
     def signal_handler(sig, frame):
-        logger.info(f"acceptto信号 {sig}，correctinExit...")
+        logger.info(f"accepttoinfo号 {sig}，correctinExit...")
         asyncio.create_task(mcp_client.close())
         sys.exit(0)
     
@@ -169,8 +169,8 @@ Example:
         # cleanup资源
         logger.info("correctincleanup资源...")
         await mcp_client.close()
-        if 'llm_client' in locals():      # <--- adduploadthis一row
-            await llm_client.close()      # <--- adduploadthis一row
+        if 'llm_client' in locals():      # <--- adduploadthisonerow
+            await llm_client.close()      # <--- adduploadthisonerow
         logger.info("ApplyalreadyExit")
 
 

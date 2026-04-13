@@ -72,14 +72,14 @@ def fast_ingest():
         logging.error("❌ 在 data/ directoryNo results found under gdelt_2024_na_*.csv file，pleasecheckpath！")
         return
 
-    logging.info(f"📂 共扫描to {len(csv_files)} shardfileprepareimport。")
+    logging.info(f"📂 total扫描to {len(csv_files)} shardfileprepareimport。")
     
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
     
     # checkwhetherhas CSV file
     if not csv_files:
-        logging.error("❌ 未找to CSV file (data/gdelt_2024_na_*.csv)")
+        logging.error("❌ not找to CSV file (data/gdelt_2024_na_*.csv)")
         return
     
     logging.info(f"📁 找to {len(csv_files)}  CSV file")
@@ -103,9 +103,9 @@ def fast_ingest():
             skipped_count += 1
             continue
         
-        logging.info(f"   🚀 startclean和import...")
+        logging.info(f"   🚀 startcleanandimport...")
         
-        # 🌟 optization2：增add try-except，防stopformfileError interrupts entire process
+        # 🌟 optization2：increaseadd try-except，preventstopformfileError interrupts entire process
         try:
             # 1. readandclean 
             df = pd.read_csv(file, dtype={'EventCode': str, 'EventRootCode': str})
@@ -116,7 +116,7 @@ def fast_ingest():
             df.loc[(df['ActionGeo_Lat'] < -90) | (df['ActionGeo_Lat'] > 90), 'ActionGeo_Lat'] = float('nan')
             df.loc[(df['ActionGeo_Long'] < -180) | (df['ActionGeo_Long'] > 180), 'ActionGeo_Long'] = float('nan')
 
-            # 把all缺failorerror坐标，统一流放to "Null Island" (0.0, 0.0)
+            # 把all缺failorerror坐mark，统one流放to "Null Island" (0.0, 0.0)
             df['ActionGeo_Lat'] = df['ActionGeo_Lat'].fillna(0.0)
             df['ActionGeo_Long'] = df['ActionGeo_Long'].fillna(0.0)
             
@@ -125,14 +125,14 @@ def fast_ingest():
             if 'DATEADDED' in df.columns:
                 df['DATEADDED'] = pd.to_datetime(df['DATEADDED'], format='%Y%m%d%H%M%S', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
 
-            # 拼装 WKT 字符串column
+            # 拼装 WKT character串column
             df['ActionGeo_Point_WKT'] = 'POINT(' + df['ActionGeo_Lat'].astype(str) + ' ' + df['ActionGeo_Long'].astype(str) + ')'
 
-            # 2. Save as temporary without any interferencefile (na_rep='\N' yes MySQL 识别 NULL 专属标record)
+            # 2. Save as temporary without any interferencefile (na_rep='\N' yes MySQL 识别 NULL 专属markrecord)
             df.to_csv(temp_file, index=False, header=False, na_rep=r'\N')
             row_count = len(df)
             
-            logging.info(f"   ⚡ 呼叫底层 LOAD DATA 指令灌input MySQL... ({row_count:,} row)")
+            logging.info(f"   ⚡ 呼叫bottom LOAD DATA 指令灌input MySQL... ({row_count:,} row)")
             
             # 3. execrow极速import指令
             load_query = f"""
@@ -161,7 +161,7 @@ def fast_ingest():
         except Exception as e:
             logging.error(f"❌ process {file} whenoccurerror: {str(e)}。alreadyskip此file。\n")
 
-    # 清process临whenfile
+    # clearprocess临whenfile
     if os.path.exists(temp_file):
         os.remove(temp_file)
     
@@ -173,12 +173,12 @@ def fast_ingest():
     
     cursor.execute("SELECT COUNT(*) FROM events_table")
     final_count = cursor.fetchone()[0]
-    logging.info(f"   database总计: {final_count:,} itemrecordlog")
+    logging.info(f"   databasetotal: {final_count:,} itemrecordlog")
         
     cursor.close()
     conn.close()
     logging.info("-" * 60)
-    logging.info("🎉 极速import全部end！")
+    logging.info("🎉 极速importallend！")
 
 if __name__ == "__main__":
     fast_ingest()

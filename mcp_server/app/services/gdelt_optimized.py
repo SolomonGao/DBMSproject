@@ -57,9 +57,9 @@ class GDELTServiceOptimized:
         cache_ttl: int = 300
     ) -> List[Dict[str, Any]]:
         """
-        带cache SQL execrow
+        withcache SQL execrow
         
-        自动cachequeryresultresult，避免duplicateexecrowsamequery。
+        autocachequeryresultresult，避免duplicateexecrowsamequery。
         """
         pool = await self._get_pool()
         
@@ -80,11 +80,11 @@ class GDELTServiceOptimized:
         """
         仪table盘data - 5 queryandsendexecrow
         
-        原来串rowneed ~2s，现inonlyneed ~0.5s（fetch决于mostslowquery）
+        original来串rowneed ~2s，nowinonlyneed ~0.5s（fetch决于mostslowquery）
         """
         await self._get_pool()
         
-        # Defines 5 独立query
+        # Defines 5 independentquery
         queries = [
             # 1. each日trends
             (f"""
@@ -208,7 +208,7 @@ class GDELTServiceOptimized:
         granularity: str = "day"  # day, week, month
     ) -> List[Dict[str, Any]]:
         """
-        advancedwheninterval序columnanalyze - 全部indatabasecompleted
+        advancedwheninterval序columnanalyze - allindatabasecompleted
         
         onlytransmittransportaggregateafterresultresult，极bigreducenetworkopen销。
         """
@@ -236,7 +236,7 @@ class GDELTServiceOptimized:
                 SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
                 2
             ) as cooperation_pct,
-            -- statistics指标
+            -- statistics指mark
             ROUND(AVG(GoldsteinScale), 2) as avg_goldstein,
             ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
             ROUND(AVG(AvgTone), 2) as avg_tone,
@@ -265,7 +265,7 @@ class GDELTServiceOptimized:
         return await self.execute_sql_cached(
             query, 
             (start_date, end_date),
-            cache_ttl=1800  # 30 分钟
+            cache_ttl=1800  # 30 minute
         )
     
     # ==================== coreoptization：locationprocessheatgraph ====================
@@ -274,12 +274,12 @@ class GDELTServiceOptimized:
         self,
         start_date: str,
         end_date: str,
-        precision: int = 2  # 小number位number，越big精schedule越high
+        precision: int = 2  # 小numberpositionnumber，exceedbig精scheduleexceedhigh
     ) -> List[Dict[str, Any]]:
         """
         locationprocessheatgraphdata - gridaggregate
         
-        将相近坐标aggregatetogrid，reducebeforeend渲染压力。
+        will相近坐markaggregatetogrid，reducebeforeend渲染压力。
         """
         query = f"""
         SELECT 
@@ -347,7 +347,7 @@ class GDELTServiceOptimized:
         actor: Optional[str] = None
     ) -> int:
         """
-        fast速计number - useindex覆盖query
+        fast速计number - useindexoverridequery
         
         EXPLAIN 应该display Using index。
         """
@@ -372,7 +372,7 @@ class GDELTServiceOptimized:
         
         return result["cnt"] if result else 0
     
-    # ==================== 基础querymethod（全部Supportscache）====================
+    # ==================== basicquerymethod（allSupportscache）====================
     
     async def query_by_actor_cached(
         self,
@@ -383,7 +383,7 @@ class GDELTServiceOptimized:
         cache_ttl: int = 300
     ) -> str:
         """
-        byparamandmethodqueryevent（带cache）
+        byparamandmethodqueryevent（withcache）
         
         cache key 基于queryArgs，sameArgswilldirectReturnscacheresultresult。
         """
@@ -394,7 +394,7 @@ class GDELTServiceOptimized:
             date_filter = "AND SQLDATE BETWEEN %s AND %s"
             params.extend([start_date, end_date])
         
-        # useArgsizationquery确保 SQL model板一致
+        # useArgsizationquery确保 SQL model板one致
         query = f"""
         SELECT SQLDATE, Actor1Name, Actor1CountryCode, 
                Actor2Name, Actor2CountryCode, EventCode,
@@ -425,7 +425,7 @@ class GDELTServiceOptimized:
         limit: int = 100,
         cache_ttl: int = 300
     ) -> str:
-        """bywhenintervalrangequeryevent（带cache）"""
+        """bywhenintervalrangequeryevent（withcache）"""
         query = """
         SELECT SQLDATE, Actor1Name, Actor2Name, EventCode, 
                GoldsteinScale, AvgTone, NumArticles, SOURCEURL
@@ -451,7 +451,7 @@ class GDELTServiceOptimized:
         end_date: str,
         cache_ttl: int = 600
     ) -> str:
-        """bydatestatisticseventquantity（带cache）"""
+        """bydatestatisticseventquantity（withcache）"""
         query = f"""
         SELECT SQLDATE, 
                COUNT(*) as event_count,
@@ -480,7 +480,7 @@ class GDELTServiceOptimized:
         top_n: int = 10,
         cache_ttl: int = 600
     ) -> str:
-        """statisticsmost活跃paramandmethod（带cache）"""
+        """statisticsmost活跃paramandmethod（withcache）"""
         query = f"""
         SELECT Actor1Name as actor, COUNT(*) as event_count
         FROM {self.DEFAULT_TABLE}
@@ -525,19 +525,19 @@ class GDELTServiceOptimized:
         
         result = "\n".join([header, separator] + data_rows)
         if total_rows > max_display_rows:
-            result += f"\n\n*共 {total_rows} row，displaybefore {max_display_rows} row*"
+            result += f"\n\n*total {total_rows} row，displaybefore {max_display_rows} row*"
         else:
-            result += f"\n\n*共Returns {total_rows} rowdata*"
+            result += f"\n\n*totalReturns {total_rows} rowdata*"
         
         return result
     
     
-    # ==================== coreoptization：joinpre热 ====================
+    # ==================== coreoptization：joinprehot ====================
     
     @staticmethod
     async def warmup_connections(count: int = 5):
         """
-        join池pre热 - startwhenbuild立join
+        join池prehot - startwhenbuild立join
         
         Avoid cold start latency on first request。
         """
@@ -548,15 +548,15 @@ class GDELTServiceOptimized:
                 async with conn.cursor() as cur:
                     await cur.execute("SELECT 1")
         
-        # andsendpre热
+        # andsendprehot
         await asyncio.gather(*[ping() for _ in range(count)])
-        print(f"[warmup] pre热completed: {count} join")
+        print(f"[warmup] prehotcompleted: {count} join")
 
     def _get_chroma_collection(self):
         """延迟Initialize ChromaDB (Avoid lag at startup)"""
         if self._chroma_collection is None:
             try:
-                # 定位toitemproject根projectlogunder chroma_db filefolder
+                # 定positiontoitemproject根projectlogunder chroma_db filefolder
                 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
                 db_path = os.path.join(project_root, 'chroma_db')
                 
@@ -577,7 +577,7 @@ class GDELTServiceOptimized:
         """execrowvectordatabase语义检索 (Agent right脑)"""
         collection = self._get_chroma_collection()
         if not collection:
-            return "Error: vectordatabase未Initializeorunablejoin。"
+            return "Error: vectordatabasenotInitializeorunablejoin。"
 
         try:
             # ChromaDB Local retrieval is very fast，directcallbackuse
@@ -596,7 +596,7 @@ class GDELTServiceOptimized:
                 url = results['metadatas'][0][i].get('source_url', 'Unknown URL')
                 date = results['metadatas'][0][i].get('date', 'Unknown Date')
                 
-                # 截fetchbefore 1000 字符，防stop Token superload
+                # 截fetchbefore 1000 character，preventstop Token superload
                 snippet = doc_text[:1000] + "..." if len(doc_text) > 1000 else doc_text
                 
                 formatted_result += f"--- Result {i+1} ---\n"

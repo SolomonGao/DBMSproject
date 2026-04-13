@@ -2,7 +2,7 @@
 """
 interactive configuration wizard：
 - guide user selection LLM provider
-- collect API Key 和config
+- collect API Key andconfig
 - saveto .env file
 """
 
@@ -48,7 +48,7 @@ class ConfigWizard:
         print(f"{prefix}{text}{suffix}")
     
     def _print_header(self, title: str):
-        """print标题"""
+        """printmark题"""
         print()
         self._print("=" * 60, 'cyan', bold=True)
         self._print(f"  {title}", 'cyan', bold=True)
@@ -64,7 +64,7 @@ class ConfigWizard:
         self._print(f"❌ {message}", 'red')
     
     def _print_info(self, message: str):
-        """print信info"""
+        """printinfoinfo"""
         self._print(f"ℹ️  {message}", 'blue')
     
     def _input_required(self, prompt: str, hide_input: bool = False) -> str:
@@ -103,9 +103,9 @@ class ConfigWizard:
                     self._print_success(f"alreadyselectselect: {provider.name}")
                     return provider
                 else:
-                    self._print_error(f"no效selectitem，pleaseinput 1-{len(providers)}")
+                    self._print_error(f"noeffectselectitem，pleaseinput 1-{len(providers)}")
             except ValueError:
-                self._print_error("pleaseinputhas效number字")
+                self._print_error("pleaseinputhaseffectnumber字")
     
     def _input_api_key(self, provider: ProviderConfig) -> str:
         """stepstep 2: input API Key"""
@@ -120,7 +120,7 @@ class ConfigWizard:
         # Check if configuration already exists
         existing_key = os.getenv(provider.env_key, '')
         if existing_key and len(existing_key) > 10:
-            # verify现has key Not log error information（简formcheck）
+            # verifynowhas key Not log error information（simpleformcheck）
             if '|' not in existing_key and 'ERROR' not in existing_key:
                 masked = f"{existing_key[:8]}...{existing_key[-4:]}"
                 self._print_info(f"detecttoalreadyhas API Key: {masked}")
@@ -129,7 +129,7 @@ class ConfigWizard:
                     self.config['api_key'] = existing_key
                     return existing_key
             else:
-                self._print_error("detectto现has API Key gridpatternasyncconstant，please重newinput")
+                self._print_error("detecttonowhas API Key gridpatternasyncconstant，please重newinput")
         
         print()
         print("please粘贴您 API Key (inputWill not display on screen):")
@@ -138,7 +138,7 @@ class ConfigWizard:
             hide_input=True
         )
         
-        # 简formverify
+        # simpleformverify
         if not self._validate_api_key(api_key, provider):
             self._print_error("API Key Format seems incorrect，butstillcontinuesave")
         else:
@@ -148,7 +148,7 @@ class ConfigWizard:
         return api_key
     
     def _validate_api_key(self, api_key: str, provider: ProviderConfig) -> bool:
-        """简formverify API Key gridpattern"""
+        """simpleformverify API Key gridpattern"""
         if not api_key or len(api_key) < 10:
             return False
         
@@ -195,15 +195,15 @@ class ConfigWizard:
                     self.config['model'] = selected
                     return selected
                 else:
-                    self._print_error(f"no效selectitem，pleaseinput 1-{len(provider.models)}")
+                    self._print_error(f"noeffectselectitem，pleaseinput 1-{len(provider.models)}")
             except ValueError:
-                self._print_error("pleaseinputhas效number字")
+                self._print_error("pleaseinputhaseffectnumber字")
     
     def _advanced_options(self):
         """advancedconfigselectitem"""
-        self._print_header("advancedconfigselectitem（可select）")
+        self._print_header("advancedconfigselectitem（canselect）")
         
-        print("thereforeunderconfigusedefaultvalue即可，if需modifychangepleaseinputnewvalue，directenterskip:")
+        print("thereforeunderconfigusedefaultvalue即can，if需modifychangepleaseinputnewvalue，directenterskip:")
         print()
         
         # Temperature
@@ -224,7 +224,7 @@ class ConfigWizard:
         self._print_success("Advanced configuration saved")
     
     def _generate_env_content(self) -> str:
-        """generate .env fileinside容"""
+        """generate .env fileinsidecontent"""
         provider = get_provider(self.config['provider_id'])
         
         lines = [
@@ -254,7 +254,7 @@ class ConfigWizard:
             "# transmittransportmodelpattern: stdio or sse",
             "MCP_TRANSPORT=stdio",
             "",
-            "# SSE modelpatternend口（仅 transport=sse whenhas效）",
+            "# SSE modelpatternend口（仅 transport=sse whenhaseffect）",
             "MCP_PORT=8000",
             "",
             "# ============================================",
@@ -292,7 +292,7 @@ class ConfigWizard:
         """saveconfigto .env file"""
         self._print_header("saveconfig")
         
-        # generateinside容
+        # generateinsidecontent
         content = self._generate_env_content()
         
         # backupoldconfig
@@ -386,9 +386,9 @@ class ConfigWizard:
         if has_config:
             return True
         
-        # 没hasconfig，startwizard
+        # nohasconfig，startwizard
         print()
-        self._print("⚠️  未detecttohas效 API Key config", 'yellow', bold=True)
+        self._print("⚠️  notdetecttohaseffect API Key config", 'yellow', bold=True)
         print()
         
         response = input("Whether to start configuration wizard? (y/n，default y): ").strip().lower()

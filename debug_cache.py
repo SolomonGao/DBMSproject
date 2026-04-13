@@ -32,16 +32,16 @@ async def test_cache():
     for k, v in stats.items():
         print(f"  {k}: {v}")
     
-    # execrow第一timequery
-    print("\n🔍 第一timequery 'Virginia'...")
+    # execrow第onetimequery
+    print("\n🔍 第onetimequery 'Virginia'...")
     start = asyncio.get_event_loop().time()
     result1 = await service.query_by_actor("Virginia", limit=10)
     elapsed1 = asyncio.get_event_loop().time() - start
     print(f"   耗when: {elapsed1:.3f}s")
-    print(f"   resultresultlongschedule: {len(result1)} 字符")
+    print(f"   resultresultlongschedule: {len(result1)} character")
     
     # queryseecachestatusstate
-    print("\n📊 第一timequeryaftercachestatusstate:")
+    print("\n📊 第onetimequeryaftercachestatusstate:")
     stats = query_cache.get_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
@@ -52,7 +52,7 @@ async def test_cache():
     result2 = await service.query_by_actor("Virginia", limit=10)
     elapsed2 = asyncio.get_event_loop().time() - start
     print(f"   耗when: {elapsed2:.3f}s")
-    print(f"   resultresultlongschedule: {len(result2)} 字符")
+    print(f"   resultresultlongschedule: {len(result2)} character")
     
     # queryseecachestatusstate
     print("\n📊 第二timequeryaftercachestatusstate:")
@@ -68,9 +68,9 @@ async def test_cache():
         if speedup > 10:
             print("✅ cacheworknormal！")
         elif elapsed2 < 0.01:
-            print("✅ 可caniscachehit（or者querythis身就很fast）")
+            print("✅ cancaniscachehit（or者querythis身就很fast）")
         else:
-            print("⚠️  可can没hashitcache")
+            print("⚠️  cancannohashitcache")
     
     # displaycache key Example
     print("\n🔑 cache Key generateExample:")

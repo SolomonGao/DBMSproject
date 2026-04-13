@@ -158,7 +158,7 @@ class OllamaRouter:
             )
         
         # Explicit database query keywords (Chinese)
-        if any(kw in text_lower for kw in ['queryinquiry', 'query找', '搜索', 'query一under']):
+        if any(kw in text_lower for kw in ['queryinquiry', 'query找', '搜索', 'queryoneunder']):
             return None  # Needs further model analysis
         
         return None
@@ -320,7 +320,7 @@ Notes:
             )
         
         # Geographic / Heatmap (Chinese + English)
-        if any(kw in text_lower for kw in ['map', 'heatmap', 'heatmap', 'locationprocess', 'distribution', '可视ization']):
+        if any(kw in text_lower for kw in ['map', 'heatmap', 'heatmap', 'locationprocess', 'distribution', 'can视ization']):
             return RouterDecision(
                 intent="analysis",
                 cleaned_input=text,
@@ -342,7 +342,7 @@ Notes:
             )
         
         # Streaming / large data (Chinese)
-        if any(kw in text_lower for kw in ['export', '全部', 'all', 'streaming', 'bigamountdata']):
+        if any(kw in text_lower for kw in ['export', 'all', 'all', 'streaming', 'bigamountdata']):
             return RouterDecision(
                 intent="query",
                 cleaned_input=text,

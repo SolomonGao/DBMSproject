@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-parallel补全eventfingerprint
+parallelbackfilleventfingerprint
 usemultithreadparallelprocessmultidayETL
 
 usage:
@@ -33,7 +33,7 @@ def get_dates_to_process(start_date: str, end_date: str) -> List[str]:
 
 
 def check_date_status(date: str) -> Tuple[str, int, int]:
-    """check某dayfingerprintstatusstate"""
+    """checksomedayfingerprintstatusstate"""
     try:
         # fetcheventnumber
         evt_result = subprocess.run(
@@ -73,7 +73,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         
         print(f"  [{date}] startETL，whenbefore {fp_count}/{evt_count}...")
         
-        # runETL（增addsuperwhento10minute，Because one day may have2-5万event）
+        # runETL（increaseaddsuperwhento10minute，Because one day may have2-5万event）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
@@ -87,7 +87,7 @@ def process_date(date: str) -> Tuple[str, bool, str]:
             if new_fp >= evt:
                 return (date, True, f"completed (+{added}, {new_fp}/{evt})")
             else:
-                return (date, True, f"部分 (+{added}, {new_fp}/{evt})")
+                return (date, True, f"part (+{added}, {new_fp}/{evt})")
         else:
             error_msg = result.stderr[:200] if result.stderr else "unknownerror"
             return (date, False, f"failed: {error_msg}")
@@ -99,16 +99,16 @@ def process_date(date: str) -> Tuple[str, bool, str]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='parallel补全eventfingerprint')
+    parser = argparse.ArgumentParser(description='parallelbackfilleventfingerprint')
     parser.add_argument('--start', default='2024-01-01', help='startdate (YYYY-MM-DD)')
     parser.add_argument('--end', default='2024-12-31', help='enddate (YYYY-MM-DD)')
     parser.add_argument('--workers', type=int, default=8, help='parallelworkthreadnumber (default: 8)')
-    parser.add_argument('--dry-run', action='store_true', help='onlycheckstatusstate，不execrowETL')
+    parser.add_argument('--dry-run', action='store_true', help='onlycheckstatusstate，notexecrowETL')
     
     args = parser.parse_args()
     
     print("=" * 60)
-    print("🔧 parallel补全eventfingerprint")
+    print("🔧 parallelbackfilleventfingerprint")
     print("=" * 60)
     print(f"daterange: {args.start} ~ {args.end}")
     print(f"parallelschedule: {args.workers} thread")
@@ -116,7 +116,7 @@ def main():
     
     # generatedatecolumntable
     dates = get_dates_to_process(args.start, args.end)
-    print(f"总共 {len(dates)} dayneedprocess")
+    print(f"总total {len(dates)} dayneedprocess")
     print()
     
     # firstcheckalldatestatusstate
@@ -131,23 +131,23 @@ def main():
     # statistics
     # completewhole: fingerprintnumber >= eventnumber（package括eventnumberfor0case）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
-    # 部分: hasfingerprintbut未completewhole
+    # part: hasfingerprintbutnotcompletewhole
     partial = sum(1 for _, fp, evt in status_list if 0 < fp < evt)
-    # 空缺: haseventbutnofingerprint
+    # vacancy: haseventbutnofingerprint
     empty = sum(1 for _, fp, evt in status_list if fp == 0 and evt > 0)
     # error: queryfailed
     error = sum(1 for _, fp, evt in status_list if fp < 0 or evt < 0)
     
     print(f"statusstatestatistics:")
     print(f"  ✅ completewhole: {complete} day")
-    print(f"  ⚠️  部分: {partial} day")
-    print(f"  ❌ 空缺: {empty} day")
+    print(f"  ⚠️  part: {partial} day")
+    print(f"  ❌ vacancy: {empty} day")
     if error > 0:
         print(f"  💥 error: {error} day")
     print()
     
     if args.dry_run:
-        print("📝 干runmodelpattern，不execrowETL")
+        print("📝 干runmodelpattern，notexecrowETL")
         return
     
     # 筛selectneedprocessdate

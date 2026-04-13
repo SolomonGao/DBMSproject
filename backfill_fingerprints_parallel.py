@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-androw补全eventfingerprint
+androwbackfilleventfingerprint
 usemultithreadparallel processingmultidayETL
 
 usage:
@@ -33,7 +33,7 @@ def get_dates_to_process(start_date: str, end_date: str) -> List[str]:
 
 
 def check_date_status(date: str) -> Tuple[str, int, int]:
-    """check某dayfingerprintstatusstate"""
+    """checksomedayfingerprintstatusstate"""
     try:
         # fetcheventnumber
         evt_result = subprocess.run(
@@ -73,11 +73,11 @@ def process_date(date: str) -> Tuple[str, bool, str]:
         
         print(f"  [{date}] openstartETL，whenbefore {fp_count}/{evt_count}...")
         
-        # runETL（增addsuperwhento10分钟，Because one day may have2-5万event）
+        # runETL（increaseaddsuperwhento10minute，Because one day may have2-5万event）
         result = subprocess.run(
             ["docker", "exec", "-w", "/app", "gdelt_app", 
              "python", "db_scripts/etl_pipeline.py", date],
-            capture_output=True, text=True, timeout=600  # 10分钟superwhen
+            capture_output=True, text=True, timeout=600  # 10minutesuperwhen
         )
         
         if result.returncode == 0:
@@ -87,28 +87,28 @@ def process_date(date: str) -> Tuple[str, bool, str]:
             if new_fp >= evt:
                 return (date, True, f"completefinish (+{added}, {new_fp}/{evt})")
             else:
-                return (date, True, f"部分 (+{added}, {new_fp}/{evt})")
+                return (date, True, f"part (+{added}, {new_fp}/{evt})")
         else:
             error_msg = result.stderr[:200] if result.stderr else "unknownerror"
             return (date, False, f"failed: {error_msg}")
             
     except subprocess.TimeoutExpired:
-        return (date, False, "superwhen(10分钟)")
+        return (date, False, "superwhen(10minute)")
     except Exception as e:
         return (date, False, f"asyncconstant: {str(e)}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='androw补全eventfingerprint')
+    parser = argparse.ArgumentParser(description='androwbackfilleventfingerprint')
     parser.add_argument('--start', default='2024-01-01', help='openstartdate (YYYY-MM-DD)')
     parser.add_argument('--end', default='2024-12-31', help='result束date (YYYY-MM-DD)')
     parser.add_argument('--workers', type=int, default=8, help='androwworkthreadnumber (default: 8)')
-    parser.add_argument('--dry-run', action='store_true', help='onlycheckstatusstate，不execrowETL')
+    parser.add_argument('--dry-run', action='store_true', help='onlycheckstatusstate，notexecrowETL')
     
     args = parser.parse_args()
     
     print("=" * 60)
-    print("🔧 androw补全eventfingerprint")
+    print("🔧 androwbackfilleventfingerprint")
     print("=" * 60)
     print(f"daterange: {args.start} ~ {args.end}")
     print(f"androwschedule: {args.workers} thread")
@@ -116,7 +116,7 @@ def main():
     
     # generatedatelist
     dates = get_dates_to_process(args.start, args.end)
-    print(f"总共 {len(dates)} dayneedhandleprocess")
+    print(f"总total {len(dates)} dayneedhandleprocess")
     print()
     
     # firstcheckalldatestatusstate
@@ -131,23 +131,23 @@ def main():
     # statistics
     # completewhole: fingerprintnumber >= eventnumber（package括eventnumberfor0case）
     complete = sum(1 for _, fp, evt in status_list if fp >= evt and fp >= 0 and evt >= 0)
-    # 部分: hasfingerprintbut未completewhole
+    # part: hasfingerprintbutnotcompletewhole
     partial = sum(1 for _, fp, evt in status_list if 0 < fp < evt)
-    # 空缺: haseventbutnofingerprint
+    # vacancy: haseventbutnofingerprint
     empty = sum(1 for _, fp, evt in status_list if fp == 0 and evt > 0)
     # error: queryinquiryfailed
     error = sum(1 for _, fp, evt in status_list if fp < 0 or evt < 0)
     
     print(f"statusstatestatistics:")
     print(f"  ✅ completewhole: {complete} day")
-    print(f"  ⚠️  部分: {partial} day")
-    print(f"  ❌ 空缺: {empty} day")
+    print(f"  ⚠️  part: {partial} day")
+    print(f"  ❌ vacancy: {empty} day")
     if error > 0:
         print(f"  💥 error: {error} day")
     print()
     
     if args.dry_run:
-        print("📝 干runmodelpattern，不execrowETL")
+        print("📝 干runmodelpattern，notexecrowETL")
         return
     
     # 筛selectneedhandleprocessdate

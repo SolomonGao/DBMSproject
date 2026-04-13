@@ -248,7 +248,7 @@ class GeoHeatmapInput(BaseModel):
         default=2,
         ge=1,
         le=4,
-        description="坐standardPrecision(小data位data)，越bigPrecision越high"
+        description="坐standardPrecision(小datapositiondata)，exceedbigPrecisionexceedhigh"
     )
 
 
@@ -269,7 +269,7 @@ def register_core_tools(mcp: FastMCP):
         - "ineastmilitaryconflict" → location_hint=Middle East, event_type=conflict
         - "inUSeconomic往来" → query="China US economic"
         """
-        # parseTimeHint（e.g.result没hasprovide，tryfrom query 提fetch）
+        # parseTimeHint（e.g.resultnohasprovide，tryfrom query 提fetch）
         time_hint = params.time_hint
         if not time_hint and params.query:
             # Extract time keywords from query
@@ -687,7 +687,7 @@ def register_core_tools(mcp: FastMCP):
                             if row:
                                 events.append(row)
                     
-                    # e.g.result没Has pre-computed data，real-timequerybuttrymatchfingerprinttable
+                    # e.g.resultnoHas pre-computed data，real-timequerybuttrymatchfingerprinttable
                     if not events:
                         region_condition = ""
                         query_params = [query_date]
@@ -881,7 +881,7 @@ def register_core_tools(mcp: FastMCP):
                             '04': 'consultation', '05': 'cooperation', '06': 'aid',
                             '07': 'aid', '08': 'aid', '09': 'concession',
                             '10': 'demand', '11': 'dissatisfaction', '12': 'reject',
-                            '13': 'threat', '14': 'protest', '15': '武力',
+                            '13': 'threat', '14': 'protest', '15': 'force',
                             '16': 'degrade', '17': 'force', '18': 'friction',
                             '19': 'conflict', '20': 'attack'
                         }
@@ -894,7 +894,7 @@ def register_core_tools(mcp: FastMCP):
                         actor2 = actor2 or 'Other party'
                         location_short = (location or 'notknow')[:15]  # shortenLocation
                         
-                        # 简izationTitle
+                        # simpleizationTitle
                         title = f"{actor1[:10]} vs {actor2[:10]}"
                         
                         # tablegridrow
@@ -918,7 +918,7 @@ def register_core_tools(mcp: FastMCP):
                     output.append("## Detailed Information")
                     output.append("")
                     
-                    for d in detail_list[:5]:  # only展showbefore5Details
+                    for d in detail_list[:5]:  # onlyexpandshowbefore5Details
                         output.append(f"### {d['rank']}. {d['title']} [{d['event_label']}]")
                         output.append(f"- **fingerprint**: `{d['fingerprint']}` ← Copy this ID to view details")
                         output.append(f"- **Time**: {d['date']} | **Location**: {d['location']}")
@@ -940,7 +940,7 @@ def register_core_tools(mcp: FastMCP):
     @mcp.tool()
     async def get_daily_brief(params: GetDailyBriefInput) -> str:
         """
-        Getdaily简report - categorynews-likeSummary
+        Getdailysimplereport - categorynews-likeSummary
         
         Example:
         - date="2024-01-15", format="summary"
@@ -989,7 +989,7 @@ def register_core_tools(mcp: FastMCP):
                         }
                     
                     output = []
-                    output.append(f"# 📰 {query_date} 全球Event简report")
+                    output.append(f"# 📰 {query_date} 全球Eventsimplereport")
                     output.append("")
                     
                     # one句wordsummary
@@ -1003,7 +1003,7 @@ def register_core_tools(mcp: FastMCP):
                     output.append(f"Average Goldstein Indexfor {goldstein:.2f}")
                     output.append("")
                     
-                    # according toformatreturndifferent详细程degree
+                    # according toformatreturndifferentdetailed程degree
                     if params.format == 'summary':
                         # Summary version
                         if brief and data.get('hot_event_fingerprints'):
@@ -1013,7 +1013,7 @@ def register_core_tools(mcp: FastMCP):
                                 output.append(f"- `{fp}`")
                             output.append("")
                         
-                        output.append("💡 _Use `get_hot_events` Get详细hot信info_")
+                        output.append("💡 _Use `get_hot_events` Getdetailedhotinfoinfo_")
                         
                     elif params.format == 'detailed':
                         # Detailed version
@@ -1071,7 +1071,7 @@ def register_core_tools(mcp: FastMCP):
         - Eventspecificoccurrencebecause
         - Specific demands of crowds
         - Police response
-        - Event详细背scenario
+        - Eventdetailed背scenario
         
         call this tool to search real news text in vector knowledge base。
         
@@ -1123,14 +1123,14 @@ def register_core_tools(mcp: FastMCP):
                 url = results['metadatas'][0][i].get('source_url', 'Unknown')
                 date = results['metadatas'][0][i].get('date', 'Unknown')
                 
-                # 截fetchbefore1000字符
+                # 截fetchbefore1000character
                 snippet = doc_text[:1000] + "..." if len(doc_text) > 1000 else doc_text
                 
                 output.append(f"## 📰 Result {i+1}")
                 output.append(f"- **Event ID**: {event_id}")
                 output.append(f"- **Date**: {date}")
                 output.append(f"- **Source**: {url}")
-                output.append(f"\n**within容Summary**:\n{snippet}\n")
+                output.append(f"\n**withincontentSummary**:\n{snippet}\n")
             
             return "\n".join(output)
             
@@ -1227,7 +1227,7 @@ def register_core_tools(mcp: FastMCP):
         3-5x faster than serial queries。
         
         Applicable scenarios:
-        - fast速Overview某段Timewhole体state势
+        - fast速Overviewsome段Timewhole体state势
         - Get multi-dimensional statistics
         - Dashboard display
         """
@@ -1329,10 +1329,10 @@ def register_core_tools(mcp: FastMCP):
         [Optimized] Geographic heatmap data - grid aggregation
         
         Aggregate nearby coordinates to grids, reducing frontend rendering pressure。
-        returnhot经纬degree、intensity、averageconflictvalueetc.信info。
+        returnhot经纬degree、intensity、averageconflictvalueetc.infoinfo。
         
         Applicable scenarios:
-        - inplacemapabove可视izationEventdistribution
+        - inplacemapabovecan视izationEventdistribution
         - Identify hot spot areas
         - Geographic density analysis
         """
@@ -1366,7 +1366,7 @@ def register_core_tools(mcp: FastMCP):
 {json.dumps(heatmap_data[:10], indent=2, ensure_ascii=False)}
 ```
 
-*completeData共 {len(heatmap_data)} item(s)*
+*completeDatatotal {len(heatmap_data)} item(s)*
 
 **Description**: 
 - `intensity`: 该gridwithinEventdataamount
@@ -1406,7 +1406,7 @@ def register_core_tools(mcp: FastMCP):
             async for row in service.stream_events_by_actor(
                 params.actor_name, params.start_date, params.end_date
             ):
-                # Use sanitize_text 防stop Markdown tablegridby破bad
+                # Use sanitize_text preventstop Markdown tablegridby破bad
                 lines.append(
                     f"| {sanitize_text(row.get('SQLDATE'))} | "
                     f"{sanitize_text(row.get('Actor1Name', 'N/A'))[:15]} | "
@@ -1442,13 +1442,13 @@ def sanitize_text(text) -> str:
     text = str(text)
     # remove surrogate pairs
     text = text.encode('utf-8', 'ignore').decode('utf-8')
-    # replacecontrolsystem字符
+    # replacecontrolsystemcharacter
     import unicodedata
     text = ''.join(
         char for char in text 
         if unicodedata.category(char)[0] != 'C' or char in '\n\t\r'
     )
-    # remove null bytes and Markdown tablegrid特殊字符
+    # remove null bytes and Markdown tablegrid特殊character
     text = text.replace('\x00', '').replace('|', ' ').replace('\n', ' ')
     return text.strip()
 
@@ -1635,7 +1635,7 @@ def _format_search_results_v2(rows: list, columns: list, original_query: str) ->
     
     output = [f"# 🔍 searchResult: '{original_query}'", ""]
     
-    # statisticsfingerprint覆盖situation
+    # statisticsfingerprintoverridesituation
     fp_idx = columns.index('fingerprint') if 'fingerprint' in columns else -1
     with_fingerprint = sum(1 for row in rows if fp_idx >= 0 and row[fp_idx]) if fp_idx >= 0 else 0
     output.append(f"Found {len(rows)} Related Events (of which {with_fingerprint} hasETLfingerprint)\n")
@@ -1670,7 +1670,7 @@ def _format_search_results_v2(rows: list, columns: list, original_query: str) ->
                 '04': 'consultation', '05': 'cooperation', '06': 'aid',
                 '07': 'aid', '08': 'aid', '09': 'concession',
                 '10': 'demand', '11': 'dissatisfaction', '12': 'reject',
-                '13': 'threat', '14': 'protest', '15': '武力展show',
+                '13': 'threat', '14': 'protest', '15': 'forceexpandshow',
                 '16': 'degrade', '17': 'force', '18': 'friction',
                 '19': 'conflict', '20': 'attack'
             }
@@ -1695,7 +1695,7 @@ def _format_search_results_v2(rows: list, columns: list, original_query: str) ->
         output.append("")
     
     output.append("💡 **Hint**: Use `get_event_detail(fingerprint='...')` ViewEventDetails")
-    output.append("📌 Standard fingerprint：ETLalreadyhandleprocess，信infocomplete | 📝 Temporary fingerprint：real-timegenerate，basic信info")
+    output.append("📌 Standard fingerprint：ETLalreadyhandleprocess，infoinfocomplete | 📝 Temporary fingerprint：real-timegenerate，basicinfoinfo")
     return "\n".join(output)
 
 
@@ -1743,7 +1743,7 @@ def _format_regional_overview_precomputed(rows: list, region: str,
     if include_risks:
         output.append("## ⚠️ Risk Assessment")
         if intensity > 7:
-            output.append("- **High risk**: conflictintensity持续high位")
+            output.append("- **High risk**: conflictintensity持续highposition")
         elif intensity > 5:
             output.append("- **Medium risk**: Local conflicts occur from time to time")
         else:

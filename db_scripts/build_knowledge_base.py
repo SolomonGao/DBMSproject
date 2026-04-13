@@ -25,14 +25,14 @@ DB_CONFIG = {
 }
 
 BATCH_SIZE = 100  
-# 🎯 将project标callbackbig，For example, this time we set a 2000 篇小project标
+# 🎯 willprojectmarkcallbackbig，For example, this time we set a 2000 article小projectmark
 TOTAL_TARGET = 300000 
 
-# new增：used forsaveprogressthislocationfile
+# newincrease：used forsaveprogressthislocationfile
 PROGRESS_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), 'sync_progress.txt'))
 
 def get_last_offset():
-    """readupload一timeprocesstodatabaserow count"""
+    """readuploadonetimeprocesstodatabaserow count"""
     if os.path.exists(PROGRESS_FILE):
         with open(PROGRESS_FILE, 'r') as f:
             return int(f.read().strip())
@@ -47,7 +47,7 @@ def save_offset(offset):
 # 2. core函number定义
 # ==========================================
 def init_chromadb():
-    """initialstartization ChromaDB 和towardamountmodel"""
+    """initialstartization ChromaDB andtowardamountmodel"""
     logging.info("🚀 initialstartization ChromaDB towardamountdatabase...")
     # 确save放在project根directoryunder chroma_db filefolderin
     db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../chroma_db'))
@@ -113,7 +113,7 @@ async def main():
     
     # 🌟 corechange动：从fileinreaduploadtimeprogress
     current_offset = get_last_offset()
-    logging.info(f"🔄 detectto历史progress，thistime将从database第 {current_offset} rowstartfetch。")
+    logging.info(f"🔄 detectto历史progress，thistimewill从database第 {current_offset} rowstartfetch。")
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -122,7 +122,7 @@ async def main():
                 records = await fetch_urls_batch(pool, BATCH_SIZE, current_offset)
                 
                 if not records:
-                    logging.info("databasein没hasupdatemultirecordlog了，all URL alreadyprocesscomplete毕！")
+                    logging.info("databaseinnohasupdatemultirecordlog了，all URL alreadyprocesscomplete毕！")
                     break
                 
                 # createandsendfetchtask
@@ -138,20 +138,20 @@ async def main():
                     
                     collection.upsert(documents=texts, metadatas=metadatas, ids=ids)
                     total_saved += len(valid_docs)
-                    logging.info(f"✅ batchcompleted！successfetchandvectorize {len(valid_docs)} 篇file章。(Cumulative storage for this run: {total_saved}/{TOTAL_TARGET})")
+                    logging.info(f"✅ batchcompleted！successfetchandvectorize {len(valid_docs)} articlefile章。(Cumulative storage for this run: {total_saved}/{TOTAL_TARGET})")
                 else:
-                    logging.warning("⚠️ thisbatchall链receivefetchfailed，continueunder一批。")
+                    logging.warning("⚠️ thisbatchall链receivefetchfailed，continueunderone批。")
                 
                 total_processed += len(records)
                 current_offset += BATCH_SIZE
                 
-                # 🌟 corechange动：eachcompleted一batch，就save一timeprogress
+                # 🌟 corechange动：eachcompletedonebatch，就saveonetimeprogress
                 save_offset(current_offset)
 
     finally:
         pool.close()
         await pool.wait_closed()
-        logging.info(f"🎉 taskend！thistime共process链receive: {total_processed}，successinputlibraryfilethis: {total_saved} 篇。mostnew Offset alreadysavefor {current_offset}。")
+        logging.info(f"🎉 taskend！thistimetotalprocess链receive: {total_processed}，successinputlibraryfilethis: {total_saved} article。mostnew Offset alreadysavefor {current_offset}。")
 
 if __name__ == "__main__":
     import sys

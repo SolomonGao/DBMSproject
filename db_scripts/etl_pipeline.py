@@ -2,12 +2,12 @@
 """
 GDELT ETL Pipeline
 Purpose: precalculatedayreportdata、generate event fingerprints、updatestatisticsdata
-runfrequency: eachday一time（build议凌晨2point）
+runfrequency: eachdayonetime（build议凌晨2point）
 
 Usage:
     python db_scripts/etl_pipeline.py [YYYY-MM-DD]
     
-    不transmitarguments则process昨daydata
+    nottransmitarguments则process昨daydata
 """
 
 import asyncio
@@ -56,7 +56,7 @@ class GDELTETLPipeline:
         runeachdayETLtask
         
         Args:
-            target_date: project标date (YYYY-MM-DD)，default昨day
+            target_date: projectmarkdate (YYYY-MM-DD)，default昨day
         """
         if target_date is None:
             target_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
@@ -105,7 +105,7 @@ class GDELTETLPipeline:
         """generate daily digesttable"""
         logger.info(f"📊 generatedayreport: {date}")
         
-        # statistics基础data
+        # statisticsbasicdata
         stats = await self.pool.fetchone("""
             SELECT 
                 COUNT(*) as total_events,
@@ -222,7 +222,7 @@ class GDELTETLPipeline:
         """forneweventgeneratefingerprint"""
         logger.info(f"🔖 generate event fingerprints: {date}")
         
-        # fetchwhenday尚未generatefingerprintevent（batchprocess）
+        # fetchwhenday尚notgeneratefingerprintevent（batchprocess）
         total_processed = 0
         batch_size = 5000
         
@@ -271,7 +271,7 @@ class GDELTETLPipeline:
             if len(batch) < batch_size:
                 break
         
-        logger.info(f"  ✓ 总共generate {total_processed} fingerprint")
+        logger.info(f"  ✓ 总totalgenerate {total_processed} fingerprint")
     
     def _create_fingerprint(self, evt: Dict) -> Tuple:
         """
@@ -315,12 +315,12 @@ class GDELTETLPipeline:
         }
         event_type = type_map.get(event_root, 'EVENT')
         
-        # 序号 (基于GIDmostafter3位)
+        # 序号 (基于GIDmostafter3position)
         seq = str(gid)[-3:].zfill(3)
         
         fingerprint = f"{country}-{date_str}-{location_code}-{event_type}-{seq}"
         
-        # generate可read标题
+        # generatecanreadmark题
         headline = self._generate_headline(actor1, actor2, event_root, location)
         
         # generatedigest
@@ -332,7 +332,7 @@ class GDELTETLPipeline:
         # eventtypetag
         event_label = self._get_event_label(event_root)
         
-        # 严重schedule评分 (1-10)
+        # seriousschedule评分 (1-10)
         severity = min(10, max(1, abs(goldstein) * 2))
         if articles > 100:
             severity += 1
@@ -346,25 +346,25 @@ class GDELTETLPipeline:
     
     def _generate_headline(self, actor1: str, actor2: str, 
                           event_root: str, location: str) -> str:
-        """generateevent标题"""
+        """generateeventmark题"""
         a1 = actor1 or 'some country'
         a2 = actor2 or 'objectmethod'
-        loc = location or '某location'
+        loc = location or 'somelocation'
         
         action_map = {
             '01': f"{a1}sendtable声clear", '02': f"{a1}toward{a2}呼吁",
             '03': f"{a1}table达意graph", '04': f"{a1}and{a2}磋商",
             '05': f"{a1}paramand{a2}事务", '06': f"{a1}toward{a2}提供物资",
-            '07': f"{a1}toward{a2}提供援助", '08': f"{a1}toward{a2}提供援助",
-            '09': f"{a1}toward{a2}让step", '10': f"{a1}toward{a2}提outputwant求",
-            '11': f"{a1}object{a2}tableshow不满", '12': f"{a1}拒绝{a2}",
-            '13': f"{a1}威胁{a2}", '14': f"{a1}send起抗议",
-            '15': f"{a1}展show武力", '16': f"{a1}reduceobject{a2}关系",
-            '17': f"{a1}胁迫{a2}", '18': f"{a1}and{a2}occur摩擦",
-            '19': f"{a1}and{a2}occurconflict", '20': f"{a1}object{a2}use武力"
+            '07': f"{a1}toward{a2}provide aid", '08': f"{a1}toward{a2}provide aid",
+            '09': f"{a1}toward{a2}letstep", '10': f"{a1}toward{a2}提outputwantrequest",
+            '11': f"{a1}object{a2}tableshownot满", '12': f"{a1}reject{a2}",
+            '13': f"{a1}threat{a2}", '14': f"{a1}send起protest",
+            '15': f"{a1}expandshowforce", '16': f"{a1}reduceobject{a2}relationship",
+            '17': f"{a1}coerce{a2}", '18': f"{a1}and{a2}occur摩擦",
+            '19': f"{a1}and{a2}occurconflict", '20': f"{a1}object{a2}useforce"
         }
         
-        action = action_map.get(event_root, f"{a1}and{a2}互动")
+        action = action_map.get(event_root, f"{a1}and{a2}interaction")
         
         if loc and loc not in [a1, a2]:
             return f"{action} ({loc})"
@@ -375,33 +375,33 @@ class GDELTETLPipeline:
         """generateeventdigest"""
         a1 = actor1 or 'some country'
         a2 = actor2 or 'objectmethod'
-        loc = location or '某location'
+        loc = location or 'somelocation'
         
-        intensity = "轻微"
+        intensity = "slight"
         if goldstein:
             if abs(goldstein) > 7:
-                intensity = "严重"
+                intensity = "serious"
             elif abs(goldstein) > 4:
                 intensity = "in等"
         
         coverage = ""
         if articles > 100:
-            coverage = f"，receivewidespreadreport({articles}篇)"
+            coverage = f"，receivewidespreadreport({articles}article)"
         elif articles > 10:
-            coverage = f"，receivecertainreport({articles}篇)"
+            coverage = f"，receivecertainreport({articles}article)"
         
-        return f"{a1}and{a2}在{loc}occur{intensity}互动{coverage}。"
+        return f"{a1}and{a2}在{loc}occur{intensity}interaction{coverage}。"
     
     def _get_event_label(self, event_root: str) -> str:
         """fetcheventtypetag"""
         labels = {
             '01': 'outside交声clear', '02': 'outside交呼吁', '03': '政策意toward',
-            '04': 'outside交磋商', '05': 'paramand合job', '06': '物资援助',
-            '07': '人员援助', '08': '保护援助', '09': '让step缓和',
-            '10': '提outputwant求', '11': 'table达不满', '12': '拒绝反object',
-            '13': '威胁warning', '14': '抗议show威', '15': '展show武力',
-            '16': '关系downgrade', '17': '强system胁迫', '18': '军事摩擦',
-            '19': 'big规modelconflict', '20': '武装攻击'
+            '04': 'outside交磋商', '05': 'paramand合job', '06': '物资aid',
+            '07': '人员aid', '08': '保护aid', '09': 'letstep缓and',
+            '10': '提outputwantrequest', '11': 'table达not满', '12': 'reject反object',
+            '13': 'threatwarning', '14': 'protestshow威', '15': 'expandshowforce',
+            '16': 'relationshipdowngrade', '17': 'strongsystemcoerce', '18': 'military摩擦',
+            '19': 'big规modelconflict', '20': '武装attack'
         }
         return labels.get(event_root, '其他event')
     
@@ -448,9 +448,9 @@ class GDELTETLPipeline:
                 ))
                 updated += 1
             except Exception as e:
-                logger.warning(f"    skiplocation区 {r['region']}: {e}")
+                logger.warning(f"    skiplocationarea {r['region']}: {e}")
         
-        logger.info(f"  ✓ update {updated} location区")
+        logger.info(f"  ✓ update {updated} locationarea")
     
     async def _update_geo_grid(self, date: str):
         """update geo gridhot"""
@@ -522,7 +522,7 @@ class GDELTETLPipeline:
         else:
             gids = hot_fingerprints_data
         
-        # 将GIDconvertforfingerprint
+        # willGIDconvertforfingerprint
         fingerprints = []
         for gid in gids[:10]:
             fp_result = await self.pool.fetchone("""
