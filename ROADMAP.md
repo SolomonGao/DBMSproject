@@ -47,7 +47,7 @@ Phase 5: 智能增强         ⏸️ 待开始 (2周)
 - [x] **SQL查询缓存**: LRU + TTL 双机制缓存
 - [x] **并行查询优化**: 5查询并发执行（get_dashboard）
 - [x] **流式查询**: 大数据量分块读取，内存友好
-- [x] **空间-时间叙事**: 多跳推理、因果链分析
+- [ ] **空间-时间叙事**: 多跳推理、因果链分析（系统提示词已集成，自动因果推理Pipeline待Phase 5实现）
 - [x] 工具集整合优化（18个工具）
 - [x] **工具间关联增强**: search_events → get_event_detail → search_news_context 完整链路
 - [x] **指纹系统集成**: search_events JOIN event_fingerprints，优先返回有ETL指纹的事件
