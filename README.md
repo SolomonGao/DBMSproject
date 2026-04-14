@@ -165,7 +165,7 @@ http://localhost:8080/chat
 │                       数据层 (Data Layer)                        │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
 │  │  MySQL 8.0   │  │  ChromaDB    │  │   ETL Pipeline       │   │
-│  │              │  │  (Vector)    │  │   (Daily @ 2AM)      │   │
+│  │              │  │  (Vector)    │  │                      │   │
 │  │ • events     │  │              │  │                      │   │
 │  │ • daily_     │  │ • news_      │  │ • 预计算表生成        │   │
 │  │   summary    │  │   collection │  │ • 事件指纹生成        │   │
