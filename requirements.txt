@@ -9,6 +9,9 @@ fastmcp>=1.0.0
 openai>=1.55.0
 google-generativeai>=0.8.0  # Gemini
 
+# HTTP Client (for Router)
+aiohttp>=3.9.0
+
 # Configuration
 python-dotenv>=1.0.0
 
@@ -20,5 +23,10 @@ mysql-connector-python
 python-dotenv
 numpy
 tabulate
+aiohttp
+beautifulsoup4
+aiomysql
+chromadb
+sentence-transformers
 # Optional: YAML config support
 # pyyaml>=6.0

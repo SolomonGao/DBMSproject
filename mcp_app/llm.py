@@ -1,14 +1,15 @@
-# llm.py - LLM 接口模块
+# llm.py - LLM Interface Module
 """
-LLM 客户端：
-- 使用 OpenAI 客户端封装
-- 通过 http_client 传递伪装 headers
-- 工具调用处理
-- 对话历史管理
+LLM Client:
+- Using OpenAI client wrapper
+- Pass spoofing headers via http_client
+- Tool calling handling
+- Conversation history management
 """
 
 import asyncio
 import json
+import re
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 
 import httpx
@@ -21,31 +22,31 @@ logger = get_logger("llm")
 
 def sanitize_text(text: str) -> str:
     """
-    清理文本中的非法 UTF-8 字符 (surrogate pairs)
+    Clean illegal UTF-8 characters (surrogate pairs) from text
     
-    这些字符无法被 JSON/UTF-8 编码，会导致 API 调用失败。
+    These characters cannot be encoded by JSON/UTF-8 and will cause API call failures.
     """
     if not isinstance(text, str):
         text = str(text)
     
-    # 移除 surrogate pairs (U+D800-U+DFFF)
+    # Remove surrogate pairs (U+D800-U+DFFF)
     text = text.encode('utf-8', 'ignore').decode('utf-8')
     
-    # 替换控制字符（保留正常换行和制表符）
+    # Replace control characters (keep normal newlines and tabs)
     import unicodedata
     text = ''.join(
         char for char in text 
         if unicodedata.category(char)[0] != 'C' or char in '\n\t\r'
     )
     
-    # 移除 null bytes
+    # Remove null bytes
     text = text.replace('\x00', '')
     
     return text
 
 
 class LLMClient:
-    """LLM 客户端 - 使用 OpenAI 封装，伪装成 Claude Code"""
+    """LLM Client - Using OpenAI wrapper, disguised as Claude Code"""
     
     def __init__(
         self,
@@ -64,8 +65,8 @@ class LLMClient:
         self.temperature = temperature
         self.max_tokens = max_tokens
         
-        # 初始化 OpenAI 客户端
-        # 使用 default_headers 伪装成 Claude Code
+        # Initialize OpenAI client
+        # Use default_headers to disguise as Claude Code
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -78,103 +79,104 @@ class LLMClient:
         
         self.messages: List[Dict[str, Any]] = []
         
-        logger.debug(f"初始化 LLMClient: provider={provider}, model={model}")
+        logger.debug(f"Initializing LLMClient: provider={provider}, model={model}")
     
     def add_system_message(self, content: str):
-        """添加系统消息"""
+        """Add system message"""
         content = sanitize_text(content)
         self.messages.append({"role": "system", "content": content})
-        logger.debug(f"添加系统消息: {content[:50]}...")
+        logger.debug(f"Added system message: {content[:50]}...")
     
     def add_user_message(self, content: str):
-        """添加用户消息"""
+        """Add user message"""
         content = sanitize_text(content)
         self.messages.append({"role": "user", "content": content})
-        logger.debug(f"添加用户消息: {content[:50]}...")
+        logger.debug(f"Added user message: {content[:50]}...")
     
     def add_assistant_message(self, content: str):
-        """添加助手消息"""
+        """Add assistant message"""
         content = sanitize_text(content)
         self.messages.append({"role": "assistant", "content": content})
     
     def add_tool_result(self, tool_call_id: str, content: str):
-        """添加工具调用结果"""
+        """Add tool call result"""
         if not tool_call_id:
-            logger.error("尝试添加空的 tool_call_id，跳过")
+            logger.error("Attempted to add empty tool_call_id, skipping")
             return
         
         content = sanitize_text(content)
-        # 确保 tool_call_id 不被修改（API 要求完全匹配）
+        # Ensure tool_call_id is not modified (API requires exact match)
         self.messages.append({
             "role": "tool",
             "tool_call_id": tool_call_id,
             "content": content
         })
-        logger.debug(f"添加工具结果 [{tool_call_id}]: {content[:50]}...")
+        logger.debug(f"Added tool result [{tool_call_id}]: {content[:50]}...")
     
     def clear_history(self, keep_system: bool = True):
-        """清空对话历史"""
+        """Clear conversation history"""
         if keep_system:
             system_msgs = [m for m in self.messages if m["role"] == "system"]
             self.messages = system_msgs
-            logger.info("对话历史已清空（保留系统消息）")
+            logger.info("Conversation history cleared (system messages kept)")
         else:
             self.messages.clear()
-            logger.info("对话历史已完全清空")
+            logger.info("Conversation history completely cleared")
     
     def get_history_length(self) -> int:
-        """获取对话历史长度"""
+        """Get conversation history length"""
         return len(self.messages)
     
     def truncate_history(self, max_messages: int = 10, keep_system: bool = True):
         """
-        截断对话历史，只保留最近 N 条
+        Truncate conversation history, keep only recent N messages
         
         Args:
-            max_messages: 保留的最大消息数（不含系统消息）
-            keep_system: 是否保留系统消息
+            max_messages: Maximum number of messages to keep (excluding system messages)
+            keep_system: Whether to keep system messages
         """
         system_msgs = [m for m in self.messages if m["role"] == "system"] if keep_system else []
         non_system_msgs = [m for m in self.messages if m["role"] != "system"]
         
-        # 只保留最近 N 条非系统消息
+        # Keep only recent N non-system messages
         if len(non_system_msgs) > max_messages:
             kept_msgs = non_system_msgs[-max_messages:]
             self.messages = system_msgs + kept_msgs
-            logger.info(f"历史已截断: 保留最近 {max_messages} 条消息")
+            logger.info(f"History truncated: keeping recent {max_messages} messages")
         
         return len(self.messages)
     
     async def chat(
         self,
         tools: Optional[List[Dict]] = None,
-        tool_executor: Optional[Callable[[str, Dict], Awaitable[str]]] = None
+        tool_executor: Optional[Callable[[str, Dict], Awaitable[str]]] = None,
+        on_step: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ) -> str:
         """
-        发送对话请求
+        Send chat request
         
         Args:
-            tools: 可用工具列表
-            tool_executor: 工具执行函数
+            tools: Available tools list
+            tool_executor: Tool execution function
         
         Returns:
-            AI 回复内容
+            AI reply content
         """
         try:
-            # 验证消息格式（特别是 tool 消息必须有 tool_call_id）
+            # Validate message format (especially tool messages must have tool_call_id)
             valid_messages = []
             for i, msg in enumerate(self.messages):
                 if msg.get("role") == "tool":
                     if not msg.get("tool_call_id"):
-                        logger.error(f"第 {i} 条 tool 消息缺少 tool_call_id，跳过")
+                        logger.error(f"Message {i} is a tool message missing tool_call_id, skipping")
                         continue
                 valid_messages.append(msg)
             
             if len(valid_messages) != len(self.messages):
-                logger.warning(f"过滤了 {len(self.messages) - len(valid_messages)} 条无效消息")
+                logger.warning(f"Filtered {len(self.messages) - len(valid_messages)} invalid messages")
                 self.messages = valid_messages
             
-            logger.info(f"发送请求到 {self.provider} (历史消息: {len(self.messages)}条)")
+            logger.info(f"Sending request to {self.provider} (history: {len(self.messages)} messages)")
             
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -187,34 +189,58 @@ class LLMClient:
             
             message = response.choices[0].message
             
-            # 处理工具调用
+            # Handle tool calls
             if message.tool_calls and tool_executor:
-                return await self._handle_tool_calls(message, tools, tool_executor)
+                return await self._handle_tool_calls(message, tools, tool_executor, on_step)
             
-            # 普通回复
+            # Normal reply
             content = message.content or ""
             
-            # Kimi 特有的 reasoning_content
+            # Kimi specific reasoning_content
             if hasattr(message, "reasoning_content") and message.reasoning_content:
-                logger.debug(f"模型思考过程: {message.reasoning_content[:100]}...")
+                logger.debug(f"Model reasoning: {message.reasoning_content[:100]}...")
+                if on_step:
+                    on_step("llm_reasoning", {"reasoning": message.reasoning_content})
+                # Fallback: if content is empty but reasoning exists, use reasoning as reply
+                if not content.strip():
+                    content = message.reasoning_content
+            
+            # Backend force execution for high-likelihood tools when LLM returns empty
+            if not content.strip() and tools and tool_executor:
+                recent_user_msg = ""
+                for msg in reversed(self.messages):
+                    if msg.get("role") == "user":
+                        recent_user_msg = msg.get("content", "")
+                        break
+                
+                force_result = await self._try_force_tool_execution(
+                    tools, tool_executor, recent_user_msg, on_step
+                )
+                if force_result:
+                    return force_result
+            
+            # Final fallback for completely empty responses
+            if not content.strip():
+                content = "(The model returned an empty response. Please try rephrasing your question.)"
             
             self.add_assistant_message(content)
-            logger.info(f"收到回复: {content[:100]}{'...' if len(content) > 100 else ''}")
+            logger.info(f"Received reply: {content[:100]}{'...' if len(content) > 100 else ''}")
             
             return content
             
         except Exception as e:
-            logger.exception(f"LLM API 错误: {e}")
-            return f"LLM 请求失败: {e}"
+            logger.exception(f"LLM API error: {e}")
+            return f"LLM request failed: {e}"
     
     async def _handle_tool_calls(
         self,
         message,
         tools: Optional[List[Dict]],
-        tool_executor: Callable[[str, Dict], Awaitable[str]]
+        tool_executor: Callable[[str, Dict], Awaitable[str]],
+        on_step: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ) -> str:
-        """处理工具调用"""
-        # 构建助手的工具调用请求消息
+        """Handle tool calls"""
+        # Build assistant's tool call request message
         assistant_msg = {
             "role": "assistant",
             "content": message.content or "",
@@ -231,42 +257,63 @@ class LLMClient:
             ]
         }
         
-        # 如果启用了 thinking 功能，需要包含 reasoning_content
+        # If thinking feature is enabled, need to include reasoning_content
         if hasattr(message, "reasoning_content") and message.reasoning_content:
             assistant_msg["reasoning_content"] = message.reasoning_content
-            logger.debug(f"工具调用思考过程: {message.reasoning_content[:100]}...")
+            logger.debug(f"Tool call reasoning: {message.reasoning_content[:100]}...")
         
         self.messages.append(assistant_msg)
         
-        logger.info(f"AI 请求调用 {len(message.tool_calls)} 个工具")
+        logger.info(f"AI requests to call {len(message.tool_calls)} tools")
         
-        # 并行执行工具调用
+        if on_step:
+            on_step("tool_calls", {
+                "tools": [
+                    {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                    for tc in message.tool_calls
+                ]
+            })
+        
+        # Execute tool calls in parallel
         async def execute_single_tool(tool_call):
-            """执行单个工具调用"""
+            """Execute single tool call"""
             tool_name = tool_call.function.name
             tool_args = json.loads(tool_call.function.arguments)
             
-            logger.info(f"[并行] 调用工具: {tool_name}")
-            logger.debug(f"参数: {json.dumps(tool_args, ensure_ascii=False)}")
+            logger.info(f"[Parallel] Calling tool: {tool_name}")
+            logger.debug(f"Arguments: {json.dumps(tool_args, ensure_ascii=False)}")
+            
+            if on_step:
+                on_step("tool_call_start", {"name": tool_name, "arguments": tool_args})
             
             start_time = asyncio.get_event_loop().time()
             result = await tool_executor(tool_name, tool_args)
             elapsed = asyncio.get_event_loop().time() - start_time
             
-            logger.info(f"[并行] 工具 {tool_name} 返回 ({elapsed:.2f}s): {result[:80]}{'...' if len(result) > 80 else ''}")
+            logger.info(f"[Parallel] Tool {tool_name} returned ({elapsed:.2f}s): {result[:80]}{'...' if len(result) > 80 else ''}")
+            
+            if on_step:
+                on_step("tool_result", {
+                    "name": tool_name,
+                    "elapsed": round(elapsed, 2),
+                    "result_preview": result[:200] + ("..." if len(result) > 200 else "")
+                })
             
             return tool_call.id, result
         
-        # 并行执行所有工具
+        # Execute all tools in parallel
         results = await asyncio.gather(*[
             execute_single_tool(tc) for tc in message.tool_calls
         ])
         
-        # 按原始顺序添加结果（保持 tool_call_id 对应）
+        # Add results in original order (maintain tool_call_id correspondence)
         for tool_call in message.tool_calls:
             tc_id_to_match = tool_call.id
             if not tc_id_to_match:
-                logger.error("工具调用 ID 为空，跳过")
+                logger.error("Tool call ID is empty, skipping")
                 continue
             
             for tc_id, result in results:
@@ -274,14 +321,154 @@ class LLMClient:
                     self.add_tool_result(tc_id_to_match, result)
                     break
             else:
-                # 没有找到匹配的结果
-                logger.error(f"未找到工具调用结果: {tc_id_to_match}")
-                self.add_tool_result(tc_id_to_match, "工具执行失败：未找到结果")
+                # No matching result found
+                logger.error(f"Tool call result not found: {tc_id_to_match}")
+                self.add_tool_result(tc_id_to_match, "Tool execution failed: result not found")
         
-        # 再次请求获取最终回复
-        return await self.chat(tools=None, tool_executor=None)
+        # Request again to get final reply
+        final_reply = await self.chat(tools=None, tool_executor=None, on_step=on_step)
+        if not final_reply.strip():
+            final_reply = "(The model returned an empty response after tool execution. Please try again.)"
+        return final_reply
+    
+    async def _try_force_tool_execution(
+        self,
+        tools: List[Dict],
+        tool_executor: Callable[[str, Dict], Awaitable[str]],
+        user_input: str,
+        on_step: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> Optional[str]:
+        """Try to force-execute a tool when LLM returns empty response.
+        
+        Returns the final LLM-generated summary if successful, None otherwise.
+        """
+        tool_names = [t.get("function", {}).get("name") for t in tools if t.get("function", {}).get("name")]
+        
+        # Priority order: easy-to-infer args first
+        for target in ["get_event_detail", "get_daily_brief", "get_hot_events", 
+                       "search_news_context", "get_regional_overview", "get_top_events"]:
+            if target not in tool_names:
+                continue
+            
+            args: Optional[Dict] = None
+            
+            if target == "get_event_detail":
+                match = re.search(r'(?:EVT|US)-\d{4}(?:-\d{2}-\d{2})?-[A-Z]*-*\d+', user_input)
+                if match:
+                    args = {"fingerprint": match.group(0), "include_causes": True}
+            
+            elif target in ("get_daily_brief", "get_hot_events"):
+                args = {}  # all optional
+            
+            elif target == "search_news_context":
+                if user_input.strip():
+                    args = {"query": user_input.strip()[:200], "n_results": 3}
+            
+            elif target == "get_regional_overview":
+                region = self._extract_region(user_input)
+                if region:
+                    args = {"region": region}
+            
+            elif target == "get_top_events":
+                dates = self._extract_month_range(user_input) or self._extract_year_range(user_input)
+                if dates:
+                    args = {"start_date": dates[0], "end_date": dates[1]}
+                    region = self._extract_region(user_input)
+                    if region:
+                        args["region_filter"] = region
+            
+            if args is None:
+                continue
+            
+            logger.warning(f"Backend forcing {target} with args {args}")
+            if on_step:
+                on_step("backend_force_execution", {"tool": target, "inferred_args": args})
+            try:
+                result = await tool_executor(target, args)
+                self.add_assistant_message(f"I have executed {target} for you.")
+                self.add_user_message(
+                    f"Here is the raw result:\n{result}\n\n"
+                    "Please summarize this in a clear, concise way for the user."
+                )
+                return await self.chat(tools=None, tool_executor=None, on_step=on_step)
+            except Exception as exc:
+                logger.exception(f"Forced {target} execution failed: {exc}")
+                # Try next tool instead of giving up immediately
+                continue
+        
+        return None
+    
+    @staticmethod
+    def _extract_region(text: str) -> Optional[str]:
+        """Extract common region names from user input."""
+        text_lower = text.lower()
+        regions = [
+            ("middle east", "Middle East"),
+            ("new york", "New York"),
+            ("washington", "Washington"),
+            ("california", "California"),
+            ("texas", "Texas"),
+            ("florida", "Florida"),
+            ("china", "China"),
+            ("russia", "Russia"),
+            ("ukraine", "Ukraine"),
+            ("israel", "Israel"),
+            ("palestine", "Palestine"),
+            ("europe", "Europe"),
+            ("asia", "Asia"),
+            ("africa", "Africa"),
+            ("north america", "North America"),
+            ("south america", "South America"),
+            ("mexico", "Mexico"),
+            ("canada", "Canada"),
+            ("united states", "United States"),
+            ("usa", "USA"),
+            ("us", "US"),
+            ("uk", "UK"),
+            ("britain", "UK"),
+            ("france", "France"),
+            ("germany", "Germany"),
+            ("japan", "Japan"),
+            ("india", "India"),
+            ("brazil", "Brazil"),
+            ("australia", "Australia"),
+        ]
+        for keyword, region_name in regions:
+            if keyword in text_lower:
+                return region_name
+        return None
+    
+    @staticmethod
+    def _extract_year_range(text: str) -> Optional[tuple[str, str]]:
+        """Extract year and return full date range."""
+        match = re.search(r'\b(20\d{2})\b', text)
+        if match:
+            year = match.group(1)
+            return (f"{year}-01-01", f"{year}-12-31")
+        return None
+    
+    @staticmethod
+    def _extract_month_range(text: str) -> Optional[tuple[str, str]]:
+        """Extract month-year and return that month's date range."""
+        import calendar
+        month_map = {
+            'january': 1, 'february': 2, 'march': 3, 'april': 4,
+            'may': 5, 'june': 6, 'july': 7, 'august': 8,
+            'september': 9, 'october': 10, 'november': 11, 'december': 12
+        }
+        pattern = r'\b(' + '|'.join(month_map.keys()) + r')\s+(20\d{2})\b'
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            month = month_map[match.group(1).lower()]
+            year = int(match.group(2))
+            last_day = calendar.monthrange(year, month)[1]
+            return (f"{year}-{month:02d}-01", f"{year}-{month:02d}-{last_day}")
+        return None
     
     async def close(self):
-        """关闭 LLM 客户端连接"""
+        """Close LLM client connection"""
         if hasattr(self, 'client'):
-            await self.client.close()
+            try:
+                await self.client.close()
+            except Exception as e:
+                logger.warning(f"Error closing LLM client: {e}")

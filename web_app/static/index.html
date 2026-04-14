@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GDELT Chat Workspace</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css?v=2">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="sidebar__brand">
+                <p class="eyebrow">Virginia Tech DBMS Project</p>
+                <h1>GDELT Chat Workspace</h1>
+                <p class="sidebar__summary">
+                    A ChatGPT-style frontend that plugs directly into your existing MCP and LLM analysis workflow.
+                </p>
+            </div>
+
+            <button id="newChatButton" class="primary-button primary-button--full" type="button">
+                New Chat
+            </button>
+
+            <div class="sidebar__section">
+                <div class="section-heading">
+                    <span>Recent Chats</span>
+                    <button id="clearAllButton" class="ghost-button" type="button">Clear Local History</button>
+                </div>
+                <div id="sessionList" class="session-list"></div>
+            </div>
+
+            <div class="sidebar__footer">
+                <p id="statusLine">Checking server status...</p>
+                <a href="/" class="text-link">Back to Project Home</a>
+            </div>
+        </aside>
+
+        <main class="workspace">
+            <header class="workspace__header">
+                <div>
+                    <p class="eyebrow">Interactive Analysis</p>
+                    <h2 id="conversationTitle">New Chat</h2>
+                </div>
+
+                <div class="header-actions">
+                    <div id="modelBadge" class="model-badge">Waiting</div>
+                    <button id="resetConversationButton" class="ghost-button" type="button">Clear Current Chat</button>
+                </div>
+            </header>
+
+            <section id="emptyState" class="empty-state">
+                <div class="empty-state__panel">
+                    <p class="eyebrow">Start With A Prompt</p>
+                    <h3>Query the event database, compare trends, or trace how an event developed using natural language.</h3>
+                    <p class="empty-state__copy">
+                        The frontend keeps local chat history, while the backend continues using your current model settings and MCP tools.
+                    </p>
+                </div>
+
+                <div class="prompt-grid">
+                    <button class="prompt-card" type="button" data-prompt="Summarize major conflict-related events in Mexico during August 2024.">
+                        <span>Event Summary</span>
+                        <strong>Summarize the major conflict-related events in Mexico during August 2024</strong>
+                    </button>
+                    <button class="prompt-card" type="button" data-prompt="Compare cooperation versus conflict trends between the United States and Canada in 2024.">
+                        <span>Trend Comparison</span>
+                        <strong>Compare cooperation versus conflict trends between the United States and Canada in 2024</strong>
+                    </button>
+                    <button class="prompt-card" type="button" data-prompt="Trace the lead-up to a target event in New York and identify the key actors involved.">
+                        <span>Causal Trace</span>
+                        <strong>Trace the lead-up to a target event in New York and identify the key actors involved</strong>
+                    </button>
+                </div>
+            </section>
+
+            <section id="messageList" class="message-list" aria-live="polite"></section>
+
+            <section class="composer">
+                <div id="errorBanner" class="error-banner" hidden></div>
+                <div id="thinkingBanner" class="thinking-banner" hidden>
+                    <span class="thinking-banner__spinner"></span>
+                    <span id="thinkingBannerText">Thinking...</span>
+                    <span id="thinkingBannerTime"></span>
+                </div>
+
+                <div class="composer__box">
+                    <textarea
+                        id="composerInput"
+                        rows="1"
+                        placeholder="Ask something like: Analyze the chain of events leading up to a regional escalation in 2024"
+                    ></textarea>
+                    <button id="sendButton" class="primary-button" type="button">Send</button>
+                </div>
+
+                <div class="composer__meta">
+                    <span>Press Enter to send, Shift + Enter for a new line</span>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <template id="messageTemplate">
+        <article class="message">
+            <div class="message__avatar"></div>
+            <div class="message__body">
+                <div class="message__meta">
+                    <span class="message__role"></span>
+                    <time class="message__time"></time>
+                </div>
+                <div class="message__content"></div>
+            </div>
+        </article>
+    </template>
+
+    <template id="typingTemplate">
+        <article class="message message--assistant message--typing">
+            <div class="message__avatar">AI</div>
+            <div class="message__body">
+                <div class="message__meta">
+                    <span class="message__role">Assistant</span>
+                    <span class="message__time">Working</span>
+                </div>
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        </article>
+    </template>
+
+    <template id="thinkingTemplate">
+        <details class="thinking-process">
+            <summary class="thinking-process__summary">Thinking Process</summary>
+            <div class="thinking-process__content"></div>
+        </details>
+    </template>
+
+    <script src="/static/app.js?v=2" defer></script>
+</body>
+</html>

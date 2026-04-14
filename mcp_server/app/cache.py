@@ -1,8 +1,8 @@
 """
-查询缓存模块
+Query Cache Module
 
-提供 LRU + TTL 缓存机制，减少重复查询数据库。
-使用 orjson 进行高速序列化。
+Provides LRU + TTL caching mechanism to reduce repeated database queries.
+Uses orjson for high-speed serialization.
 """
 
 import asyncio
@@ -13,7 +13,7 @@ from functools import wraps
 from typing import Any, Callable, Optional
 from datetime import datetime, timedelta
 
-# 尝试使用 orjson，回退到标准库
+# Try to use orjson, fallback to standard library
 try:
     import orjson as json_module
     JSON_OPTS = json_module.OPT_SERIALIZE_NUMPY | json_module.OPT_NON_STR_KEYS
@@ -28,7 +28,7 @@ logger = logging.getLogger("query_cache")
 
 
 class CacheEntry:
-    """缓存条目"""
+    """Cache entry"""
     
     def __init__(self, value: Any, ttl_seconds: int):
         self.value = value
@@ -46,28 +46,28 @@ class CacheEntry:
         return time.time() - self.created_at
     
     def touch(self):
-        """更新访问统计"""
+        """Update access statistics"""
         self.access_count += 1
         self.last_accessed = time.time()
 
 
 class QueryCache:
     """
-    异步查询缓存
+    Async Query Cache
     
-    特性：
-    - LRU 淘汰策略
-    - TTL 过期控制
-    - 内存上限保护
-    - 命中率统计
+    Features:
+    - LRU eviction policy
+    - TTL expiration control
+    - Memory limit protection
+    - Hit rate statistics
     
     Usage:
         cache = QueryCache(maxsize=256, default_ttl=300)
         
-        # 方式 1: 直接 get/set
+        # Method 1: Direct get/set
         result = await cache.get_or_fetch(key, fetch_func)
         
-        # 方式 2: 装饰器
+        # Method 2: Decorator
         @cache.cached(ttl=600)
         async def expensive_query():
             return await db.fetchall(...)
@@ -79,21 +79,21 @@ class QueryCache:
         self._default_ttl = default_ttl
         self._lock = asyncio.Lock()
         
-        # 统计信息
+        # Statistics
         self._hits = 0
         self._misses = 0
         self._evictions = 0
     
     def _make_key(self, query: str, params: Optional[tuple] = None) -> str:
         """
-        生成缓存 key
+        Generate cache key
         
-        使用 MD5 哈希确保 key 长度固定，避免超长 SQL 导致内存问题。
+        Uses MD5 hash to ensure fixed key length, avoiding memory issues fromsuperlong SQL.
         """
         if params:
-            # 序列化参数
+            # Serialize parameters
             if USE_ORJSON:
-                params_str = json_module.dumps(params, option=JSON_OPTS).decode()
+                params_str = json_module.dumps(params, option=JSON_OPTS, default=str).decode()
             else:
                 params_str = json_module.dumps(params, default=str)
             key_data = f"{query}:{params_str}"
@@ -103,7 +103,7 @@ class QueryCache:
         return hashlib.md5(key_data.encode('utf-8')).hexdigest()[:16]
     
     async def get(self, key: str) -> Optional[Any]:
-        """获取缓存值"""
+        """Get cached value"""
         async with self._lock:
             entry = self._cache.get(key)
             if entry is None:
@@ -123,7 +123,7 @@ class QueryCache:
         value: Any, 
         ttl: Optional[int] = None
     ) -> None:
-        """设置缓存值"""
+        """Set cached value"""
         async with self._lock:
             await self._set_unlocked(key, value, ttl)
     
@@ -133,19 +133,19 @@ class QueryCache:
         value: Any, 
         ttl: Optional[int] = None
     ) -> None:
-        """内部设置（无锁）"""
-        # LRU 淘汰
+        """Internal set (no lock)"""
+        # LRU eviction
         if len(self._cache) >= self._maxsize:
             await self._evict_lru()
         
         self._cache[key] = CacheEntry(value, ttl or self._default_ttl)
     
     async def _evict_lru(self) -> None:
-        """LRU 淘汰：移除最久未访问的条目"""
+        """LRU eviction: remove least recently accessed entries"""
         if not self._cache:
             return
         
-        # 按最后访问时间排序，移除前 25%
+        # Sort by last access time, remove top 25%
         sorted_items = sorted(
             self._cache.items(),
             key=lambda x: x[1].last_accessed
@@ -156,7 +156,7 @@ class QueryCache:
             del self._cache[key]
             self._evictions += 1
         
-        logger.debug(f"LRU 淘汰: 移除 {evict_count} 个条目")
+        logger.debug(f"LRU eviction: removed {evict_count} entries")
     
     async def get_or_fetch(
         self,
@@ -166,40 +166,40 @@ class QueryCache:
         ttl: Optional[int] = None
     ) -> Any:
         """
-        缓存获取或执行查询
+        Cache get or execute query
         
         Args:
-            query: SQL 查询语句
-            params: 查询参数
-            fetch_func: 实际查询函数
-            ttl: 自定义过期时间（秒）
+            query: SQL query statement
+            params: Query parameters
+            fetch_func: Actual query function
+            ttl: Custom expiration time (seconds)
             
         Returns:
-            查询结果（从缓存或新执行）
+            Query result (from cache or newly executed)
         """
         key = self._make_key(query, params)
         
-        # 尝试从缓存获取
+        # Try to get from cache
         cached = await self.get(key)
         if cached is not None:
-            logger.debug(f"缓存命中: {key[:8]}...")
+            logger.debug(f"Cache hit: {key[:8]}...")
             return cached
         
-        # 缓存未命中，执行查询
+        # Cache miss, execute query
         self._misses += 1
-        logger.debug(f"缓存未命中，执行查询: {key[:8]}...")
+        logger.debug(f"Cache miss, executing query: {key[:8]}...")
         
         result = await fetch_func()
         
-        # 写入缓存（只缓存非空结果）
-        if result:
+        # Write to cache (cache any non-None result, including empty lists/dicts)
+        if result is not None:
             await self.set(key, result, ttl)
         
         return result
     
     def cached(self, ttl: Optional[int] = None, key_func: Optional[Callable] = None):
         """
-        装饰器：缓存函数结果
+        Decorator: Cache function results
         
         Usage:
             @cache.cached(ttl=600)
@@ -209,41 +209,41 @@ class QueryCache:
         def decorator(func: Callable) -> Callable:
             @wraps(func)
             async def wrapper(*args, **kwargs):
-                # 生成缓存 key
+                # Generate cache key
                 if key_func:
                     cache_key = key_func(*args, **kwargs)
                 else:
-                    # 默认使用函数名 + 参数
+                    # Default use function name + parameters
                     cache_key = f"{func.__name__}:{args}:{sorted(kwargs.items())}"
                 
-                # 尝试获取缓存
+                # Try to get from cache
                 cached = await self.get(cache_key)
                 if cached is not None:
                     return cached
                 
-                # 执行函数
+                # Execute function
                 result = await func(*args, **kwargs)
                 
-                # 缓存结果
+                # Cache result
                 if result:
                     await self.set(cache_key, result, ttl)
                 
                 return result
             
-            # 附加清除缓存方法
+            # Attach cache clear method
             wrapper.cache_clear = lambda: self.clear()
             return wrapper
         return decorator
     
     async def clear(self) -> int:
-        """清空缓存，返回清空的条目数"""
+        """Clear cache, return number of cleared entries"""
         async with self._lock:
             count = len(self._cache)
             self._cache.clear()
             return count
     
     async def invalidate_pattern(self, pattern: str) -> int:
-        """根据模式使缓存失效"""
+        """Invalidate cache by pattern"""
         async with self._lock:
             keys_to_remove = [
                 key for key in self._cache.keys() 
@@ -254,7 +254,7 @@ class QueryCache:
             return len(keys_to_remove)
     
     def get_stats(self) -> dict:
-        """获取缓存统计信息"""
+        """Get cache statistics"""
         total = self._hits + self._misses
         hit_rate = self._hits / total if total > 0 else 0
         
@@ -268,7 +268,7 @@ class QueryCache:
         }
     
     async def cleanup_expired(self) -> int:
-        """清理过期条目，返回清理数量"""
+        """Clean up expired entries, return count cleaned"""
         async with self._lock:
             expired_keys = [
                 key for key, entry in self._cache.items() 
@@ -279,21 +279,21 @@ class QueryCache:
             return len(expired_keys)
 
 
-# 全局缓存实例
+# Global cache instance
 query_cache = QueryCache(maxsize=256, default_ttl=300)
 
 
 async def cleanup_task(cache: QueryCache, interval: int = 60):
     """
-    后台清理任务
+    Background cleanup task
     
-    定期清理过期缓存条目。
+    Periodically clean up expired cache entries.
     """
     while True:
         await asyncio.sleep(interval)
         try:
             cleaned = await cache.cleanup_expired()
             if cleaned > 0:
-                logger.debug(f"清理过期缓存: {cleaned} 个条目")
+                logger.debug(f"Cleaned expired cache: {cleaned} entries")
         except Exception as e:
-            logger.error(f"缓存清理失败: {e}")
+            logger.error(f"Cache cleanup failed: {e}")

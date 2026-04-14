@@ -1,7 +1,7 @@
 """
-GDELT 优化版查询服务
+GDELT Optimized Query Service
 
-整合缓存、流式查询、并行查询等前沿优化技术。
+integratecache、streamingquery、androwqueryetc.beforealongoptimization technology。
 """
 
 import asyncio
@@ -9,7 +9,10 @@ import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Callable
 from functools import lru_cache
-
+import os
+import chromadb
+from chromadb.utils import embedding_functions
+import logging
 from app.database.pool import DatabasePool, get_db_pool
 from app.database.streaming import StreamingQuery, ParallelQuery
 from app.cache import query_cache, QueryCache
@@ -17,14 +20,14 @@ from app.cache import query_cache, QueryCache
 
 class GDELTServiceOptimized:
     """
-    优化版 GDELT 服务
+    optimized version GDELT service
     
-    优化点：
-    1. 查询结果缓存 (TTL + LRU)
-    2. 并行聚合查询
-    3. 流式查询支持大数据
-    4. 预编译语句复用
-    5. 数据库端计算减少传输
+    optizationpoint：
+    1. queryresultresultcache (TTL + LRU)
+    2. androwaggregatequery
+    3. streamingquerySupportsbigdata
+    4. precompilestatementreuse
+    5. databaseendcalculatereducetransmittransport
     """
     
     DEFAULT_TABLE = "events_table"
@@ -35,16 +38,25 @@ class GDELTServiceOptimized:
         self._streaming: Optional[StreamingQuery] = None
         self._parallel: Optional[ParallelQuery] = None
         self._cache = query_cache
+        self._chroma_collection = None
     
     async def _get_pool(self) -> DatabasePool:
-        """延迟初始化连接池"""
+        """delayInitializejoinpool"""
         if self._pool is None:
             self._pool = await get_db_pool()
             self._streaming = StreamingQuery(self._pool, chunk_size=50)
             self._parallel = ParallelQuery(self._pool, max_concurrent=5)
+        else:
+            # Check if underlying pool is still alive; reconnect if closed
+            try:
+                _ = self._pool._pool
+            except Exception:
+                self._pool = await get_db_pool()
+                self._streaming = StreamingQuery(self._pool, chunk_size=50)
+                self._parallel = ParallelQuery(self._pool, max_concurrent=5)
         return self._pool
     
-    # ==================== 核心优化：缓存查询 ====================
+    # ==================== coreoptization：cachequery ====================
     
     async def execute_sql_cached(
         self,
@@ -53,9 +65,9 @@ class GDELTServiceOptimized:
         cache_ttl: int = 300
     ) -> List[Dict[str, Any]]:
         """
-        带缓存的 SQL 执行
+        withcache SQL execrow
         
-        自动缓存查询结果，避免重复执行相同查询。
+        autocachequeryresultresult，avoidduplicateexecrowsamequery。
         """
         pool = await self._get_pool()
         
@@ -66,7 +78,7 @@ class GDELTServiceOptimized:
             ttl=cache_ttl
         )
     
-    # ==================== 核心优化：并行仪表盘 ====================
+    # ==================== coreoptization：androwinstrumenttabledisk ====================
     
     async def get_dashboard_data(
         self,
@@ -74,15 +86,15 @@ class GDELTServiceOptimized:
         end_date: str
     ) -> Dict[str, Any]:
         """
-        仪表盘数据 - 5 个查询并发执行
+        instrumenttablediskdata - 5 queryandsendexecrow
         
-        原来串行需要 ~2s，现在只需要 ~0.5s（取决于最慢查询）
+        originalcomestringrowneed ~2s，nowinonlyneed ~0.5s（fetchdecideatmostslowquery）
         """
         await self._get_pool()
         
-        # 定义 5 个独立查询
+        # Defines 5 independentquery
         queries = [
-            # 1. 每日趋势
+            # 1. eachdaytrends
             (f"""
                 SELECT SQLDATE, COUNT(*) as cnt, 
                        AVG(GoldsteinScale) as goldstein,
@@ -92,7 +104,7 @@ class GDELTServiceOptimized:
                 GROUP BY SQLDATE ORDER BY SQLDATE
             """, (start_date, end_date), "daily_trend"),
             
-            # 2. Top 10 参与方
+            # 2. Top 10 paramandmethod
             (f"""
                 SELECT Actor1Name, COUNT(*) as cnt
                 FROM {self.DEFAULT_TABLE}
@@ -100,7 +112,7 @@ class GDELTServiceOptimized:
                 GROUP BY Actor1Name ORDER BY cnt DESC LIMIT 10
             """, (start_date, end_date), "top_actors"),
             
-            # 3. 地理分布（Top 10 国家）
+            # 3. locationprocessdistribution（Top 10 country）
             (f"""
                 SELECT ActionGeo_CountryCode, COUNT(*) as cnt
                 FROM {self.DEFAULT_TABLE}
@@ -110,7 +122,7 @@ class GDELTServiceOptimized:
                 ORDER BY cnt DESC LIMIT 10
             """, (start_date, end_date), "geo_distribution"),
             
-            # 4. 事件类型分布
+            # 4. eventtypedistribution
             (f"""
                 SELECT 
                     CASE 
@@ -130,7 +142,7 @@ class GDELTServiceOptimized:
                 GROUP BY event_type ORDER BY cnt DESC
             """, (start_date, end_date), "event_types"),
             
-            # 5. 统计摘要
+            # 5. statisticsdigest
             (f"""
                 SELECT 
                     COUNT(*) as total_events,
@@ -143,10 +155,10 @@ class GDELTServiceOptimized:
             """, (start_date, end_date), "summary_stats"),
         ]
         
-        # 并发执行
+        # andsendexecrow
         results = await self._parallel.execute_many(queries)
         
-        # 组装结果
+        # groupinstallresultresult
         dashboard = {}
         for result in results:
             name = result["name"]
@@ -161,18 +173,19 @@ class GDELTServiceOptimized:
         
         return dashboard
     
-    # ==================== 核心优化：流式大数据查询 ====================
+    # ==================== coreoptization：streamingbigdataquery ====================
     
     async def stream_events_by_actor(
         self,
         actor_name: str,
         start_date: Optional[str] = None,
-        end_date: Optional[str] = None
+        end_date: Optional[str] = None,
+        limit: Optional[int] = None
     ):
         """
-        流式查询 - 处理大量事件数据
+        streamingquery - process large amountseventdata
         
-        内存占用稳定，无论数据量多大。
+        stable memory usage，regardless ofdataamountmultibig。
         """
         await self._get_pool()
         
@@ -183,6 +196,11 @@ class GDELTServiceOptimized:
             date_filter = "AND SQLDATE BETWEEN %s AND %s"
             params.extend([start_date, end_date])
         
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "LIMIT %s"
+            params.append(limit)
+        
         query = f"""
             SELECT SQLDATE, Actor1Name, Actor2Name, EventCode,
                    GoldsteinScale, AvgTone, ActionGeo_FullName
@@ -190,12 +208,13 @@ class GDELTServiceOptimized:
             WHERE (Actor1Name LIKE %s OR Actor2Name LIKE %s)
             {date_filter}
             ORDER BY SQLDATE DESC
+            {limit_clause}
         """
         
         async for row in self._streaming.stream(query, tuple(params)):
             yield row
     
-    # ==================== 核心优化：数据库端聚合 ====================
+    # ==================== coreoptization：databaseendaggregate ====================
     
     async def analyze_time_series_advanced(
         self,
@@ -204,86 +223,100 @@ class GDELTServiceOptimized:
         granularity: str = "day"  # day, week, month
     ) -> List[Dict[str, Any]]:
         """
-        高级时间序列分析 - 全部在数据库完成
+        advancedwhenintervalordercolumnanalyze - allindatabasecompleted
         
-        只传输聚合后的结果，极大减少网络开销。
+        onlytransmittransportaggregateafterresultresult，extremebigreducenetworkopensell。
         """
-        # 根据粒度选择分组方式
+        # according togranularityscheduleselectselectgroupmethodpattern
         if granularity == "week":
-            date_group = "YEARWEEK(SQLDATE)"
-            date_select = "STR_TO_DATE(CONCAT(YEARWEEK(SQLDATE), ' Sunday'), '%X%V %W') as period"
+            period_expr = "STR_TO_DATE(CONCAT(YEARWEEK(SQLDATE), ' Sunday'), '%%X%%V %%W')"
         elif granularity == "month":
-            date_group = "DATE_FORMAT(SQLDATE, '%Y-%m')"
-            date_select = "DATE_FORMAT(SQLDATE, '%Y-%m-01') as period"
+            period_expr = "DATE_FORMAT(SQLDATE, '%%Y-%%m-01')"
         else:  # day
-            date_group = "SQLDATE"
-            date_select = "SQLDATE as period"
+            period_expr = "SQLDATE"
+        
+        date_select = f"{period_expr} as period"
         
         query = f"""
-        SELECT 
-            {date_select},
-            COUNT(*) as event_count,
-            -- 冲突/合作比例（数据库端计算）
-            ROUND(
-                SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
-                2
-            ) as conflict_pct,
-            ROUND(
-                SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
-                2
-            ) as cooperation_pct,
-            -- 统计指标
-            ROUND(AVG(GoldsteinScale), 2) as avg_goldstein,
-            ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
-            ROUND(AVG(AvgTone), 2) as avg_tone,
-            ROUND(STDDEV(AvgTone), 2) as std_tone,
-            -- 最活跃参与方（JSON 聚合）
-            (
-                SELECT JSON_ARRAYAGG(
+        WITH stats AS (
+            SELECT 
+                {date_select},
+                COUNT(*) as event_count,
+                -- conflict/combinejobcompareexample（databaseendcalculate）
+                ROUND(
+                    SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+                    2
+                ) as conflict_pct,
+                ROUND(
+                    SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+                    2
+                ) as cooperation_pct,
+                -- statisticsfingermark
+                ROUND(AVG(GoldsteinScale), 2) as avg_goldstein,
+                ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
+                ROUND(AVG(AvgTone), 2) as avg_tone,
+                ROUND(STDDEV(AvgTone), 2) as std_tone
+            FROM {self.DEFAULT_TABLE}
+            WHERE SQLDATE BETWEEN %s AND %s
+            GROUP BY {period_expr}
+        ),
+        actors AS (
+            SELECT 
+                {date_select},
+                JSON_ARRAYAGG(
                     JSON_OBJECT('actor', Actor1Name, 'count', cnt)
-                )
-                FROM (
-                    SELECT Actor1Name, COUNT(*) as cnt
-                    FROM {self.DEFAULT_TABLE} t2
-                    WHERE t2.SQLDATE = t1.SQLDATE
-                    GROUP BY Actor1Name
-                    ORDER BY cnt DESC
-                    LIMIT 3
-                ) top_actors
-            ) as top_actors_json
-        FROM {self.DEFAULT_TABLE} t1
-        WHERE SQLDATE BETWEEN %s AND %s
-        GROUP BY {date_group}
-        ORDER BY period
+                ) as top_actors_json
+            FROM (
+                SELECT 
+                    {date_select},
+                    Actor1Name,
+                    COUNT(*) as cnt,
+                    ROW_NUMBER() OVER (PARTITION BY {period_expr} ORDER BY COUNT(*) DESC) as rn
+                FROM {self.DEFAULT_TABLE}
+                WHERE SQLDATE BETWEEN %s AND %s
+                GROUP BY {period_expr}, Actor1Name
+            ) ranked
+            WHERE rn <= 3
+            GROUP BY {period_expr}
+        )
+        SELECT 
+            s.*,
+            a.top_actors_json
+        FROM stats s
+        LEFT JOIN actors a ON s.period = a.period
+        ORDER BY s.period
         """
         
-        # 使用长缓存时间（统计数据变化少）
+        # uselongcachewheninterval（statisticsdatavariableizationfew）
         return await self.execute_sql_cached(
             query, 
-            (start_date, end_date),
-            cache_ttl=1800  # 30 分钟
+            (start_date, end_date, start_date, end_date),
+            cache_ttl=1800  # 30 minute
         )
     
-    # ==================== 核心优化：地理热力图 ====================
+    # ==================== coreoptization：locationprocessheatgraph ====================
     
     async def get_geo_heatmap(
         self,
         start_date: str,
         end_date: str,
-        precision: int = 2  # 小数位数，越大精度越高
+        precision: int = 2  # smallnumberpositionnumber，exceedbigprecisionscheduleexceedhigh
     ) -> List[Dict[str, Any]]:
         """
-        地理热力图数据 - 网格聚合
+        locationprocessheatgraphdata - gridaggregate
         
-        将相近坐标聚合到网格，减少前端渲染压力。
+        willsimilarsitmarkaggregatetogrid，reducebeforeendrenderforce。
         """
+        precision = int(precision)
+        if not (1 <= precision <= 4):
+            raise ValueError("precision must be between 1 and 4")
         query = f"""
         SELECT 
             ROUND(ActionGeo_Lat, {precision}) as lat,
             ROUND(ActionGeo_Long, {precision}) as lng,
             COUNT(*) as intensity,
             AVG(GoldsteinScale) as avg_conflict,
-            -- 代表性位置名称
+            -- Representative location name
             ANY_VALUE(ActionGeo_FullName) as sample_location
         FROM {self.DEFAULT_TABLE}
         WHERE SQLDATE BETWEEN %s AND %s
@@ -292,7 +325,7 @@ class GDELTServiceOptimized:
         GROUP BY 
             ROUND(ActionGeo_Lat, {precision}),
             ROUND(ActionGeo_Long, {precision})
-        HAVING intensity >= 5  -- 过滤稀疏点
+        HAVING intensity >= 5  -- filtersparsepoint
         ORDER BY intensity DESC
         LIMIT 1000
         """
@@ -303,23 +336,23 @@ class GDELTServiceOptimized:
             cache_ttl=600
         )
     
-    # ==================== 核心优化：预编译批量操作 ====================
+    # ==================== coreoptization：precompilebatchoperation ====================
     
     async def batch_fetch_by_ids(
         self,
         event_ids: List[int]
     ) -> List[Dict[str, Any]]:
         """
-        批量 ID 查询 - 使用预编译语句
+        batch ID query - useprecompilestatement
         
-        比多次单条查询快 10x 以上。
+        comparemultitimeformitemqueryfast 10x thereforeupload。
         """
         if not event_ids:
             return []
         
         pool = await self._get_pool()
         
-        # 分批处理（避免 SQL 过长）
+        # dividebatchhandleprocess（avoid SQL passlong）
         batch_size = 500
         all_results = []
         
@@ -335,7 +368,7 @@ class GDELTServiceOptimized:
         
         return all_results
     
-    # ==================== 核心优化：快速检查 ====================
+    # ==================== coreoptization：fastspeedcheck ====================
     
     async def quick_count(
         self,
@@ -343,14 +376,14 @@ class GDELTServiceOptimized:
         actor: Optional[str] = None
     ) -> int:
         """
-        快速计数 - 使用索引覆盖查询
+        fastspeedplannumber - useindexoverridequery
         
-        EXPLAIN 应该显示 Using index。
+        EXPLAIN shouldthisdisplay Using index。
         """
         pool = await self._get_pool()
         
         if actor:
-            # 这种查询无法使用索引，需要优化
+            # thiskindqueryunableuseindex，needoptization
             query = f"""
                 SELECT COUNT(*) as cnt FROM {self.DEFAULT_TABLE}
                 WHERE SQLDATE = %s 
@@ -358,7 +391,7 @@ class GDELTServiceOptimized:
             """
             result = await pool.fetchone(query, (date, f"%{actor}%", f"%{actor}%"))
         else:
-            # 纯日期计数可以用覆盖索引
+            # Pure date count can be overriddenindex
             query = f"""
                 SELECT COUNT(*) as cnt FROM {self.DEFAULT_TABLE}
                 USE INDEX (idx_sqldate)
@@ -368,7 +401,7 @@ class GDELTServiceOptimized:
         
         return result["cnt"] if result else 0
     
-    # ==================== 基础查询方法（全部支持缓存）====================
+    # ==================== basicquerymethod（allSupportscache）====================
     
     async def query_by_actor_cached(
         self,
@@ -379,9 +412,9 @@ class GDELTServiceOptimized:
         cache_ttl: int = 300
     ) -> str:
         """
-        按参与方查询事件（带缓存）
+        byparamandmethodqueryevent（withcache）
         
-        缓存 key 基于查询参数，相同参数会直接返回缓存结果。
+        cache key baseatqueryArgs，sameArgswilldirectReturnscacheresultresult。
         """
         date_filter = ""
         params = [f"%{actor_name}%", f"%{actor_name}%"]
@@ -390,7 +423,7 @@ class GDELTServiceOptimized:
             date_filter = "AND SQLDATE BETWEEN %s AND %s"
             params.extend([start_date, end_date])
         
-        # 使用参数化查询确保 SQL 模板一致
+        # useArgsizationqueryconfirmkeep SQL modelboardonecause
         query = f"""
         SELECT SQLDATE, Actor1Name, Actor1CountryCode, 
                Actor2Name, Actor2CountryCode, EventCode,
@@ -406,9 +439,9 @@ class GDELTServiceOptimized:
         rows = await self.execute_sql_cached(query, tuple(params), cache_ttl)
         
         if not rows:
-            return f"未找到涉及 '{actor_name}' 的事件"
+            return f"not foundinvolveand '{actor_name}' event"
         
-        # 格式化为 Markdown 表格
+        # formatizationfor Markdown tablegrid
         columns = list(rows[0].keys())
         row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
         return self._format_markdown(columns, row_tuples)
@@ -421,7 +454,7 @@ class GDELTServiceOptimized:
         limit: int = 100,
         cache_ttl: int = 300
     ) -> str:
-        """按时间范围查询事件（带缓存）"""
+        """bywhenintervalrangequeryevent（withcache）"""
         query = """
         SELECT SQLDATE, Actor1Name, Actor2Name, EventCode, 
                GoldsteinScale, AvgTone, NumArticles, SOURCEURL
@@ -434,7 +467,7 @@ class GDELTServiceOptimized:
         rows = await self.execute_sql_cached(query, (start_date, end_date, limit), cache_ttl)
         
         if not rows:
-            return f"未找到 {start_date} 至 {end_date} 的事件"
+            return f"not found {start_date} to {end_date} event"
         
         columns = list(rows[0].keys())
         row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
@@ -447,7 +480,7 @@ class GDELTServiceOptimized:
         end_date: str,
         cache_ttl: int = 600
     ) -> str:
-        """按日期统计事件数量（带缓存）"""
+        """bydatestatisticseventquantity（withcache）"""
         query = f"""
         SELECT SQLDATE, 
                COUNT(*) as event_count,
@@ -462,7 +495,7 @@ class GDELTServiceOptimized:
         rows = await self.execute_sql_cached(query, (start_date, end_date), cache_ttl)
         
         if not rows:
-            return "未找到数据"
+            return "not founddata"
         
         columns = list(rows[0].keys())
         row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
@@ -476,7 +509,7 @@ class GDELTServiceOptimized:
         top_n: int = 10,
         cache_ttl: int = 600
     ) -> str:
-        """统计最活跃的参与方（带缓存）"""
+        """statisticsmostactiveparamandmethod（withcache）"""
         query = f"""
         SELECT Actor1Name as actor, COUNT(*) as event_count
         FROM {self.DEFAULT_TABLE}
@@ -491,19 +524,19 @@ class GDELTServiceOptimized:
         rows = await self.execute_sql_cached(query, (start_date, end_date, top_n), cache_ttl)
         
         if not rows:
-            return "未找到数据"
+            return "not founddata"
         
         columns = list(rows[0].keys())
         row_tuples = [tuple(row.get(col) for col in columns) for row in rows]
         return self._format_markdown(columns, row_tuples)
     
     
-    # ==================== 格式化工具 ====================
+    # ==================== formatizationtool ====================
     
     def _format_markdown(self, columns: List[str], rows: List[tuple], max_display_rows: int = 20) -> str:
-        """格式化为 Markdown 表格"""
+        """formatizationfor Markdown tablegrid"""
         if not rows:
-            return "查询成功，但未找到符合条件的资料记录。"
+            return "querysuccess，butnot foundmeetconditionmaterialrecord。"
         
         total_rows = len(rows)
         MAX_CELL_WIDTH = 100
@@ -521,21 +554,21 @@ class GDELTServiceOptimized:
         
         result = "\n".join([header, separator] + data_rows)
         if total_rows > max_display_rows:
-            result += f"\n\n*共 {total_rows} 行，显示前 {max_display_rows} 行*"
+            result += f"\n\n*total {total_rows} row，displaybefore {max_display_rows} row*"
         else:
-            result += f"\n\n*共返回 {total_rows} 行数据*"
+            result += f"\n\n*totalReturns {total_rows} rowdata*"
         
         return result
     
     
-    # ==================== 核心优化：连接预热 ====================
+    # ==================== coreoptization：joinprehot ====================
     
     @staticmethod
     async def warmup_connections(count: int = 5):
         """
-        连接池预热 - 启动时建立连接
+        joinpoolprehot - startwhenbuildestablishjoin
         
-        避免第一次请求时的冷启动延迟。
+        Avoid cold start latency on first request。
         """
         pool = await get_db_pool()
         
@@ -544,12 +577,69 @@ class GDELTServiceOptimized:
                 async with conn.cursor() as cur:
                     await cur.execute("SELECT 1")
         
-        # 并发预热
+        # andsendprehot
         await asyncio.gather(*[ping() for _ in range(count)])
-        print(f"[warmup] 预热完成: {count} 个连接")
+        logger.info(f"[warmup] prehotcompleted: {count} join")
+
+    def _get_chroma_collection(self):
+        """delayInitialize ChromaDB (Avoid lag at startup)"""
+        if self._chroma_collection is None:
+            try:
+                # fixpositiontoitemprojectrootprojectlogunder chroma_db filefolder
+                project_root = Path(__file__).resolve().parents[3]
+                db_path = str(project_root / 'chroma_db')
+                
+                client = chromadb.PersistentClient(path=db_path)
+                ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+                self._chroma_collection = client.get_collection(
+                    name="gdelt_news_collection", 
+                    embedding_function=ef
+                )
+                logging.info("✅ ChromaDB vectorinspectsearchtoolInitializesuccess！")
+            except Exception as e:
+                logging.error(f"❌ ChromaDB Initializefailed: {e}")
+        return self._chroma_collection
+
+    # ==================== coreoptization：RAG semanticinspectsearch ====================
+    
+    async def search_news_context(self, query: str, n_results: int = 3) -> str:
+        """execrowvectordatabasesemanticinspectsearch (Agent rightbrain)"""
+        collection = self._get_chroma_collection()
+        if not collection:
+            return "Error: vectordatabasenotInitializeorunablejoin。"
+
+        try:
+            # ChromaDB Local retrieval is very fast，directcallbackuse
+            results = collection.query(
+                query_texts=[query],
+                n_results=n_results
+            )
+            
+            if not results['documents'] or not results['documents'][0]:
+                return f"Knowledge base innot foundand '{query}' mutualclosenewsreport。"
+                
+            formatted_result = f"🔍 Found the following news excerpts for query '{query}':\n\n"
+            for i in range(len(results['documents'][0])):
+                doc_text = results['documents'][0][i]
+                event_id = results['ids'][0][i]
+                url = results['metadatas'][0][i].get('source_url', 'Unknown URL')
+                date = results['metadatas'][0][i].get('date', 'Unknown Date')
+                
+                # interceptfetchbefore 1000 character，preventstop Token superload
+                snippet = doc_text[:1000] + "..." if len(doc_text) > 1000 else doc_text
+                
+                formatted_result += f"--- Result {i+1} ---\n"
+                formatted_result += f"Event ID: {event_id}\n"
+                formatted_result += f"Date: {date}\n"
+                formatted_result += f"Source URL: {url}\n"
+                formatted_result += f"Content Snippet: {snippet}\n\n"
+                
+            return formatted_result
+        except Exception as e:
+            return f"inspectsearchinformknowledgelibrarywhenoccurerror: {str(e)}"
 
 
-# 便捷函数
+# convenientfunction
 async def get_optimized_service() -> GDELTServiceOptimized:
-    """获取优化版服务实例"""
+    """Getoptimized versionserviceinstance"""
     return GDELTServiceOptimized()

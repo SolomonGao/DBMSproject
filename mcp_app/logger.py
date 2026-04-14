@@ -1,7 +1,7 @@
-# logger.py - 日志模块
+# logger.py - Logging Module
 """
-统一的日志管理模块
-支持控制台输出（带颜色）和文件日志
+Unified logging management module
+Supports console output (with colors) and file logging
 """
 
 import sys
@@ -12,12 +12,12 @@ from datetime import datetime
 
 
 def sanitize_for_log(text: str) -> str:
-    """清理日志文本中的非法 UTF-8 字符"""
+    """Clean illegal UTF-8 characters from log text"""
     if not isinstance(text, str):
         text = str(text)
-    # 移除 surrogate pairs
+    # Remove surrogate pairs
     text = text.encode('utf-8', 'ignore').decode('utf-8')
-    # 替换控制字符（保留换行和制表符）
+    # Replace control characters (keep newlines and tabs)
     import unicodedata
     text = ''.join(
         char for char in text 
@@ -27,15 +27,15 @@ def sanitize_for_log(text: str) -> str:
 
 
 class SafeStreamHandler(logging.StreamHandler):
-    """安全的流处理器 - 处理编码错误"""
+    """Safe stream handler - handles encoding errors"""
     
     def emit(self, record: logging.LogRecord):
         try:
-            # 清理消息内容
+            # Clean message content
             if isinstance(record.msg, str):
                 record.msg = sanitize_for_log(record.msg)
             if record.args:
-                # 清理格式化参数
+                # Clean formatting arguments
                 safe_args = tuple(
                     sanitize_for_log(arg) if isinstance(arg, str) else arg
                     for arg in record.args
@@ -44,27 +44,27 @@ class SafeStreamHandler(logging.StreamHandler):
             
             super().emit(record)
         except UnicodeEncodeError:
-            # 如果还有编码错误，强制编码
+            # If encoding error persists, force encoding
             try:
                 msg = self.format(record)
                 safe_msg = msg.encode('utf-8', 'ignore').decode('utf-8')
                 self.stream.write(safe_msg + self.terminator)
                 self.flush()
             except Exception:
-                pass  # 最后的手段：忽略
+                pass  # Last resort: ignore
 
 
 class ColoredFormatter(logging.Formatter):
-    """带颜色的日志格式化器"""
+    """Colored log formatter"""
     
-    # ANSI 颜色码
+    # ANSI color codes
     COLORS = {
-        'DEBUG': '\033[36m',      # 青色
-        'INFO': '\033[32m',       # 绿色
-        'WARNING': '\033[33m',    # 黄色
-        'ERROR': '\033[31m',      # 红色
-        'CRITICAL': '\033[35m',   # 紫色
-        'RESET': '\033[0m',       # 重置
+        'DEBUG': '\033[36m',      # Cyan
+        'INFO': '\033[32m',       # Green
+        'WARNING': '\033[33m',    # Yellow
+        'ERROR': '\033[31m',      # Red
+        'CRITICAL': '\033[35m',   # Magenta
+        'RESET': '\033[0m',       # Reset
     }
     
     def __init__(self, fmt: str, use_colors: bool = True):
@@ -72,12 +72,12 @@ class ColoredFormatter(logging.Formatter):
         self.use_colors = use_colors
     
     def format(self, record: logging.LogRecord) -> str:
-        # 清理消息
+        # Clean message
         if isinstance(record.msg, str):
             record.msg = sanitize_for_log(record.msg)
         
         if self.use_colors and sys.platform != 'win32':
-            # Windows 需要启用 ANSI 支持，简化处理
+            # Windows needs ANSI support enabled, simplified handling
             levelname = record.levelname
             if levelname in self.COLORS:
                 record.levelname = f"{self.COLORS[levelname]}{levelname}{self.COLORS['RESET']}"
@@ -86,7 +86,7 @@ class ColoredFormatter(logging.Formatter):
 
 
 class LoggerManager:
-    """日志管理器 - 单例模式"""
+    """Logger Manager - Singleton Pattern"""
     
     _instance: Optional['LoggerManager'] = None
     _initialized = False
@@ -115,21 +115,21 @@ class LoggerManager:
         backup_count: int = 5
     ) -> logging.Logger:
         """
-        配置日志
+        Configure logging
         
         Args:
-            level: 控制台日志级别
-            log_file: 日志文件路径
-            console: 是否输出到控制台
-            file_level: 文件日志级别
-            max_bytes: 单个日志文件最大大小
-            backup_count: 保留的备份文件数
+            level: Console log level
+            log_file: Log file path
+            console: Whether to output to console
+            file_level: File log level
+            max_bytes: Maximum size of single log file
+            backup_count: Number of backup files to keep
         """
-        # 清除现有处理器
+        # Clear existing handlers
         self.clear_handlers()
         self.logger.setLevel(getattr(logging, level.upper()))
         
-        # 创建格式器
+        # Create formatters
         console_fmt = ColoredFormatter(
             '%(asctime)s | %(levelname)-8s | %(message)s',
             use_colors=True
@@ -138,7 +138,7 @@ class LoggerManager:
             '%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s'
         )
         
-        # 控制台处理器
+        # Console handler
         if console:
             console_handler = SafeStreamHandler(sys.stdout)
             console_handler.setLevel(getattr(logging, level.upper()))
@@ -146,7 +146,7 @@ class LoggerManager:
             self.logger.addHandler(console_handler)
             self.handlers.append(console_handler)
         
-        # 文件处理器
+        # File handler
         if log_file:
             log_file = Path(log_file)
             log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -164,25 +164,25 @@ class LoggerManager:
                 self.logger.addHandler(file_handler)
                 self.handlers.append(file_handler)
             except Exception as e:
-                self.logger.warning(f"无法创建文件日志处理器: {e}")
+                self.logger.warning(f"Failed to create file log handler: {e}")
         
         return self.logger
     
     def clear_handlers(self):
-        """清除所有处理器"""
+        """Clear all handlers"""
         for handler in self.handlers:
             self.logger.removeHandler(handler)
             handler.close()
         self.handlers.clear()
     
     def get_logger(self, name: Optional[str] = None) -> logging.Logger:
-        """获取命名日志器"""
+        """Get named logger"""
         if name:
             return self.logger.getChild(name)
         return self.logger
 
 
-# 全局日志管理器实例
+# Global logger manager instance
 logger_manager = LoggerManager()
 
 
@@ -192,15 +192,15 @@ def setup_logging(
     console: bool = True
 ) -> logging.Logger:
     """
-    快速配置日志
+    Quick logging setup
     
     Args:
-        level: 日志级别
-        log_dir: 日志目录（None 则不写入文件）
-        console: 是否输出到控制台
+        level: Log level
+        log_dir: Log directory (None for no file output)
+        console: Whether to output to console
     
     Returns:
-        配置好的日志器
+        Configured logger
     """
     log_file = None
     if log_dir:
@@ -216,36 +216,36 @@ def setup_logging(
 
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:
-    """获取日志器"""
+    """Get logger"""
     return logger_manager.get_logger(name)
 
 
-# 便捷的日志函数（用于快速调试）
+# Convenient logging functions (for quick debugging)
 def debug(msg: str, *args, **kwargs):
-    """调试日志"""
+    """Debug log"""
     logger_manager.get_logger().debug(msg, *args, **kwargs)
 
 
 def info(msg: str, *args, **kwargs):
-    """信息日志"""
+    """Info log"""
     logger_manager.get_logger().info(msg, *args, **kwargs)
 
 
 def warning(msg: str, *args, **kwargs):
-    """警告日志"""
+    """Warning log"""
     logger_manager.get_logger().warning(msg, *args, **kwargs)
 
 
 def error(msg: str, *args, **kwargs):
-    """错误日志"""
+    """Error log"""
     logger_manager.get_logger().error(msg, *args, **kwargs)
 
 
 def critical(msg: str, *args, **kwargs):
-    """严重错误日志"""
+    """Critical error log"""
     logger_manager.get_logger().critical(msg, *args, **kwargs)
 
 
 def exception(msg: str, *args, **kwargs):
-    """异常日志（自动记录堆栈）"""
+    """Exception log (auto-records stack trace)"""
     logger_manager.get_logger().exception(msg, *args, **kwargs)

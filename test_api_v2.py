@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""测试 API 连接 - 尝试不同的 Headers 伪装"""
+"""test API join - tastetrydifferent Headers falseinstall"""
 import os
 import sys
 sys.path.insert(0, '.')
@@ -20,7 +20,7 @@ print(f"Testing API: {base_url}")
 print(f"API Key: {api_key[:10]}...{api_key[-4:]}")
 print()
 
-# 测试不同的 User-Agent 伪装
+# Testdifferent User-Agent falseinstall
 headers_options = [
     {
         "name": "Claude Code",
@@ -79,7 +79,7 @@ for option in headers_options:
         print(f"Status: {response.status_code}")
         if response.status_code == 200:
             print(f"SUCCESS! Response: {response.text[:200]}")
-            # 打印成功的 headers 配置
+            # printsuccess headers config
             print(f"\nWorking headers: {option['headers']}")
             break
         else:
