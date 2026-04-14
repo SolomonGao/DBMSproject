@@ -370,9 +370,12 @@ class LLMClient:
                     args = {"region": region}
             
             elif target == "get_top_events":
-                dates = self._extract_year_range(user_input)
+                dates = self._extract_month_range(user_input) or self._extract_year_range(user_input)
                 if dates:
                     args = {"start_date": dates[0], "end_date": dates[1]}
+                    region = self._extract_region(user_input)
+                    if region:
+                        args["region_filter"] = region
             
             if args is None:
                 continue
@@ -442,6 +445,24 @@ class LLMClient:
         if match:
             year = match.group(1)
             return (f"{year}-01-01", f"{year}-12-31")
+        return None
+    
+    @staticmethod
+    def _extract_month_range(text: str) -> Optional[tuple[str, str]]:
+        """Extract month-year and return that month's date range."""
+        import calendar
+        month_map = {
+            'january': 1, 'february': 2, 'march': 3, 'april': 4,
+            'may': 5, 'june': 6, 'july': 7, 'august': 8,
+            'september': 9, 'october': 10, 'november': 11, 'december': 12
+        }
+        pattern = r'\b(' + '|'.join(month_map.keys()) + r')\s+(20\d{2})\b'
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            month = month_map[match.group(1).lower()]
+            year = int(match.group(2))
+            last_day = calendar.monthrange(year, month)[1]
+            return (f"{year}-{month:02d}-01", f"{year}-{month:02d}-{last_day}")
         return None
     
     async def close(self):

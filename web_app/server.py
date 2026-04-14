@@ -330,9 +330,12 @@ User input: {prompt}"""
                 if region:
                     args = {"region": region}
             elif target == "get_top_events":
-                dates = LLMClient._extract_year_range(prompt)
+                dates = LLMClient._extract_month_range(prompt) or LLMClient._extract_year_range(prompt)
                 if dates:
                     args = {"start_date": dates[0], "end_date": dates[1]}
+                    region = LLMClient._extract_region(prompt)
+                    if region:
+                        args["region_filter"] = region
 
             if args is None:
                 continue
@@ -387,14 +390,17 @@ User input: {prompt}"""
                     args = {"query": prompt.strip()[:200], "n_results": 3}
 
             elif target == "get_regional_overview":
-                region = self._extract_region(prompt)
+                region = LLMClient._extract_region(prompt)
                 if region:
                     args = {"region": region}
 
             elif target == "get_top_events":
-                dates = LLMClient._extract_year_range(prompt)
+                dates = LLMClient._extract_month_range(prompt) or LLMClient._extract_year_range(prompt)
                 if dates:
                     args = {"start_date": dates[0], "end_date": dates[1]}
+                    region = LLMClient._extract_region(prompt)
+                    if region:
+                        args["region_filter"] = region
 
             if args is None:
                 continue
@@ -406,7 +412,7 @@ User input: {prompt}"""
                 "inferred_args": args,
             })
             try:
-                tool_result = await mcp_client.call_tool(target, {"params": args})
+                tool_result = await mcp_client.call_tool(target, args)
                 llm_client.add_assistant_message(f"Executed {target} for the user.")
                 llm_client.add_user_message(
                     f"Raw data:\n{tool_result}\n\nSummarize clearly."
