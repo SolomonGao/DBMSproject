@@ -56,9 +56,12 @@ class StreamingQuery:
             Single row data (dictionary format)
         """
         conn = None
+        pool = self.pool._pool
+        if pool is None:
+            raise RuntimeError("Connection pool not initialized")
         try:
             # Get regular connection (SSCursor needs special handling)
-            conn = await self.pool.pool.acquire()
+            conn = await pool.acquire()
             
             # Use SSDictCursor server-side cursor
             async with conn.cursor(aiomysql.SSDictCursor) as cur:
@@ -74,7 +77,10 @@ class StreamingQuery:
                 row_count = 0
                 while True:
                     # Read in batches
-                    rows = await cur.fetchmany(self.chunk_size)
+                    rows = await asyncio.wait_for(
+                        cur.fetchmany(self.chunk_size),
+                        timeout=self.timeout
+                    )
                     if not rows:
                         break
                     
@@ -89,7 +95,10 @@ class StreamingQuery:
             raise
         finally:
             if conn is not None:
-                self.pool.pool.release(conn)
+                try:
+                    pool.release(conn)
+                except Exception:
+                    pass
     
     async def stream_with_transform(
         self,
@@ -273,7 +282,7 @@ async def stream_query(
     """
     Convenience function: streaming query
     """
-    pool = DatabasePool()
+    pool = await get_db_pool()
     streamer = StreamingQuery(pool, chunk_size, timeout)
     async for row in streamer.stream(query, params):
         yield row
@@ -299,6 +308,6 @@ async def parallel_queries(
             ("SELECT COUNT(*) FROM events WHERE SQLDATE='2024-01-02'", None, "jan2_count"),
         ])
     """
-    pool = DatabasePool()
+    pool = await get_db_pool()
     executor = ParallelQuery(pool, max_concurrent)
     return await executor.execute_many(queries)

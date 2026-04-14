@@ -381,7 +381,7 @@ class LLMClient:
             if on_step:
                 on_step("backend_force_execution", {"tool": target, "inferred_args": args})
             try:
-                result = await tool_executor(target, {"params": args})
+                result = await tool_executor(target, args)
                 self.add_assistant_message(f"I have executed {target} for you.")
                 self.add_user_message(
                     f"Here is the raw result:\n{result}\n\n"
@@ -447,4 +447,7 @@ class LLMClient:
     async def close(self):
         """Close LLM client connection"""
         if hasattr(self, 'client'):
-            await self.client.close()
+            try:
+                await self.client.close()
+            except Exception as e:
+                logger.warning(f"Error closing LLM client: {e}")

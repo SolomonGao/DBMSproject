@@ -97,7 +97,7 @@ class OllamaRouter:
     def _safety_check(self, text: str) -> List[str]:
         """Safety check"""
         flags = []
-        dangerous = ['drop table', 'delete from', 'truncate table', '--', ';--']
+        dangerous = ['drop table', 'delete from', 'truncate table', ';--']
         if any(d in text.lower() for d in dangerous):
             flags.append("sql_injection")
         return flags
@@ -269,10 +269,10 @@ Notes:
                     # Extract JSON (in case of extra text)
                     json_match = re.search(r'\{.*\}', content, re.DOTALL)
                     if json_match:
-                        json_str = json_match.group()
+                        json_str = json_match.group().strip()
                         # Try to fix incomplete JSON (missing closing })
-                        if not json_str.strip().endswith('}'):
-                            json_str = json_str.strip() + '}'
+                        if json_str and json_str[-1] != '}':
+                            json_str += '}'
                         result = json.loads(json_str)
                     else:
                         result = json.loads(content)

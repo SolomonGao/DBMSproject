@@ -46,6 +46,14 @@ class GDELTServiceOptimized:
             self._pool = await get_db_pool()
             self._streaming = StreamingQuery(self._pool, chunk_size=50)
             self._parallel = ParallelQuery(self._pool, max_concurrent=5)
+        else:
+            # Check if underlying pool is still alive; reconnect if closed
+            try:
+                _ = self._pool._pool
+            except Exception:
+                self._pool = await get_db_pool()
+                self._streaming = StreamingQuery(self._pool, chunk_size=50)
+                self._parallel = ParallelQuery(self._pool, max_concurrent=5)
         return self._pool
     
     # ==================== coreoptization：cachequery ====================
@@ -292,6 +300,9 @@ class GDELTServiceOptimized:
         
         willsimilarsitmarkaggregatetogrid，reducebeforeendrenderforce。
         """
+        precision = int(precision)
+        if not (1 <= precision <= 4):
+            raise ValueError("precision must be between 1 and 4")
         query = f"""
         SELECT 
             ROUND(ActionGeo_Lat, {precision}) as lat,
@@ -561,15 +572,15 @@ class GDELTServiceOptimized:
         
         # andsendprehot
         await asyncio.gather(*[ping() for _ in range(count)])
-        print(f"[warmup] prehotcompleted: {count} join")
+        logger.info(f"[warmup] prehotcompleted: {count} join")
 
     def _get_chroma_collection(self):
         """delayInitialize ChromaDB (Avoid lag at startup)"""
         if self._chroma_collection is None:
             try:
                 # fixpositiontoitemprojectrootprojectlogunder chroma_db filefolder
-                project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
-                db_path = os.path.join(project_root, 'chroma_db')
+                project_root = Path(__file__).resolve().parents[3]
+                db_path = str(project_root / 'chroma_db')
                 
                 client = chromadb.PersistentClient(path=db_path)
                 ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")

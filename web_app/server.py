@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import mimetypes
 import os
 import re
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -134,6 +136,8 @@ class WebChatService:
             self.logger.warning(f"Router initialization failed: {e}")
             self.router = None
 
+        self._mcp_stdio_lock = threading.Lock()
+
     def health(self) -> dict[str, Any]:
         return {
             "ok": True,
@@ -165,131 +169,137 @@ class WebChatService:
         # Collect thinking steps for UI display
         thinking_steps: list[dict[str, Any]] = []
 
-        try:
-            connected = await mcp_client.connect()
-            if not connected:
-                raise RuntimeError(
-                    "Unable to connect to the MCP server. "
-                    "Please confirm the server path, Python environment, and database settings."
-                )
-
-            await mcp_client.discover_tools()
-            tool_names = [
-                tool["function"]["name"]
-                for tool in mcp_client.tools
-                if tool.get("function", {}).get("name")
-            ]
-
-            # ====== Router Processing (inherited from CLI) ======
-            router_decision = None
-            if self.router:
-                try:
-                    router_decision = await self.router.route(
-                        prompt,
-                        context=history[-6:] if isinstance(history, list) else None,
+        mcp_lock = (
+            self._mcp_stdio_lock
+            if self.config.mcp_transport == "stdio"
+            else contextlib.nullcontext()
+        )
+        with mcp_lock:
+            try:
+                connected = await mcp_client.connect()
+                if not connected:
+                    raise RuntimeError(
+                        "Unable to connect to the MCP server. "
+                        "Please confirm the server path, Python environment, and database settings."
                     )
-                    self.logger.info(
-                        f"Router decision: {router_decision.intent} (confidence: {router_decision.confidence:.2f})"
-                    )
+
+                await mcp_client.discover_tools()
+                tool_names = [
+                    tool["function"]["name"]
+                    for tool in mcp_client.tools
+                    if tool.get("function", {}).get("name")
+                ]
+
+                # ====== Router Processing (inherited from CLI) ======
+                router_decision = None
+                if self.router:
+                    try:
+                        router_decision = await self.router.route(
+                            prompt,
+                            context=history[-6:] if isinstance(history, list) else None,
+                        )
+                        self.logger.info(
+                            f"Router decision: {router_decision.intent} (confidence: {router_decision.confidence:.2f})"
+                        )
+                        thinking_steps.append({
+                            "type": "router_decision",
+                            "intent": router_decision.intent,
+                            "confidence": router_decision.confidence,
+                            "suggested_tools": router_decision.suggested_tools,
+                            "reasoning": router_decision.reasoning,
+                        })
+
+                        # Pre-LLM direct bypass for tools with obvious/inferable arguments
+                        direct_reply = await self._direct_tool_bypass(
+                            mcp_client, prompt, router_decision.suggested_tools, thinking_steps, tool_names
+                        )
+                        if direct_reply is not None:
+                            return direct_reply
+
+                        # If Router suggests skipping LLM (e.g., safety filter, direct response)
+                        if router_decision.skip_llm:
+                            direct = router_decision.direct_response or ""
+                            if direct or not router_decision.suggested_tools:
+                                return {
+                                    "reply": direct,
+                                    "provider": self.config.llm_provider,
+                                    "model": self.config.llm_model,
+                                    "tool_names": tool_names,
+                                    "thinking_process": thinking_steps,
+                                }
+                            self.logger.warning(
+                                f"Router skip_llm=True but no direct_response and has tools: {router_decision.suggested_tools}. Proceeding to LLM."
+                            )
+                    except Exception as e:
+                        self.logger.error(f"Router error: {e}")
+                        thinking_steps.append({"type": "router_error", "error": str(e)})
+                        router_decision = None
+
+                # If Router suggests direct response (non skip_llm case)
+                if router_decision and router_decision.direct_response:
+                    return {
+                        "reply": router_decision.direct_response,
+                        "reply_length": len(router_decision.direct_response),
+                        "provider": self.config.llm_provider,
+                        "model": self.config.llm_model,
+                        "tool_names": tool_names,
+                        "thinking_process": thinking_steps,
+                    }
+
+                # Build enhanced user message (with Router suggestions)
+                enhanced_input = prompt
+                if router_decision and router_decision.suggested_tools:
+                    tools_hint = ", ".join(router_decision.suggested_tools)
+                    enhanced_input = f"""[System hint: Based on user input, suggested tools: {tools_hint}]
+
+User input: {prompt}"""
                     thinking_steps.append({
-                        "type": "router_decision",
-                        "intent": router_decision.intent,
-                        "confidence": router_decision.confidence,
+                        "type": "system_hint",
                         "suggested_tools": router_decision.suggested_tools,
-                        "reasoning": router_decision.reasoning,
                     })
 
-                    # Pre-LLM direct bypass for tools with obvious/inferable arguments
-                    direct_reply = await self._direct_tool_bypass(
-                        mcp_client, prompt, router_decision.suggested_tools, thinking_steps, tool_names
+                llm_client.add_system_message(SYSTEM_PROMPT)
+                for item in self._sanitize_history(history):
+                    if item["role"] == "user":
+                        llm_client.add_user_message(item["content"])
+                    else:
+                        llm_client.add_assistant_message(item["content"])
+
+                # Auto-truncate history (same as CLI)
+                if llm_client.get_history_length() > 12:
+                    llm_client.truncate_history(max_messages=10)
+                    self.logger.info("History too long, auto-truncated")
+                    thinking_steps.append({"type": "history_truncated", "max_messages": 10})
+
+                llm_client.add_user_message(enhanced_input)
+
+                def on_step(step_type: str, data: dict[str, Any]):
+                    thinking_steps.append({"type": step_type, **data})
+
+                reply = await llm_client.chat(
+                    tools=mcp_client.tools,
+                    tool_executor=mcp_client.create_tool_executor(),
+                    on_step=on_step,
+                )
+
+                # Server-side fallback for empty responses when tools were expected
+                if not reply.strip() and router_decision and router_decision.suggested_tools:
+                    force_reply = await self._server_force_tool_execution(
+                        mcp_client, llm_client, prompt, router_decision.suggested_tools, thinking_steps, on_step
                     )
-                    if direct_reply is not None:
-                        return direct_reply
+                    if force_reply:
+                        reply = force_reply
 
-                    # If Router suggests skipping LLM (e.g., safety filter, direct response)
-                    if router_decision.skip_llm:
-                        direct = router_decision.direct_response or ""
-                        if direct or not router_decision.suggested_tools:
-                            return {
-                                "reply": direct,
-                                "provider": self.config.llm_provider,
-                                "model": self.config.llm_model,
-                                "tool_names": tool_names,
-                                "thinking_process": thinking_steps,
-                            }
-                        self.logger.warning(
-                            f"Router skip_llm=True but no direct_response and has tools: {router_decision.suggested_tools}. Proceeding to LLM."
-                        )
-                except Exception as e:
-                    self.logger.error(f"Router error: {e}")
-                    thinking_steps.append({"type": "router_error", "error": str(e)})
-                    router_decision = None
-
-            # If Router suggests direct response (non skip_llm case)
-            if router_decision and router_decision.direct_response:
                 return {
-                    "reply": router_decision.direct_response,
-                    "reply_length": len(router_decision.direct_response),
+                    "reply": reply,
                     "provider": self.config.llm_provider,
                     "model": self.config.llm_model,
                     "tool_names": tool_names,
                     "thinking_process": thinking_steps,
                 }
-
-            # Build enhanced user message (with Router suggestions)
-            enhanced_input = prompt
-            if router_decision and router_decision.suggested_tools:
-                tools_hint = ", ".join(router_decision.suggested_tools)
-                enhanced_input = f"""[System hint: Based on user input, suggested tools: {tools_hint}]
-
-User input: {prompt}"""
-                thinking_steps.append({
-                    "type": "system_hint",
-                    "suggested_tools": router_decision.suggested_tools,
-                })
-
-            llm_client.add_system_message(SYSTEM_PROMPT)
-            for item in self._sanitize_history(history):
-                if item["role"] == "user":
-                    llm_client.add_user_message(item["content"])
-                else:
-                    llm_client.add_assistant_message(item["content"])
-
-            # Auto-truncate history (same as CLI)
-            if llm_client.get_history_length() > 12:
-                llm_client.truncate_history(max_messages=10)
-                self.logger.info("History too long, auto-truncated")
-                thinking_steps.append({"type": "history_truncated", "max_messages": 10})
-
-            llm_client.add_user_message(enhanced_input)
-
-            def on_step(step_type: str, data: dict[str, Any]):
-                thinking_steps.append({"type": step_type, **data})
-
-            reply = await llm_client.chat(
-                tools=mcp_client.tools,
-                tool_executor=mcp_client.create_tool_executor(),
-                on_step=on_step,
-            )
-
-            # Server-side fallback for empty responses when tools were expected
-            if not reply.strip() and router_decision and router_decision.suggested_tools:
-                force_reply = await self._server_force_tool_execution(
-                    mcp_client, llm_client, prompt, router_decision.suggested_tools, thinking_steps, on_step
-                )
-                if force_reply:
-                    reply = force_reply
-
-            return {
-                "reply": reply,
-                "provider": self.config.llm_provider,
-                "model": self.config.llm_model,
-                "tool_names": tool_names,
-                "thinking_process": thinking_steps,
-            }
-        finally:
-            await mcp_client.close()
-            await llm_client.close()
+            finally:
+                await mcp_client.close()
+                await llm_client.close()
 
     async def _direct_tool_bypass(
         self,
@@ -316,11 +326,11 @@ User input: {prompt}"""
                 if prompt.strip():
                     args = {"query": prompt.strip()[:200], "n_results": 3}
             elif target == "get_regional_overview":
-                region = self._extract_region(prompt)
+                region = LLMClient._extract_region(prompt)
                 if region:
                     args = {"region": region}
             elif target == "get_top_events":
-                dates = self._extract_year_range(prompt)
+                dates = LLMClient._extract_year_range(prompt)
                 if dates:
                     args = {"start_date": dates[0], "end_date": dates[1]}
 
@@ -334,7 +344,7 @@ User input: {prompt}"""
                 "inferred_args": args,
             })
             try:
-                result = await mcp_client.call_tool(target, {"params": args})
+                result = await mcp_client.call_tool(target, args)
                 return {
                     "reply": result,
                     "provider": self.config.llm_provider,
@@ -382,7 +392,7 @@ User input: {prompt}"""
                     args = {"region": region}
 
             elif target == "get_top_events":
-                dates = self._extract_year_range(prompt)
+                dates = LLMClient._extract_year_range(prompt)
                 if dates:
                     args = {"start_date": dates[0], "end_date": dates[1]}
 
@@ -405,53 +415,6 @@ User input: {prompt}"""
             except Exception as exc:
                 self.logger.exception(f"Server forced {target} failed: {exc}")
                 continue
-        return None
-
-    @staticmethod
-    def _extract_region(text: str) -> str | None:
-        text_lower = text.lower()
-        regions = [
-            ("middle east", "Middle East"),
-            ("new york", "New York"),
-            ("washington", "Washington"),
-            ("california", "California"),
-            ("texas", "Texas"),
-            ("florida", "Florida"),
-            ("china", "China"),
-            ("russia", "Russia"),
-            ("ukraine", "Ukraine"),
-            ("israel", "Israel"),
-            ("palestine", "Palestine"),
-            ("europe", "Europe"),
-            ("asia", "Asia"),
-            ("africa", "Africa"),
-            ("north america", "North America"),
-            ("south america", "South America"),
-            ("mexico", "Mexico"),
-            ("canada", "Canada"),
-            ("united states", "United States"),
-            ("usa", "USA"),
-            ("us", "US"),
-            ("uk", "UK"),
-            ("britain", "UK"),
-            ("france", "France"),
-            ("germany", "Germany"),
-            ("japan", "Japan"),
-            ("india", "India"),
-            ("brazil", "Brazil"),
-            ("australia", "Australia"),
-        ]
-        for keyword, region_name in regions:
-            if keyword in text_lower:
-                return region_name
-        return None
-
-    @staticmethod
-    def _extract_year_range(text: str) -> tuple[str, str] | None:
-        match = re.search(r'\b(20\d{2})\b', text)
-        if match:
-            year = match.group(1)
-            return (f"{year}-01-01", f"{year}-12-31")
         return None
 
     def _build_llm_client(self) -> LLMClient:
@@ -555,7 +518,7 @@ class GDELTWebHandler(BaseHTTPRequestHandler):
                 {"ok": False, "error": str(exc)},
             )
         except Exception as exc:  # noqa: BLE001
-            self.service.logger.exception("Web chat request failed: %s", exc)
+            self.service.logger.exception("Web chat request failed")
             self._send_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 {"ok": False, "error": str(exc)},

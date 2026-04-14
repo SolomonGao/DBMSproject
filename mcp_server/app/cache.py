@@ -93,7 +93,7 @@ class QueryCache:
         if params:
             # Serialize parameters
             if USE_ORJSON:
-                params_str = json_module.dumps(params, option=JSON_OPTS).decode()
+                params_str = json_module.dumps(params, option=JSON_OPTS, default=str).decode()
             else:
                 params_str = json_module.dumps(params, default=str)
             key_data = f"{query}:{params_str}"
@@ -191,8 +191,8 @@ class QueryCache:
         
         result = await fetch_func()
         
-        # Write to cache (only cache non-empty results)
-        if result:
+        # Write to cache (cache any non-None result, including empty lists/dicts)
+        if result is not None:
             await self.set(key, result, ttl)
         
         return result

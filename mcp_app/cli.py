@@ -315,8 +315,6 @@ When you see "[System hint: suggested tools: ...]", consider these recommendatio
             print(f"{self.EMOJI['error']} Unknown command: {command}")
             print("   Type /help to see available commands\n")
             return True
-        
-        return True
 
     
     async def chat_loop(self):
@@ -376,7 +374,7 @@ When you see "[System hint: suggested tools: ...]", consider these recommendatio
                                 fingerprint = fp_match.group(0)
                                 print(f"{self.EMOJI['info']} [Router] Retrieving event details for {fingerprint}...")
                                 try:
-                                    result = await self.mcp.call_tool("get_event_detail", {"params": {"fingerprint": fingerprint, "include_causes": True}})
+                                    result = await self.mcp.call_tool("get_event_detail", {"fingerprint": fingerprint, "include_causes": True})
                                     print(f"{self.EMOJI['ai']} AI: {result}")
                                     print()
                                     self.llm.add_assistant_message(result)

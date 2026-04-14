@@ -166,7 +166,7 @@ class DatabasePool:
                         f"{operation_name} failed (attempt {attempt}/{self.MAX_RETRIES}): "
                         f"{db_error.error_code} - {db_error}"
                     )
-                    await asyncio.sleep(self.RETRY_DELAY * attempt)  # Exponential backoff
+                    await asyncio.sleep(self.RETRY_DELAY * (2 ** (attempt - 1)))  # Exponential backoff
                     continue
                 else:
                     # Non-retryable error or retries exhausted
@@ -191,19 +191,25 @@ class DatabasePool:
                     await cur.execute("SELECT 1")
         """
         conn = None
+        pool = self._pool
+        if pool is None:
+            raise RuntimeError("Connection pool not initialized, please call DatabasePool.initialize() first")
         try:
-            conn = await self.pool.acquire()
+            conn = await pool.acquire()
             
-            # Simple health check: verify connection is available
+            # Simple health check: verify connection is available (async safe)
             try:
-                conn.ping(reconnect=True)
-            except:
+                await conn.ensure_connection()
+            except Exception:
                 pass  # ping failure is okay, aiomysql handles it automatically
             
             yield conn
         finally:
             if conn is not None:
-                self.pool.release(conn)
+                try:
+                    pool.release(conn)
+                except Exception:
+                    pass
     
     @asynccontextmanager
     async def transaction(self) -> Connection:
@@ -218,20 +224,29 @@ class DatabasePool:
                     await cur.execute("INSERT INTO ...")
         """
         conn = None
+        pool = self._pool
+        if pool is None:
+            raise RuntimeError("Connection pool not initialized, please call DatabasePool.initialize() first")
         try:
-            conn = await self.pool.acquire()
+            conn = await pool.acquire()
             await conn.begin()
             yield conn
             await conn.commit()
             logger.debug("Transaction committed successfully")
         except Exception as e:
             if conn is not None:
-                await conn.rollback()
+                try:
+                    await conn.rollback()
+                except Exception:
+                    pass
                 logger.warning(f"Transaction rolled back: {e}")
             raise
         finally:
             if conn is not None:
-                self.pool.release(conn)
+                try:
+                    pool.release(conn)
+                except Exception:
+                    pass
     
     async def fetchall(
         self, 
@@ -402,8 +417,8 @@ class DatabasePool:
             latency_ms = round((time.time() - start_time) * 1000, 2)
             
             # Get connection pool status
-            pool_size = self.pool.size if self.pool else 0
-            free_connections = self.pool.freesize if self.pool else 0
+            pool_size = self._pool.size if self._pool else 0
+            free_connections = self._pool.freesize if self._pool else 0
             
             return {
                 "status": "healthy",
@@ -424,6 +439,7 @@ class DatabasePool:
 
 # Global connection pool instance reference
 _db_pool: Optional[DatabasePool] = None
+_db_pool_lock = asyncio.Lock()
 
 
 async def get_db_pool() -> DatabasePool:
@@ -437,7 +453,9 @@ async def get_db_pool() -> DatabasePool:
     """
     global _db_pool
     if _db_pool is None:
-        _db_pool = await DatabasePool.initialize()
+        async with _db_pool_lock:
+            if _db_pool is None:
+                _db_pool = await DatabasePool.initialize()
     return _db_pool
 
 

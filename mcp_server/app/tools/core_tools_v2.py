@@ -379,12 +379,13 @@ def register_core_tools(mcp: FastMCP):
             query += " AND " + " AND ".join(conditions)
         
         # Sort: prioritize fingerprinted (more info), then by heat
-        query += f"""
+        query += """
         ORDER BY 
             CASE WHEN f.fingerprint IS NOT NULL THEN 1 ELSE 0 END DESC,
             e.NumArticles * ABS(e.GoldsteinScale) DESC
-        LIMIT {params.max_results}
+        LIMIT %s
         """
+        query_params.append(params.max_results)
         
         # Execute query
         try:
@@ -497,7 +498,7 @@ def register_core_tools(mcp: FastMCP):
                                     if actors:
                                         output.append(f"**Actors**: {', '.join(actors)}")
                                         output.append("")
-                                except:
+                                except Exception:
                                     pass
                             
                             # rawData
@@ -527,7 +528,7 @@ def register_core_tools(mcp: FastMCP):
                                     event_cols = [desc[0] for desc in cursor.description] if cursor.description else []
                                     event_data = dict(zip(event_cols, event_row))
                                     return _format_event_detail_from_raw(event_data, fingerprint, params)
-                            except:
+                            except Exception:
                                 pass
                             
                             return f"⚠️ Event fingerprint `{fingerprint}` not yet generated or does not exist\n\nHint: This fingerprint may not have been processed by ETL yet, or use search_events to search again。"
@@ -1017,7 +1018,7 @@ def register_core_tools(mcp: FastMCP):
                                         count = actor.get('count', 0)
                                         output.append(f"- {name}: {count} time")
                                     output.append("")
-                            except:
+                            except Exception:
                                 pass
                         
                         if data.get('top_locations'):
@@ -1030,7 +1031,7 @@ def register_core_tools(mcp: FastMCP):
                                         count = loc.get('count', 0)
                                         output.append(f"- {name}: {count} occurrence")
                                     output.append("")
-                            except:
+                            except Exception:
                                 pass
                     
                     elif params.format == 'executive':
@@ -1076,7 +1077,7 @@ def register_core_tools(mcp: FastMCP):
             from chromadb.utils import embedding_functions
             
             # Initialize ChromaDB
-            db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../chroma_db'))
+            db_path = str(Path(__file__).resolve().parents[3] / 'chroma_db')
             
             if not os.path.exists(db_path):
                 return f"❌ Vector database not found: {db_path}\nPlease run first: python start_kb.py Build knowledge base"
@@ -1470,7 +1471,7 @@ def _parse_time_hint(time_hint: Optional[str]) -> tuple:
         try:
             start = datetime.strptime(time_hint, '%Y-%m-%d').date()
             end = start
-        except:
+        except Exception:
             start = end - timedelta(days=7)
     
     return start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
@@ -1613,7 +1614,7 @@ def _calculate_risk_level(intensity: float) -> str:
     elif intensity > 5:
         return "high"
     elif intensity > 3:
-        return "in"
+        return "medium"
     else:
         return "low"
 
@@ -1719,8 +1720,9 @@ def _format_regional_overview_precomputed(rows: list, region: str,
     if include_trend and len(rows) > 1:
         output.append("## 📊 Trend")
         # simpleTrendjudgebreak
-        first_half = sum(r[5] for r in rows[:len(rows)//2] if r[5]) / (len(rows)//2) if rows else 0
-        second_half = sum(r[5] for r in rows[len(rows)//2:] if r[5]) / (len(rows) - len(rows)//2) if rows else 0
+        half = len(rows) // 2
+        first_half = sum(r[5] for r in rows[:half] if r[5]) / half if half else 0
+        second_half = sum(r[5] for r in rows[half:] if r[5]) / (len(rows) - half) if (len(rows) - half) else 0
         
         if second_half > first_half * 1.1:
             output.append("- conflictintensity: 📈 aboveriseTrend")
