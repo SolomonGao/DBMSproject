@@ -137,11 +137,14 @@ class GDELTMapIntegration {
             'Texas': [31.9686, -99.9018],
             'California': [36.7783, -119.4179],
             'Florida': [27.6648, -81.5158],
+            'Mexico': [23.6345, -102.5528],
+            'Canada': [56.1304, -106.3468],
+            'United States': [37.0902, -95.7129],
         };
 
         // 在文本中查找城市名
         for (const [city, coords] of Object.entries(cities)) {
-            const regex = new RegExp(city, 'gi');
+            const regex = new RegExp(`\\b${city}\\b`, 'gi');
             if (regex.test(text)) {
                 // 检查是否已添加
                 if (!events.some(e => e.location === city)) {
@@ -149,7 +152,7 @@ class GDELTMapIntegration {
                         location: city,
                         lat: coords[0],
                         lng: coords[1],
-                        description: `${city} conflict event`,
+                        description: `${city} event`,
                     });
                 }
             }
@@ -208,8 +211,8 @@ class GDELTMapIntegration {
                 .bindPopup(`
                     <div style="font-size: 12px; min-width: 200px;">
                         <h4 style="margin: 0 0 8px 0; font-weight: bold;">${event.location}</h4>
-                        <p style="margin: 4px 0;"><strong>描述:</strong> ${event.description}</p>
-                        <p style="margin: 4px 0;"><strong>坐标:</strong> (${event.lat.toFixed(2)}, ${event.lng.toFixed(2)})</p>
+                        <p style="margin: 4px 0;"><strong>Description:</strong> ${event.description}</p>
+                        <p style="margin: 4px 0;"><strong>Coordinates:</strong> (${event.lat.toFixed(2)}, ${event.lng.toFixed(2)})</p>
                     </div>
                 `)
                 .addTo(this.mapInstance);
@@ -248,5 +251,13 @@ class GDELTMapIntegration {
     }
 }
 
+// ✅ 关键修复：创建两个别名以兼容不同的命名约定
 // 全局实例
 window.gdeltMap = new GDELTMapIntegration('mapContainer');
+
+// ✅ app.js 期望的类名：EventExtractor
+// 创建这个别名，这样 app.js 中的 EventExtractor 就能找到
+window.EventExtractor = GDELTMapIntegration;
+
+// ✅ 同时也支持直接引用类
+const EventExtractor = GDELTMapIntegration;

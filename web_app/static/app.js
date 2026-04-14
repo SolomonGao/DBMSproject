@@ -1,7 +1,40 @@
+/**
+ * app.js - GDELT Chat UI
+ * 
+ * 修复点：
+ * 1. UUID 兼容性问题 - 添加 generateUUID() polyfill
+ * 2. buildMessageNode null 问题 - 添加防御性检查
+ * 3. mapIntegration 加载问题 - 改进初始化
+ */
+
+// ==================== UUID 生成函数（兼容所有浏览器）====================
+
+function generateUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = crypto.getRandomValues(new Uint8Array(1))[0] % 16;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+    
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// ==================== 全局状态 ====================
+
 const STORAGE_KEY = "gdelt-chat-sessions";
 const ACTIVE_SESSION_KEY = "gdelt-active-session";
 const DEFAULT_CHAT_TITLE = "New Chat";
-const LEGACY_DEFAULT_TITLES = new Set(["\u65b0\u5bf9\u8bdd", DEFAULT_CHAT_TITLE]);
+const LEGACY_DEFAULT_TITLES = new Set(["新对话", DEFAULT_CHAT_TITLE]);
 
 const state = {
     sessions: [],
@@ -9,6 +42,8 @@ const state = {
     serverInfo: null,
     requestInFlight: false,
     abortController: null,
+    mapVisible: false,
+    eventExtractor: null,
 };
 
 const elements = {
@@ -28,15 +63,89 @@ const elements = {
     typingTemplate: document.getElementById("typingTemplate"),
     thinkingTemplate: document.getElementById("thinkingTemplate"),
     promptCards: document.querySelectorAll(".prompt-card"),
+    mapContainer: document.getElementById("mapContainer"),
+    toggleMapButton: null,
 };
+
+// ==================== 初始化 ====================
 
 function bootstrap() {
     console.log("[GDELT Chat UI] Version 2.0 loaded");
+    
+    // Check mapIntegration
+    if (typeof EventExtractor !== 'undefined') {
+        state.eventExtractor = new EventExtractor();
+        console.log("[✓] EventExtractor initialized");
+    } else {
+        console.warn("[⚠] EventExtractor not available - map features will be disabled");
+    }
+    
     loadSessions();
     bindEvents();
+    setupMapToggle();
     selectOrCreateSession();
     render();
     fetchHealth();
+}
+
+function setupMapToggle() {
+    if (!elements.toggleMapButton) {
+        const header = document.querySelector('.chat-header') || document.querySelector('.workspace__header');
+        if (header) {
+            elements.toggleMapButton = document.createElement('button');
+            elements.toggleMapButton.id = 'toggleMapButton';
+            elements.toggleMapButton.type = 'button';
+            elements.toggleMapButton.className = 'toggle-map-button';
+            elements.toggleMapButton.textContent = '📍 Show Map';
+            elements.toggleMapButton.title = 'Toggle map visualization';
+            elements.toggleMapButton.addEventListener('click', toggleMapVisibility);
+            
+            const statusLine = document.getElementById('statusLine');
+            if (statusLine) {
+                statusLine.parentNode.insertBefore(elements.toggleMapButton, statusLine.nextSibling);
+            }
+        }
+    }
+    
+    if (!elements.mapContainer) {
+        const mapDiv = document.createElement('div');
+        mapDiv.id = 'mapContainer';
+        mapDiv.className = 'map-container';
+        mapDiv.style.display = 'none';
+        mapDiv.style.height = '400px';
+        mapDiv.style.width = '100%';
+        mapDiv.style.borderRadius = '8px';
+        mapDiv.style.marginTop = '16px';
+        mapDiv.style.border = '1px solid #ddd';
+        
+        const messageList = document.getElementById('messageList');
+        if (messageList && messageList.parentNode) {
+            messageList.parentNode.insertBefore(mapDiv, messageList.nextSibling);
+            elements.mapContainer = mapDiv;
+        }
+    }
+}
+
+function toggleMapVisibility() {
+    if (!elements.mapContainer) return;
+    
+    state.mapVisible = !state.mapVisible;
+    
+    if (state.mapVisible) {
+        elements.mapContainer.style.display = 'block';
+        if (elements.toggleMapButton) elements.toggleMapButton.textContent = '📍 Hide Map';
+        
+        if (state.eventExtractor && !state.eventExtractor.initialized) {
+            state.eventExtractor.init();
+        }
+        
+        if (state.eventExtractor && state.eventExtractor.mapInstance) {
+            state.eventExtractor.mapInstance.invalidateSize();
+        }
+    } else {
+        elements.mapContainer.style.display = 'none';
+        if (elements.toggleMapButton) elements.toggleMapButton.textContent = '📍 Show Map';
+    }
 }
 
 function bindEvents() {
@@ -56,10 +165,7 @@ function bindEvents() {
 
     elements.resetConversationButton.addEventListener("click", () => {
         const session = getActiveSession();
-        if (!session) {
-            return;
-        }
-
+        if (!session) return;
         session.messages = [];
         session.updatedAt = new Date().toISOString();
         session.title = DEFAULT_CHAT_TITLE;
@@ -118,13 +224,12 @@ function persistSessions() {
 
 function createSession() {
     const session = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         title: DEFAULT_CHAT_TITLE,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         messages: [],
     };
-
     state.sessions.unshift(session);
     state.activeSessionId = session.id;
     persistSessions();
@@ -133,9 +238,7 @@ function createSession() {
 
 function selectOrCreateSession() {
     const existing = getActiveSession();
-    if (existing) {
-        return existing;
-    }
+    if (existing) return existing;
 
     if (state.sessions.length === 0) {
         return createSession();
@@ -159,14 +262,10 @@ function setActiveSession(sessionId) {
 
 function deleteSession(sessionId) {
     const session = state.sessions.find((item) => item.id === sessionId);
-    if (!session) {
-        return;
-    }
+    if (!session) return;
 
     const title = session.title || DEFAULT_CHAT_TITLE;
-    if (!window.confirm(`Delete "${title}"?`)) {
-        return;
-    }
+    if (!window.confirm(`Delete "${title}"?`)) return;
 
     state.sessions = state.sessions.filter((item) => item.id !== sessionId);
 
@@ -238,89 +337,113 @@ function renderSessionList() {
 
 function renderConversation() {
     const session = getActiveSession();
-    if (!session) {
-        return;
-    }
+    if (!session) return;
 
     elements.conversationTitle.textContent = session.title || DEFAULT_CHAT_TITLE;
     elements.messageList.innerHTML = "";
 
-    const hasMessages = session.messages.length > 0;
-    elements.emptyState.hidden = hasMessages;
-    elements.messageList.hidden = !hasMessages;
-
-    if (!hasMessages) {
+    if (session.messages.length === 0) {
+        elements.emptyState.hidden = false;
         return;
     }
 
-    session.messages.forEach((message) => {
+    elements.emptyState.hidden = true;
+
+    session.messages.forEach((message, index) => {
         try {
-            elements.messageList.appendChild(buildMessageNode(message));
-        } catch (err) {
-            console.error("Failed to render message:", message, err);
-            const errorNode = document.createElement("div");
-            errorNode.className = "message message--assistant";
-            errorNode.textContent = "[Error rendering message]";
-            elements.messageList.appendChild(errorNode);
+            const node = buildMessageNode(message);
+            elements.messageList.appendChild(node);
+        } catch (error) {
+            console.error(`Error rendering message ${index}:`, error);
+            const fallback = document.createElement("div");
+            fallback.className = `message message--${message.role}`;
+            fallback.innerHTML = `<div class="message__body"><div class="message__meta"><span class="message__role">${message.role === "user" ? "You" : "Assistant"}</span><time class="message__time">${formatTime(message.createdAt)}</time></div><div class="message__content">${message.content}</div></div>`;
+            elements.messageList.appendChild(fallback);
         }
     });
 
     scrollMessagesToBottom();
 }
 
+// ==================== 关键修复：buildMessageNode ====================
+
 function buildMessageNode(message) {
-    const fragment = elements.messageTemplate.content.cloneNode(true);
-    const article = fragment.querySelector(".message");
-    const avatar = fragment.querySelector(".message__avatar");
-    const role = fragment.querySelector(".message__role");
-    const time = fragment.querySelector(".message__time");
-    const content = fragment.querySelector(".message__content");
+    const template = elements.messageTemplate.content.cloneNode(true);
 
-    article.classList.add(message.role === "user" ? "message--user" : "message--assistant");
-    avatar.textContent = message.role === "user" ? "You" : "AI";
-    role.textContent = message.role === "user" ? "You" : "Assistant";
-    time.textContent = formatTime(message.createdAt);
-    content.textContent = message.content || "(No response content)";
+    const container = template.querySelector("article") || template.querySelector("div");
+    if (!container) {
+        console.error("Message template structure invalid");
+        return template;
+    }
+    
+    container.className = `message message--${message.role}`;
 
-    if (message.thinking_process && message.thinking_process.length > 0) {
-        const isEmptyContent = !message.content || !message.content.trim();
-        const thinkingNode = buildThinkingNode(message.thinking_process, isEmptyContent);
-        article.querySelector(".message__body").appendChild(thinkingNode);
+    // 尝试多种方式找到文本容器
+    let textDiv = template.querySelector("[data-message-text]");
+    if (!textDiv) textDiv = template.querySelector(".message__content");
+    if (!textDiv) {
+        const body = template.querySelector(".message__body");
+        if (body) {
+            textDiv = document.createElement("div");
+            textDiv.className = "message__content";
+            body.appendChild(textDiv);
+        }
+    }
+    
+    if (textDiv) {
+        textDiv.innerHTML = message.content;
     }
 
-    return article;
+    // 处理时间戳
+    let timeDiv = template.querySelector("[data-message-time]");
+    if (!timeDiv) timeDiv = template.querySelector(".message__time");
+    if (timeDiv) timeDiv.textContent = formatTime(message.createdAt);
+
+    // 处理role
+    let roleSpan = template.querySelector("[data-message-role]");
+    if (!roleSpan) roleSpan = template.querySelector(".message__role");
+    if (roleSpan) roleSpan.textContent = message.role === "user" ? "You" : "Assistant";
+
+    if (message.thinking_process && message.thinking_process.length > 0) {
+        const thinkingNode = buildThinkingNode(message.thinking_process);
+        container.appendChild(thinkingNode);
+    }
+
+    return template;
 }
 
-function buildThinkingNode(steps, openByDefault = false) {
-    try {
-        const fragment = elements.thinkingTemplate.content.cloneNode(true);
-        const details = fragment.querySelector(".thinking-process");
-        const container = fragment.querySelector(".thinking-process__content");
-        if (openByDefault) {
-            details.setAttribute("open", "");
-        }
+// ==================== 其他函数 ====================
 
-        steps.forEach((step) => {
+function buildThinkingNode(thinkingProcess) {
+    try {
+        const details = document.createElement("details");
+        details.className = "thinking-process";
+
+        const summary = document.createElement("summary");
+        summary.className = "thinking-process__summary";
+        summary.textContent = `Thinking Process (${thinkingProcess.length} steps)`;
+        details.appendChild(summary);
+
+        const container = document.createElement("div");
+        container.className = "thinking-process__steps";
+
+        thinkingProcess.forEach((step) => {
             try {
                 const row = document.createElement("div");
                 row.className = "thinking-step";
 
                 const badge = document.createElement("span");
                 badge.className = "thinking-step__badge";
-                badge.textContent = step.type || "unknown";
+                badge.textContent = (step.type || "?").toUpperCase();
 
                 const text = document.createElement("span");
                 text.className = "thinking-step__text";
 
                 switch (step.type) {
-                    case "router_decision":
-                        text.textContent = `Router: ${step.intent || "?"} (confidence: ${((step.confidence != null ? step.confidence : 0)).toFixed(2)})` +
-                            (step.suggested_tools?.length ? ` → suggested: ${step.suggested_tools.join(", ")}` : "");
+                    case "input_analysis":
+                        text.textContent = `Input: ${step.input || ""}`;
                         break;
-                    case "system_hint":
-                        text.textContent = `System hint: suggested tools = ${(step.suggested_tools || []).join(", ")}`;
-                        break;
-                    case "history_truncated":
+                    case "history_handling":
                         text.textContent = `History truncated to ${step.max_messages != null ? step.max_messages : "?"} messages`;
                         break;
                     case "llm_reasoning":
@@ -350,6 +473,7 @@ function buildThinkingNode(steps, openByDefault = false) {
             }
         });
 
+        details.appendChild(container);
         return details;
     } catch (err) {
         console.error("Failed to build thinking node:", err);
@@ -358,10 +482,6 @@ function buildThinkingNode(steps, openByDefault = false) {
         fallback.innerHTML = '<summary class="thinking-process__summary">Thinking Process (error)</summary>';
         return fallback;
     }
-}
-
-function buildTypingNode() {
-    return elements.typingTemplate.content.cloneNode(true);
 }
 
 function formatSessionMeta(session) {
@@ -412,14 +532,10 @@ async function fetchHealth() {
 }
 
 async function sendCurrentPrompt() {
-    if (state.requestInFlight) {
-        return;
-    }
+    if (state.requestInFlight) return;
 
     const prompt = elements.composerInput.value.trim();
-    if (!prompt) {
-        return;
-    }
+    if (!prompt) return;
 
     hideError();
     const session = getActiveSession() || createSession();
@@ -449,13 +565,8 @@ async function sendCurrentPrompt() {
         console.log("[UI] Sending chat request...");
         const response = await fetchWithTimeout("/api/chat", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                message: prompt,
-                history,
-            }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: prompt, history }),
             signal: state.abortController.signal,
         }, 120000);
 
@@ -472,30 +583,33 @@ async function sendCurrentPrompt() {
         state.sessions.sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt));
         persistSessions();
         console.log("[UI] Message saved.");
-        if (window.gdeltMap && payload.reply) {
+
+        // ==================== 地图集成 ====================
+        if (state.eventExtractor && payload.reply) {
             try {
-                console.log("[UI] Initializing map...");
-                if (!window.gdeltMap.initialized) {
-                    window.gdeltMap.init();
+                console.log("[Map] Processing visualization...");
+                if (!state.eventExtractor.initialized) {
+                    state.eventExtractor.init();
                 }
                 
-                console.log("[UI] Extracting events from response...");
-                window.gdeltMap.showEventsFromText(payload.reply);
+                state.eventExtractor.showEventsFromText(payload.reply);
+                const events = state.eventExtractor.getEvents();
+                console.log(`[Map] Found ${events.length} events`);
                 
-                const events = window.gdeltMap.getEvents();
-                console.log(`[UI] Found ${events.length} events`);
-                
-                if (events.length > 0) {
-                    document.getElementById('mapContainer').style.display = 'block';
-                    console.log("[UI] Map displayed successfully");
-                } else {
-                    document.getElementById('mapContainer').style.display = 'none';
+                if (events.length > 0 && elements.mapContainer) {
+                    elements.mapContainer.style.display = 'block';
+                    if (state.eventExtractor.mapInstance) {
+                        setTimeout(() => {
+                            state.eventExtractor.mapInstance.invalidateSize();
+                        }, 100);
+                    }
                 }
             } catch (mapError) {
-                console.error("[UI] Map integration error:", mapError);
+                console.error("[Map] Error:", mapError);
             }
         }
-        
+        // ==================== 地图集成结束 ====================
+
     } catch (error) {
         if (error.name === "AbortError") {
             console.log("[UI] Request aborted by user.");
@@ -507,6 +621,11 @@ async function sendCurrentPrompt() {
             console.error(error);
             showError(error.message || "Failed to send the message.");
         }
+        
+        if (elements.mapContainer) {
+            elements.mapContainer.style.display = 'none';
+        }
+        
     } finally {
         state.requestInFlight = false;
         state.abortController = null;
@@ -515,14 +634,11 @@ async function sendCurrentPrompt() {
         render();
         focusComposer();
     }
-
-    
 }
-
 
 function createMessage(role, content, thinking_process = null) {
     return {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         role,
         content,
         createdAt: new Date().toISOString(),
@@ -554,7 +670,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 120000) {
 function normalizeSession(session) {
     if (!session || typeof session !== "object") {
         return {
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             title: DEFAULT_CHAT_TITLE,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -564,7 +680,7 @@ function normalizeSession(session) {
 
     return {
         ...session,
-        title: session.title === "\u65b0\u5bf9\u8bdd" ? DEFAULT_CHAT_TITLE : (session.title || DEFAULT_CHAT_TITLE),
+        title: session.title === "新对话" ? DEFAULT_CHAT_TITLE : (session.title || DEFAULT_CHAT_TITLE),
         messages: Array.isArray(session.messages) ? session.messages : [],
         thinking_process: session.thinking_process || null,
     };
@@ -591,5 +707,11 @@ function scrollMessagesToBottom() {
         elements.messageList.scrollTop = elements.messageList.scrollHeight;
     });
 }
+
+function buildTypingNode() {
+    return elements.typingTemplate.content.cloneNode(true);
+}
+
+// ==================== 启动应用 ====================
 
 bootstrap();

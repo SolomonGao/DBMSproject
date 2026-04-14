@@ -10,7 +10,6 @@
     <link rel="stylesheet" href="/static/styles.css?v=2">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
 </head>
 <body>
     <div class="app-shell">
@@ -81,16 +80,7 @@
 
             <section id="messageList" class="message-list" aria-live="polite"></section>
 
-
-            
-            <div id="mapContainer" style="
-    width: 100%;
-    height: 400px;
-    border-radius: 8px;
-    border: 1px solid #ddd;
-    margin-top: 16px;
-    display: none;
-"></div>
+            <div id="mapContainer" style="width: 100%; height: 400px; border-radius: 8px; border: 1px solid #ddd; margin-top: 16px; display: none;"></div>
 
             <section class="composer">
                 <div id="errorBanner" class="error-banner" hidden></div>
@@ -111,6 +101,7 @@
         </main>
     </div>
 
+    <!-- Message Template -->
     <template id="messageTemplate">
         <article class="message">
             <div class="message__avatar"></div>
@@ -124,6 +115,7 @@
         </article>
     </template>
 
+    <!-- Typing Template -->
     <template id="typingTemplate">
         <article class="message message--assistant message--typing">
             <div class="message__avatar">AI</div>
@@ -141,6 +133,7 @@
         </article>
     </template>
 
+    <!-- Thinking Template -->
     <template id="thinkingTemplate">
         <details class="thinking-process">
             <summary class="thinking-process__summary">Thinking Process</summary>
@@ -148,7 +141,10 @@
         </details>
     </template>
 
-    <script src="/static/app.js?v=2" defer></script>
-<script src="/static/mapIntegration.js?v=2" defer></script>
+    <!-- ✅ 修复：正确的脚本加载顺序和路径 -->
+    <!-- 1. 先加载 mapIntegration.js -->
+    <script src="/static/mapIntegration.js"></script>
+    <!-- 2. 再加载 app.js -->
+    <script src="/static/app.js?v=2"></script>
 </body>
 </html>
