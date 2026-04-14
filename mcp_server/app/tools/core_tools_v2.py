@@ -10,6 +10,7 @@ to:
 Tool count: 15 → 5
 """
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -1169,6 +1170,9 @@ def register_core_tools(mcp: FastMCP):
                 date_filter = "AND SQLDATE BETWEEN %s AND %s"
                 params_list.extend([params.start_date, params.end_date])
             
+            # Add LIMIT to prevent full table scan on large datasets
+            params_list.append(params.max_results)
+            
             query = f"""
                 SELECT SQLDATE, Actor1Name, Actor2Name, EventCode,
                        GoldsteinScale, AvgTone, ActionGeo_FullName,
@@ -1177,7 +1181,10 @@ def register_core_tools(mcp: FastMCP):
                 WHERE (Actor1Name LIKE %s OR Actor2Name LIKE %s)
                 {date_filter}
                 ORDER BY SQLDATE DESC
+                LIMIT %s
             """
+            
+            logger.debug(f"stream_events query: {query.strip()} | params: {params_list}")
             
             output = [f"# 🔍 streamingqueryResult: {params.actor_name}", ""]
             output.append("| Date | Actor1 | Actor2 | Goldstein | Tone | location |")
@@ -1202,6 +1209,9 @@ def register_core_tools(mcp: FastMCP):
             output.append(f"\n*Total returned {count} item(s)Result (streaming read)*")
             return "\n".join(output)
             
+        except asyncio.TimeoutError:
+            logger.error("streamingQuery failed: Query timeout (30s)")
+            return "❌ streamingQuery failed: Query timeout (30s). The dataset is too large for a fuzzy LIKE scan. Try narrowing the date range or using a more specific actor name."
         except Exception as e:
             logger.error(f"streamingQuery failed: {e}")
             return f"❌ streamingQuery failed: {str(e)}"
