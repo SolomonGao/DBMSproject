@@ -1406,7 +1406,8 @@ def register_core_tools(mcp: FastMCP):
             
             count = 0
             async for row in service.stream_events_by_actor(
-                params.actor_name, params.start_date, params.end_date
+                params.actor_name, params.start_date, params.end_date,
+                limit=params.max_results
             ):
                 # Use sanitize_text preventstop Markdown tablegridbybreakbad
                 lines.append(
@@ -1426,6 +1427,9 @@ def register_core_tools(mcp: FastMCP):
             lines.append(f"\n*Total returned {count} item(s)Result (streaming read)*")
             return "\n".join(lines)
             
+        except asyncio.TimeoutError:
+            logger.error("streamingQuery failed: Query timeout (30s)")
+            return "❌ streamingQuery failed: Query timeout (30s). The dataset is too large for a fuzzy LIKE scan. Try narrowing the date range or using a more specific actor name."
         except Exception as e:
             logger.error(f"streamingQuery failed: {e}")
             return f"❌ streamingQuery failed: {str(e)}"

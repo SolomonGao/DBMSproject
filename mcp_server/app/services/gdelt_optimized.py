@@ -179,7 +179,8 @@ class GDELTServiceOptimized:
         self,
         actor_name: str,
         start_date: Optional[str] = None,
-        end_date: Optional[str] = None
+        end_date: Optional[str] = None,
+        limit: Optional[int] = None
     ):
         """
         streamingquery - process large amountseventdata
@@ -195,6 +196,11 @@ class GDELTServiceOptimized:
             date_filter = "AND SQLDATE BETWEEN %s AND %s"
             params.extend([start_date, end_date])
         
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "LIMIT %s"
+            params.append(limit)
+        
         query = f"""
             SELECT SQLDATE, Actor1Name, Actor2Name, EventCode,
                    GoldsteinScale, AvgTone, ActionGeo_FullName
@@ -202,6 +208,7 @@ class GDELTServiceOptimized:
             WHERE (Actor1Name LIKE %s OR Actor2Name LIKE %s)
             {date_filter}
             ORDER BY SQLDATE DESC
+            {limit_clause}
         """
         
         async for row in self._streaming.stream(query, tuple(params)):
