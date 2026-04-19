@@ -236,35 +236,44 @@ class GDELTETLWorker:
         
         total_processed = 0
         batch_size = 5000
+        offset = 0
+        
+        # firstfetchalreadyexistfingerprint（avoid LEFT JOIN transactionisolationquestion）
+        existing = await self.pool.fetchall(
+            "SELECT global_event_id FROM event_fingerprints WHERE generated_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)",
+        )
+        existing_gids = {row['global_event_id'] for row in existing}
         
         while True:
-            # batchfetchstillnotgeneratefingerprintevent
             batch = await self.pool.fetchall("""
-                SELECT e.GlobalEventID, e.SQLDATE, e.Actor1Name, e.Actor2Name,
-                       e.EventCode, e.EventRootCode, e.GoldsteinScale,
-                       e.ActionGeo_FullName, e.ActionGeo_CountryCode,
-                       e.ActionGeo_Lat, e.ActionGeo_Long, e.NumArticles
-                FROM events_table e
-                LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-                WHERE e.SQLDATE = %s AND f.global_event_id IS NULL
-                LIMIT %s
-            """, (self.date, batch_size))
+                SELECT GlobalEventID, SQLDATE, Actor1Name, Actor2Name,
+                       EventCode, EventRootCode, GoldsteinScale,
+                       ActionGeo_FullName, ActionGeo_CountryCode,
+                       ActionGeo_Lat, ActionGeo_Long, NumArticles
+                FROM events_table
+                WHERE SQLDATE = %s
+                ORDER BY GlobalEventID
+                LIMIT %s OFFSET %s
+            """, (self.date, batch_size, offset))
             
             if not batch:
                 break
             
-            # batchgeneratefingerprintdata
             fingerprints = []
             for evt in batch:
+                gid = evt['GlobalEventID']
+                if gid in existing_gids:
+                    continue
                 fp_data = self._create_fingerprint(evt)
                 fingerprints.append(fp_data)
+                existing_gids.add(gid)
             
-            # batchinsert（onetimesexinsertwholebatch，avoiddeadlock）
-            inserted = await self._batch_insert_fingerprints(fingerprints)
-            total_processed += inserted
-            logger.info(f"  ✓ [{self.date}] batch: +{inserted}, tiredplan {total_processed}")
+            if fingerprints:
+                inserted = await self._batch_insert_fingerprints(fingerprints)
+                total_processed += inserted
+                logger.info(f"  ✓ [{self.date}] batch: +{inserted}, tiredplan {total_processed}")
             
-            # ifthisbatchinsufficient batch_size，descriptionprocesscompletedone
+            offset += len(batch)
             if len(batch) < batch_size:
                 break
         
@@ -308,8 +317,8 @@ class GDELTETLWorker:
         }
         event_type = type_map.get(event_root, 'EVENT')
         
-        # orderNo.
-        seq = str(gid)[-3:].zfill(3)
+        # usecomplete GID guaranteefingerprint onlyone
+        seq = str(gid)
         fingerprint = f"{country}-{date_str}-{location_code}-{event_type}-{seq}"
         
         # generateinsidecontent
@@ -407,6 +416,8 @@ class GDELTETLWorker:
         try:
             async with self.pool._pool.acquire() as conn:
                 async with conn.cursor() as cursor:
+                    # closeMySQL Warningtransportoutput，avoidDuplicate刷屏
+                    await cursor.execute("SET sql_notes = 0")
                     # INSERT IGNORE：duplicateruleignore，rowcount accurate
                     await cursor.executemany("""
                         INSERT IGNORE INTO event_fingerprints 

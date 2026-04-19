@@ -14,7 +14,8 @@
 
 -- Step 1: 创建分区表结构
 CREATE TABLE IF NOT EXISTS events_table_partitioned (
-    GlobalEventID BIGINT PRIMARY KEY,
+    GlobalEventID BIGINT,
+    PRIMARY KEY (GlobalEventID, Year),
     SQLDATE DATE NOT NULL,
     MonthYear INT,
     Year INT,
