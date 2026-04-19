@@ -22,7 +22,13 @@ from fastmcp import FastMCP
 # Import database connection
 from ..database import get_db_pool
 from ..cache import query_cache
-from ..services.gdelt_optimized import GDELTServiceOptimized
+from ..queries import core_queries
+from ..queries.query_utils import (
+    sanitize_text,
+    parse_time_hint,
+    parse_region_input,
+    calculate_risk_level,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -319,109 +325,25 @@ def register_core_tools(mcp: FastMCP):
                         month = month.zfill(2)
                     time_hint = f"2024-{month}"  # Default to 2024
         
-        date_start, date_end = _parse_time_hint(time_hint)
-        
-        # Build query (JOIN event_fingerprints to get fingerprints)
-        query = f"""
-        SELECT 
-            e.GlobalEventID,
-            e.SQLDATE,
-            e.Actor1Name,
-            e.Actor2Name,
-            e.EventCode,
-            e.EventRootCode,
-            e.GoldsteinScale,
-            e.NumArticles,
-            e.AvgTone,
-            e.ActionGeo_FullName,
-            e.ActionGeo_CountryCode,
-            e.ActionGeo_Lat,
-            e.ActionGeo_Long,
-            f.fingerprint,
-            f.headline,
-            f.summary,
-            f.event_type_label,
-            f.severity_score
-        FROM {DEFAULT_TABLE} e
-        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-        WHERE 1=1
-        """
-        
-        conditions = []
-        query_params = []
-        
-        # Time conditions
-        conditions.append("e.SQLDATE BETWEEN %s AND %s")
-        query_params.extend([date_start, date_end])
-        
-        # Location conditions (using index-optimized prefix matching)
-        if params.location_hint:
-            # Parse location input, get all possible variants
-            location_terms = _parse_region_input(params.location_hint)
-            
-            # Build index-friendly matching conditions (prefix matching)
-            location_conditions = []
-            for term in location_terms:
-                # 1. Prefix matching (index-friendly): 'Washington%'
-                location_conditions.append("e.ActionGeo_FullName LIKE %s")
-                query_params.append(f'{term}%')
-                
-                # 2. Prefix matching after comma (city name after comma): '%, Washington%'
-                location_conditions.append("e.ActionGeo_FullName LIKE %s")
-                query_params.append(f'%, {term}%')
-                
-                # 3. Country code (2-3 uppercase letters)
-                if len(term) <= 3 and term.isalpha():
-                    location_conditions.append("e.ActionGeo_CountryCode = %s")
-                    query_params.append(term.upper()[:3])
-            
-            # Combine all location conditions
-            if location_conditions:
-                conditions.append(f"({' OR '.join(location_conditions)})")
-        
-        # Event type
-        if params.event_type != 'any':
-            type_conditions = {
-                'conflict': "e.GoldsteinScale < -5",
-                'cooperation': "e.GoldsteinScale > 5",
-                'protest': "e.EventRootCode = '14'",
-                'diplomacy': "e.EventRootCode IN ('01', '02', '03')",
-                'military': "e.EventRootCode IN ('18', '19', '20')",
-                'economic': "e.EventRootCode = '06'"
-            }
-            if params.event_type in type_conditions:
-                conditions.append(type_conditions[params.event_type])
-        
-        # Build complete query
-        if conditions:
-            query += " AND " + " AND ".join(conditions)
-        
-        # Sort: prioritize fingerprinted (more info), then by heat
-        query += """
-        ORDER BY 
-            CASE WHEN f.fingerprint IS NOT NULL THEN 1 ELSE 0 END DESC,
-            e.NumArticles * ABS(e.GoldsteinScale) DESC
-        LIMIT %s
-        """
-        query_params.append(params.max_results)
-        
-        # Execute query
         try:
             pool = await get_db_pool()
-            async with pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    await cursor.execute(query, tuple(query_params))
-                    rows = await cursor.fetchall()
-                    columns = [desc[0] for desc in cursor.description] if cursor.description else []
-                    
-                    if not rows:
-                        return f"❌ notFoundWith '{params.query}' relatedEvent（Timerange: {date_start} ~ {date_end}）"
-                    
-                    # Format as readable result
-                    if params.format == "json":
-                        data = [dict(zip(columns, row)) for row in rows]
-                        return json.dumps({"data": data, "query": params.query, "total": len(data)}, default=str, ensure_ascii=False)
-                    return _format_search_results_v2(rows, columns, params.query)
+            rows = await core_queries.query_search_events(
+                pool, params.query, time_hint, params.location_hint,
+                params.event_type, params.max_results
+            )
+            
+            if not rows:
+                date_start, date_end = parse_time_hint(time_hint)
+                return f"❌ notFoundWith '{params.query}' relatedEvent（Timerange: {date_start} ~ {date_end}）"
+            
+            if params.format == "json":
+                return json.dumps({"data": rows, "query": params.query, "total": len(rows)}, default=str, ensure_ascii=False)
+            
+            # Convert dict rows to tuples for legacy formatter
+            columns = list(rows[0].keys()) if rows else []
+            row_tuples = [tuple(r.get(c) for c in columns) for r in rows]
+            return _format_search_results_v2(row_tuples, columns, params.query)
+            
         except Exception as e:
             logger.error(f"Search events failed: {e}")
             return f"❌ Query failed: {str(e)}"
@@ -435,125 +357,56 @@ def register_core_tools(mcp: FastMCP):
         - Standard fingerprint: "US-20240115-WDC-PROTEST-001" (ETL generated)
         - Temporary fingerprint: "EVT-2024-12-25-1217480788" (temporarily generated by search_events)
         """
-        fingerprint = params.fingerprint
-        
         try:
             pool = await get_db_pool()
-            async with pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    
-                    # Determine fingerprint type
-                    if fingerprint.startswith('EVT-'):
-                        # Temporary fingerprint format: EVT-YYYY-MM-DD-GID
-                        # Extract GlobalEventID
-                        parts = fingerprint.split('-')
-                        if len(parts) >= 4:
-                            # Last part is GID, convert to integer
-                            try:
-                                global_event_id = int(parts[-1])
-                            except ValueError:
-                                return f"❌ Temporary fingerprint format error, cannot parse GID: {fingerprint}"
-                        else:
-                            return f"❌ Temporary fingerprint format error: {fingerprint}"
-                        
-                        # Directly query events_table
-                        await cursor.execute(f"""
-                            SELECT * FROM {DEFAULT_TABLE}
-                            WHERE GlobalEventID = %s
-                        """, (global_event_id,))
-                        
-                        event_row = await cursor.fetchone()
-                        if not event_row:
-                            return f"⚠️ Event not found: GlobalEventID={global_event_id}"
-                        
-                        event_cols = [desc[0] for desc in cursor.description] if cursor.description else []
-                        event_data = dict(zip(event_cols, event_row))
-                        
-                        # Generate display content in real-time
-                        return _format_event_detail_from_raw(event_data, fingerprint, params)
-                    
-                    else:
-                        # Standard fingerprint, query fingerprint table
-                        await cursor.execute("""
-                            SELECT global_event_id, fingerprint, headline, summary,
-                                   key_actors, event_type_label, severity_score,
-                                   location_name, location_country
-                            FROM event_fingerprints
-                            WHERE fingerprint = %s
-                        """, (fingerprint,))
-                        
-                        fp_row = await cursor.fetchone()
-                        
-                        if fp_row:
-                            global_event_id = int(fp_row[0]) if fp_row[0] else None
-                            if not global_event_id:
-                                return f"⚠️ Fingerprint data incomplete: {fingerprint}"
-                            # Get complete event data
-                            await cursor.execute(f"""
-                                SELECT * FROM {DEFAULT_TABLE}
-                                WHERE GlobalEventID = %s
-                            """, (global_event_id,))
-                            event_row = await cursor.fetchone()
-                            event_cols = [desc[0] for desc in cursor.description] if cursor.description else []
-                            event_data = dict(zip(event_cols, event_row)) if event_row else {}
-                            
-                            # Build output using fingerprint table data
-                            output = []
-                            output.append(f"# 📰 {fp_row[2] or 'EventDetails'}")
-                            output.append(f"**Fingerprint ID**: `{fingerprint}`")
-                            output.append(f"**GlobalEventID**: {global_event_id}")
-                            output.append(f"**Time**: {event_data.get('SQLDATE', 'N/A')}")
-                            output.append(f"**Location**: {fp_row[7] or event_data.get('ActionGeo_FullName', 'N/A')}")
-                            output.append(f"**Type**: {fp_row[5] or 'N/A'}")
-                            output.append(f"**Severity**: {'🔴' * int((fp_row[6] or 5) / 2)}")
-                            output.append("")
-                            
-                            if fp_row[3]:  # summary
-                                output.append(f"**Summary**: {fp_row[3]}")
-                                output.append("")
-                            
-                            # Actors
-                            if fp_row[4]:  # key_actors
-                                try:
-                                    actors = json.loads(fp_row[4])
-                                    if actors:
-                                        output.append(f"**Actors**: {', '.join(actors)}")
-                                        output.append("")
-                                except Exception:
-                                    pass
-                            
-                            # rawData
-                            output.append("## 📊 Data Metrics")
-                            output.append(f"- GoldsteinScale: {event_data.get('GoldsteinScale', 'N/A')}")
-                            output.append(f"- NumArticles: {event_data.get('NumArticles', 'N/A')}")
-                            output.append(f"- AvgTone: {event_data.get('AvgTone', 'N/A')}")
-                            output.append("")
-                            
-                            # placeholder：Cause and Effect Analysis
-                            if params.include_causes or params.include_effects:
-                                output.append("## ⏱️ Causal Analysis")
-                                output.append("_(requires running causal chain analysis pipeline)_")
-                                output.append("")
-                            
-                            return "\n".join(output)
-                        else:
-                            # tryusefingerprintas GID directquery
-                            try:
-                                await cursor.execute(f"""
-                                    SELECT * FROM {DEFAULT_TABLE}
-                                    WHERE GlobalEventID = %s
-                                """, (fingerprint,))
-                                
-                                event_row = await cursor.fetchone()
-                                if event_row:
-                                    event_cols = [desc[0] for desc in cursor.description] if cursor.description else []
-                                    event_data = dict(zip(event_cols, event_row))
-                                    return _format_event_detail_from_raw(event_data, fingerprint, params)
-                            except Exception:
-                                pass
-                            
-                            return f"⚠️ Event fingerprint `{fingerprint}` not yet generated or does not exist\n\nHint: This fingerprint may not have been processed by ETL yet, or use search_events to search again。"
-                    
+            result = await core_queries.query_event_detail(pool, params.fingerprint)
+            
+            if result is None:
+                return f"⚠️ Event fingerprint `{params.fingerprint}` not yet generated or does not exist\n\nHint: use search_events to search again。"
+            
+            # Temporary fingerprint: result is a flat dict of event data
+            if isinstance(result, dict) and "event_data" not in result:
+                return _format_event_detail_from_raw(result, params.fingerprint, params)
+            
+            # Standard fingerprint: structured result
+            fp = result
+            event_data = fp.get("event_data", {})
+            output = []
+            output.append(f"# 📰 {fp.get('headline') or 'EventDetails'}")
+            output.append(f"**Fingerprint ID**: `{fp.get('fingerprint')}`")
+            output.append(f"**GlobalEventID**: {event_data.get('GlobalEventID', 'N/A')}")
+            output.append(f"**Time**: {event_data.get('SQLDATE', 'N/A')}")
+            output.append(f"**Location**: {fp.get('location_name') or event_data.get('ActionGeo_FullName', 'N/A')}")
+            output.append(f"**Type**: {fp.get('event_type_label') or 'N/A'}")
+            output.append(f"**Severity**: {'🔴' * int((fp.get('severity_score') or 5) / 2)}")
+            output.append("")
+            
+            if fp.get('summary'):
+                output.append(f"**Summary**: {fp['summary']}")
+                output.append("")
+            
+            if fp.get('key_actors'):
+                try:
+                    actors = json.loads(fp['key_actors'])
+                    if actors:
+                        output.append(f"**Actors**: {', '.join(actors)}")
+                        output.append("")
+                except Exception:
+                    pass
+            
+            output.append("## 📊 Data Metrics")
+            output.append(f"- GoldsteinScale: {event_data.get('GoldsteinScale', 'N/A')}")
+            output.append(f"- NumArticles: {event_data.get('NumArticles', 'N/A')}")
+            output.append(f"- AvgTone: {event_data.get('AvgTone', 'N/A')}")
+            output.append("")
+            
+            if params.include_causes or params.include_effects:
+                output.append("## ⏱️ Causal Analysis")
+                output.append("_(requires running causal chain analysis pipeline)_")
+                output.append("")
+            
+            return "\n".join(output)
+            
         except Exception as e:
             logger.error(f"Failed to get event details: {e}")
             return f"❌ Query failed: {str(e)}"
@@ -567,94 +420,62 @@ def register_core_tools(mcp: FastMCP):
         - region="Middle East", time_range="week"
         - region="China", time_range="month", include_risks=true
         """
-        # Calculate date range
-        end_date = datetime.now().date()
-        days_map = {'day': 1, 'week': 7, 'month': 30, 'quarter': 90, 'year': 365}
-        start_date = end_date - timedelta(days=days_map.get(params.time_range, 7))
-        
         try:
             pool = await get_db_pool()
-            async with pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    # Check if pre-computed regional statistics exist
-                    await cursor.execute("""
-                        SELECT * FROM region_daily_stats
-                        WHERE region_code = %s AND date BETWEEN %s AND %s
-                        ORDER BY date DESC
-                        LIMIT 7
-                    """, (params.region.upper(), start_date, end_date))
-                    
-                    stats_rows = await cursor.fetchall()
-                    
-                    if stats_rows:
-                        # Use pre-computed data
-                        return _format_regional_overview_precomputed(
-                            stats_rows, params.region, start_date, end_date,
-                            params.include_trend, params.include_risks
-                        )
-                    
-                    # Fallback: real-time query
-                    await cursor.execute(f"""
-                        SELECT 
-                            COUNT(*) as total,
-                            AVG(GoldsteinScale) as avg_goldstein,
-                            AVG(AvgTone) as avg_tone,
-                            SUM(CASE WHEN GoldsteinScale < -5 THEN 1 ELSE 0 END) as conflicts,
-                            SUM(CASE WHEN GoldsteinScale > 5 THEN 1 ELSE 0 END) as cooperation
-                        FROM {DEFAULT_TABLE}
-                        WHERE SQLDATE BETWEEN %s AND %s
-                          AND (ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)
-                    """, (start_date, end_date, params.region.upper(), f'%{params.region}%'))
-                    
-                    row = await cursor.fetchone()
-                    
-                    output = []
-                    output.append(f"# 🌍 {params.region} Regional Situation")
-                    output.append(f"**Timerange**: {start_date} ~ {end_date}")
+            result = await core_queries.query_regional_overview(pool, params.region, params.time_range)
+            
+            start_date = result["start"]
+            end_date = result["end"]
+            output = []
+            output.append(f"# 🌍 {params.region} Regional Situation")
+            output.append(f"**Timerange**: {start_date} ~ {end_date}")
+            output.append("")
+            
+            if result["source"] == "precomputed":
+                # Format precomputed rows (simplified)
+                rows = result["rows"]
+                total_events = sum(r.get("event_count", 0) for r in rows)
+                avg_conflict = sum(r.get("conflict_intensity", 0) for r in rows if r.get("conflict_intensity")) / len(rows) if rows else 0
+                intensity = min(10, max(1, avg_conflict))
+                output.append(f"**Situation Score**: {intensity:.1f}/10 {'🔴' if intensity > 7 else '🟡' if intensity > 4 else '🟢'}")
+                output.append(f"**Risk Level**: {calculate_risk_level(intensity)}")
+                output.append("")
+                output.append("## 📈 Key Metrics")
+                output.append(f"- Total Events: {total_events}")
+                output.append("")
+                return "\n".join(output)
+            
+            # Realtime result
+            summary = result.get("summary", {})
+            total = summary.get("total", 0)
+            avg_goldstein = summary.get("avg_goldstein", 0) or 0
+            conflicts = summary.get("conflicts", 0) or 0
+            
+            if total:
+                intensity = min(10, max(1, abs(avg_goldstein)))
+                output.append(f"**Situation Score**: {intensity:.1f}/10 {'🔴' if intensity > 7 else '🟡' if intensity > 4 else '🟢'}")
+                output.append(f"**Risk Level**: {calculate_risk_level(intensity)}")
+                output.append("")
+                output.append("## 📈 Key Metrics")
+                output.append(f"- Total Events: {total}")
+                output.append(f"- Conflict Events: {conflicts} ({conflicts/total*100:.1f}%)")
+                output.append(f"- Average Goldstein Index: {avg_goldstein:.2f}")
+                output.append("")
+                
+                hot_events = result.get("hot_events", [])
+                if hot_events:
+                    output.append("## 🔥 Hot Events")
+                    for i, evt in enumerate(hot_events, 1):
+                        actor1 = evt.get("Actor1Name", "Unknown")
+                        actor2 = evt.get("Actor2Name", "Unknown")
+                        location = evt.get("ActionGeo_FullName", params.region)
+                        output.append(f"{i}. {actor1} vs {actor2} ({location})")
                     output.append("")
-                    
-                    if row and row[0]:
-                        total = row[0]
-                        avg_goldstein = row[1] or 0
-                        conflicts = row[3] or 0
-                        
-                        # Situation Score
-                        intensity = min(10, max(1, abs(avg_goldstein)))
-                        risk_level = _calculate_risk_level(intensity)
-                        output.append(f"**Situation Score**: {intensity:.1f}/10 {'🔴' if intensity > 7 else '🟡' if intensity > 4 else '🟢'}")
-                        output.append(f"**Risk Level**: {risk_level}")
-                        output.append("")
-                        
-                        output.append("## 📈 Key Metrics")
-                        output.append(f"- Total Events: {total}")
-                        output.append(f"- Conflict Events: {conflicts} ({conflicts/total*100:.1f}%)")
-                        output.append(f"- Average Goldstein Index: {avg_goldstein:.2f}")
-                        output.append("")
-                        
-                        # Hot Events（real-timequery）
-                        await cursor.execute(f"""
-                            SELECT Actor1Name, Actor2Name, EventCode, GoldsteinScale, 
-                                   NumArticles, ActionGeo_FullName, SQLDATE
-                            FROM {DEFAULT_TABLE}
-                            WHERE SQLDATE BETWEEN %s AND %s
-                              AND (ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)
-                            ORDER BY NumArticles * ABS(GoldsteinScale) DESC
-                            LIMIT 5
-                        """, (start_date, end_date, params.region.upper(), f'%{params.region}%'))
-                        
-                        hot_events = await cursor.fetchall()
-                        if hot_events:
-                            output.append("## 🔥 Hot Events")
-                            for i, evt in enumerate(hot_events, 1):
-                                actor1, actor2 = evt[0], evt[1]
-                                location = evt[5] or params.region
-                                output.append(f"{i}. {actor1} vs {actor2} ({location}) - {evt[4]}articles")
-                            output.append("")
-                    else:
-                        output.append("⚠️ thisTimesegmentwithinnotFoundRelated Events")
-                    
-                    return "\n".join(output)
-                    
+            else:
+                output.append("⚠️ No related events found in this time period")
+            
+            return "\n".join(output)
+            
         except Exception as e:
             logger.error(f"Failed to get regional overview: {e}")
             return f"❌ Query failed: {str(e)}"
@@ -668,114 +489,43 @@ def register_core_tools(mcp: FastMCP):
         - date="2024-01-15", top_n=5
         - region_filter="Asia", top_n=10
         """
-        # Default to yesterday
         query_date = params.date or (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
         
         try:
             pool = await get_db_pool()
-            async with pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    # First try to get from pre-computed table
-                    await cursor.execute("""
-                        SELECT hot_event_fingerprints, top_actors, top_locations
-                        FROM daily_summary
-                        WHERE date = %s
-                    """, (query_date,))
-                    
-                    result = await cursor.fetchone()
-                    
-                    events = []
-                    
-                    if result and result[0]:
-                        # Has pre-computed data
-                        hot_fingerprints = json.loads(result[0]) if isinstance(result[0], str) else result[0]
-                        
-                        # Get fingerprint details
-                        for fp in hot_fingerprints[:params.top_n]:
-                            await cursor.execute("""
-                                SELECT f.fingerprint, f.headline, f.summary, f.severity_score,
-                                       f.location_name, e.SQLDATE, e.GoldsteinScale, e.NumArticles,
-                                       e.GlobalEventID, 'standard' as fp_type
-                                FROM event_fingerprints f
-                                JOIN events_table e ON f.global_event_id = e.GlobalEventID
-                                WHERE f.fingerprint = %s
-                            """, (fp,))
-                            row = await cursor.fetchone()
-                            if row:
-                                events.append(row)
-                    
-                    # e.g.resultnoHas pre-computed data，real-timequerybuttrymatchfingerprinttable
-                    if not events:
-                        region_condition = ""
-                        query_params = [query_date]
-                        
-                        if params.region_filter:
-                            region_condition = "AND (e.ActionGeo_CountryCode = %s OR e.ActionGeo_FullName LIKE %s)"
-                            query_params.extend([params.region_filter.upper(), f'%{params.region_filter}%'])
-                        
-                        # firstqueryreal-timehot，thenafterLEFT JOINfingerprinttableGetStandard fingerprint
-                        await cursor.execute(f"""
-                            SELECT 
-                                COALESCE(f.fingerprint, CONCAT('EVT-', e.SQLDATE, '-', CAST(e.GlobalEventID AS CHAR))) as fingerprint,
-                                COALESCE(f.headline, CONCAT(
-                                    COALESCE(NULLIF(e.Actor1Name, ''), 'One party'), 
-                                    ' vs ', 
-                                    COALESCE(NULLIF(e.Actor2Name, ''), 'Other party')
-                                )) as headline,
-                                COALESCE(f.summary, e.ActionGeo_FullName) as summary,
-                                COALESCE(f.severity_score, ABS(e.GoldsteinScale)) as severity_score,
-                                COALESCE(f.location_name, e.ActionGeo_FullName) as location_name,
-                                e.SQLDATE as date,
-                                e.GoldsteinScale,
-                                e.NumArticles,
-                                e.GlobalEventID,
-                                CASE WHEN f.fingerprint IS NOT NULL THEN 'standard' ELSE 'temp' END as fp_type
-                            FROM {DEFAULT_TABLE} e
-                            LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-                            WHERE e.SQLDATE = %s {region_condition}
-                            ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
-                            LIMIT %s
-                        """, tuple(query_params + [params.top_n]))
-                        
-                        events = await cursor.fetchall()
-                    
-                    # Formatizationoutput
-                    if not events:
-                        return f"📭 {query_date} notFoundHot Events"
-                    
-                    output = []
-                    output.append(f"# 🔥 {query_date} Hot Events TOP {len(events)}")
-                    output.append("")
-                    
-                    for i, evt in enumerate(events, 1):
-                        fingerprint = evt[0]
-                        raw_headline = evt[1]
-                        # changeenter headline display
-                        if raw_headline and raw_headline not in ['One party vs Other party', ' vs ', 'NULL vs NULL']:
-                            headline = raw_headline
-                        else:
-                            # tryfromfingerprintorEvent typepushbreak
-                            gid = evt[8] if len(evt) > 8 else (fingerprint.split('-')[-1] if '-' in str(fingerprint) else 'notknow')
-                            headline = f"Event #{gid}"
-                        location = evt[4] or "notknowLocation"
-                        severity = evt[3] or 5
-                        num_articles = evt[7] or 0
-                        fp_type = evt[9] if len(evt) > 9 else 'unknown'
-                        
-                        # standardrecordfingerprintType
-                        fp_badge = "📌" if fp_type == 'standard' else "📝"
-                        
-                        output.append(f"## {i}. {headline}")
-                        output.append(f"**fingerprint**: {fp_badge} `{fingerprint}` {'(standard)' if fp_type == 'standard' else '(temporary)'}")
-                        output.append(f"**Location**: {location} | **Severity**: {'🔴' * int(severity / 2)}")
-                        output.append(f"**articlesamount**: {num_articles} ")
-                        if evt[2] and len(str(evt[2])) > 10:
-                            output.append(f"**Summary**: {str(evt[2])[:100]}...")
-                        output.append("")
-                    
-                    output.append("💡 _Use `get_event_detail` ViewDetails_")
-                    return "\n".join(output)
-                    
+            events = await core_queries.query_hot_events(pool, query_date, params.region_filter, params.top_n)
+            
+            if not events:
+                return f"📭 {query_date} notFoundHot Events"
+            
+            output = []
+            output.append(f"# 🔥 {query_date} Hot Events TOP {len(events)}")
+            output.append("")
+            
+            for i, evt in enumerate(events, 1):
+                fingerprint = evt.get("fingerprint", "")
+                headline = evt.get("headline", "")
+                if not headline or headline in ['One party vs Other party', ' vs ', 'NULL vs NULL']:
+                    gid = evt.get("GlobalEventID", fingerprint.split('-')[-1] if '-' in str(fingerprint) else 'unknown')
+                    headline = f"Event #{gid}"
+                location = evt.get("location_name") or evt.get("ActionGeo_FullName", "Unknown location")
+                severity = evt.get("severity_score") or 5
+                num_articles = evt.get("NumArticles") or 0
+                fp_type = evt.get("fp_type", "unknown")
+                fp_badge = "📌" if fp_type == 'standard' else "📝"
+                
+                output.append(f"## {i}. {headline}")
+                output.append(f"**fingerprint**: {fp_badge} `{fingerprint}` {'(standard)' if fp_type == 'standard' else '(temporary)'}")
+                output.append(f"**Location**: {location} | **Severity**: {'🔴' * int(severity / 2)}")
+                output.append(f"**articlesamount**: {num_articles} ")
+                summary = evt.get("summary", "")
+                if summary and len(str(summary)) > 10:
+                    output.append(f"**Summary**: {str(summary)[:100]}...")
+                output.append("")
+            
+            output.append("💡 _Use `get_event_detail` ViewDetails_")
+            return "\n".join(output)
+            
         except Exception as e:
             logger.error(f"GetHot Eventsfailed: {e}")
             return f"❌ Query failed: {str(e)}"
@@ -786,165 +536,80 @@ def register_core_tools(mcp: FastMCP):
         Get top events by heat score in a time period
         
         Heat score = NumArticles × |GoldsteinScale| (media coverage × conflict intensity)
-        
-        Examples:
-        - Full year 2024: start_date="2024-01-01", end_date="2024-12-31"
-        - Washington DC in 2024: start_date="2024-01-01", end_date="2024-12-31", region_filter="Washington"
-        - USA conflicts: start_date="2024-01-01", end_date="2024-12-31", region_filter="USA", event_type="conflict"
-        - Middle East protests: region_filter="Middle East", event_type="protest"
-        
-        Region filter supports: country codes (USA, CHN), city names (Washington, Beijing), regions (Middle East)
         """
         try:
             pool = await get_db_pool()
-            async with pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    # Buildqueryitem(s)item
-                    conditions = ["SQLDATE BETWEEN %s AND %s"]
-                    query_params = [params.start_date, params.end_date]
-                    
-                    # Region filter（intelligentparse，supportindexoptizationquery）
-                    if params.region_filter:
-                        region_input = params.region_filter.strip()
-                        
-                        # intelligentparseuseuserinput
-                        parsed_regions = _parse_region_input(region_input)
-                        
-                        # Buildindex-friendlymatchitem(s)item
-                        region_conditions = []
-                        
-                        for region in parsed_regions:
-                            # 1. Prefix matching (index-friendly): 'Washington%'
-                            region_conditions.append("ActionGeo_FullName LIKE %s")
-                            query_params.append(f'{region}%')
-                            
-                            # 2. commaNo.afterbeforesuffixmatch: '%, Washington%'
-                            region_conditions.append("ActionGeo_FullName LIKE %s")
-                            query_params.append(f'%, {region}%')
-                            
-                            # 3. Country code (2-3 uppercase letters)
-                            if len(region) <= 3 and region.isalpha():
-                                region_conditions.append("ActionGeo_CountryCode = %s")
-                                query_params.append(region.upper()[:3])
-                            
-                        where_clause_region = " OR ".join(region_conditions)
-                        conditions.append(f"({where_clause_region})")
-                    
-                    # Event typefilter
-                    if params.event_type == 'conflict':
-                        conditions.append("GoldsteinScale < -5")
-                    elif params.event_type == 'cooperation':
-                        conditions.append("GoldsteinScale > 5")
-                    elif params.event_type == 'protest':
-                        conditions.append("EventRootCode = '14'")
-                    
-                    where_clause = " AND ".join(conditions)
-                    
-                    # queryHeatmosthighEvent
-                    # Heat = NumArticles * |GoldsteinScale| (articlesamount * conflictintensity)
-                    await cursor.execute(f"""
-                        SELECT 
-                            GlobalEventID,
-                            SQLDATE,
-                            Actor1Name,
-                            Actor2Name,
-                            ActionGeo_FullName,
-                            ActionGeo_CountryCode,
-                            EventRootCode,
-                            GoldsteinScale,
-                            NumArticles,
-                            NumSources,
-                            AvgTone,
-                            SOURCEURL
-                        FROM {DEFAULT_TABLE}
-                        WHERE {where_clause}
-                        ORDER BY NumArticles * ABS(GoldsteinScale) DESC
-                        LIMIT %s
-                    """, tuple(query_params + [params.top_n]))
-                    
-                    rows = await cursor.fetchall()
-                    
-                    if not rows:
-                        return f"📭 {params.start_date} ~ {params.end_date} No events matching criteria found during this period"
-                    
-                    # Formatizationoutput
-                    output = []
-                    output.append(f"# 🔥 {params.start_date} ~ {params.end_date} Highest heat events TOP {len(rows)}")
-                    if params.region_filter:
-                        output.append(f"**Region filter**: {params.region_filter}")
-                    if params.event_type != 'any':
-                        output.append(f"**Typefilter**: {params.event_type}")
-                    output.append("")
-                    output.append("| Rank | Fingerprint ID | Event | Heat | Date | Location |")
-                    output.append("|------|--------|------|------|------|------|")
-                    
-                    detail_list = []
-                    
-                    for i, row in enumerate(rows, 1):
-                        (gid, date, actor1, actor2, location, country, 
-                         event_root, goldstein, articles, sources, tone, url) = row
-                        
-                        # generateTemporary fingerprint
-                        temp_fp = f"EVT-{date}-{gid}"
-                        
-                        # Event typelabel
-                        type_labels = {
-                            '01': 'statement', '02': 'appeal', '03': 'intention',
-                            '04': 'consultation', '05': 'cooperation', '06': 'aid',
-                            '07': 'aid', '08': 'aid', '09': 'concession',
-                            '10': 'demand', '11': 'dissatisfaction', '12': 'reject',
-                            '13': 'threat', '14': 'protest', '15': 'force',
-                            '16': 'degrade', '17': 'force', '18': 'friction',
-                            '19': 'conflict', '20': 'attack'
-                        }
-                        event_label = type_labels.get(str(event_root)[:2], 'Event') if event_root else 'Event'
-                        
-                        # Heatscore
-                        hot_score = (articles or 0) * abs(goldstein or 0)
-                        
-                        actor1 = actor1 or 'Some country'
-                        actor2 = actor2 or 'Other party'
-                        location_short = (location or 'notknow')[:15]  # shortenLocation
-                        
-                        # simpleizationTitle
-                        title = f"{actor1[:10]} vs {actor2[:10]}"
-                        
-                        # tablegridrow
-                        output.append(f"| {i} | `{temp_fp}` | {title} [{event_label}] | {hot_score:.0f} | {date} | {location_short} |")
-                        
-                        # Detailed Information（used foraftercontinueexpand）
-                        detail_list.append({
-                            'rank': i,
-                            'fingerprint': temp_fp,
-                            'title': title,
-                            'event_label': event_label,
-                            'date': date,
-                            'location': location,
-                            'hot_score': hot_score,
-                            'articles': articles,
-                            'goldstein': goldstein,
-                            'tone': tone
-                        })
-                    
-                    output.append("")
-                    output.append("## Detailed Information")
-                    output.append("")
-                    
-                    for d in detail_list[:5]:  # onlyexpandshowbefore5Details
-                        output.append(f"### {d['rank']}. {d['title']} [{d['event_label']}]")
-                        output.append(f"- **fingerprint**: `{d['fingerprint']}` ← Copy this ID to view details")
-                        output.append(f"- **Time**: {d['date']} | **Location**: {d['location']}")
-                        output.append(f"- **Heat**: {d['hot_score']:.0f} (articles{d['articles']} × intensity{abs(d['goldstein'] or 0):.1f})")
-                        output.append(f"- **Goldstein**: {d['goldstein']:.2f} | **Tone**: {d['tone']:.2f}")
-                        output.append("")
-                    
-                    if len(detail_list) > 5:
-                        output.append(f"_... also have {len(detail_list) - 5} Event，UseFingerprint IDViewDetails_")
-                        output.append("")
-                    
-                    output.append("💡 **ViewEventDetails**: `get_event_detail(fingerprint='EVT-YYYY-MM-DD-GID')`")
-                    return "\n".join(output)
-                    
+            rows = await core_queries.query_top_events(
+                pool, params.start_date, params.end_date,
+                params.region_filter, params.event_type, params.top_n
+            )
+            
+            if not rows:
+                return f"📭 {params.start_date} ~ {params.end_date} No events matching criteria found during this period"
+            
+            output = []
+            output.append(f"# 🔥 {params.start_date} ~ {params.end_date} Highest heat events TOP {len(rows)}")
+            if params.region_filter:
+                output.append(f"**Region filter**: {params.region_filter}")
+            if params.event_type != 'any':
+                output.append(f"**Typefilter**: {params.event_type}")
+            output.append("")
+            output.append("| Rank | Fingerprint ID | Event | Heat | Date | Location |")
+            output.append("|------|--------|------|------|------|------|")
+            
+            detail_list = []
+            for i, row in enumerate(rows, 1):
+                gid = row.get("GlobalEventID")
+                date = row.get("SQLDATE")
+                actor1 = row.get("Actor1Name") or 'Some country'
+                actor2 = row.get("Actor2Name") or 'Other party'
+                location = row.get("ActionGeo_FullName")
+                event_root = row.get("EventRootCode")
+                goldstein = row.get("GoldsteinScale")
+                articles = row.get("NumArticles")
+                tone = row.get("AvgTone")
+                
+                temp_fp = f"EVT-{date}-{gid}"
+                type_labels = {
+                    '01': 'statement', '02': 'appeal', '03': 'intention',
+                    '04': 'consultation', '05': 'cooperation', '06': 'aid',
+                    '07': 'aid', '08': 'aid', '09': 'concession',
+                    '10': 'demand', '11': 'dissatisfaction', '12': 'reject',
+                    '13': 'threat', '14': 'protest', '15': 'force',
+                    '16': 'degrade', '17': 'force', '18': 'friction',
+                    '19': 'conflict', '20': 'attack'
+                }
+                event_label = type_labels.get(str(event_root)[:2], 'Event') if event_root else 'Event'
+                hot_score = (articles or 0) * abs(goldstein or 0)
+                location_short = (location or 'unknown')[:15]
+                title = f"{actor1[:10]} vs {actor2[:10]}"
+                
+                output.append(f"| {i} | `{temp_fp}` | {title} [{event_label}] | {hot_score:.0f} | {date} | {location_short} |")
+                detail_list.append({
+                    'rank': i, 'fingerprint': temp_fp, 'title': title,
+                    'event_label': event_label, 'date': date, 'location': location,
+                    'hot_score': hot_score, 'articles': articles,
+                    'goldstein': goldstein, 'tone': tone
+                })
+            
+            output.append("")
+            output.append("## Detailed Information")
+            output.append("")
+            for d in detail_list[:5]:
+                output.append(f"### {d['rank']}. {d['title']} [{d['event_label']}]")
+                output.append(f"- **fingerprint**: `{d['fingerprint']}`")
+                output.append(f"- **Time**: {d['date']} | **Location**: {d['location']}")
+                output.append(f"- **Heat**: {d['hot_score']:.0f}")
+                output.append(f"- **Goldstein**: {d['goldstein']:.2f} | **Tone**: {d['tone']:.2f}")
+                output.append("")
+            
+            if len(detail_list) > 5:
+                output.append(f"_... also have {len(detail_list) - 5} Event_")
+                output.append("")
+            
+            output.append("💡 **ViewEventDetails**: `get_event_detail(fingerprint='EVT-YYYY-MM-DD-GID')`")
+            return "\n".join(output)
+            
         except Exception as e:
             logger.error(f"GetTopEventfailed: {e}")
             return f"❌ Query failed: {str(e)}"
@@ -1175,42 +840,17 @@ def register_core_tools(mcp: FastMCP):
         - actor_name="USA" + Timerange - UScountryallyearEvent
         """
         try:
-            from ..database.streaming import StreamingQuery
-            from ..database import get_db_pool
-            
             pool = await get_db_pool()
-            streaming = StreamingQuery(pool, chunk_size=50)
-            
-            # Buildquery
-            date_filter = ""
-            params_list = [f"%{params.actor_name}%", f"%{params.actor_name}%"]
-            
-            if params.start_date and params.end_date:
-                date_filter = "AND SQLDATE BETWEEN %s AND %s"
-                params_list.extend([params.start_date, params.end_date])
-            
-            # Add LIMIT to prevent full table scan on large datasets
-            params_list.append(params.max_results)
-            
-            query = f"""
-                SELECT SQLDATE, Actor1Name, Actor2Name, EventCode,
-                       GoldsteinScale, AvgTone, ActionGeo_FullName,
-                       ActionGeo_Lat, ActionGeo_Long
-                FROM {DEFAULT_TABLE}
-                WHERE (Actor1Name LIKE %s OR Actor2Name LIKE %s)
-                {date_filter}
-                ORDER BY SQLDATE DESC
-                LIMIT %s
-            """
-            
-            logger.debug(f"stream_events query: {query.strip()} | params: {params_list}")
             
             output = [f"# 🔍 streamingqueryResult: {params.actor_name}", ""]
             output.append("| Date | Actor1 | Actor2 | Goldstein | Tone | location |")
             output.append("|------|--------|--------|-----------|------|------|")
             
             count = 0
-            async for row in streaming.stream(query, tuple(params_list)):
+            async for row in core_queries.query_stream_events(
+                pool, params.actor_name, params.start_date, params.end_date,
+                max_results=params.max_results
+            ):
                 output.append(
                     f"| {sanitize_text(row.get('SQLDATE'))} | "
                     f"{sanitize_text(row.get('Actor1Name', 'N/A'))[:15]} | "
@@ -1222,10 +862,10 @@ def register_core_tools(mcp: FastMCP):
                 
                 count += 1
                 if count >= params.max_results:
-                    output.append("| ... | (updatemultiResult...) | ... | ... | ... | ... |")
+                    output.append("| ... | (more results...) | ... | ... | ... | ... |")
                     break
             
-            output.append(f"\n*Total returned {count} item(s)Result (streaming read)*")
+            output.append(f"\n*Total returned {count} items (streaming read)*")
             return "\n".join(output)
             
         except asyncio.TimeoutError:
@@ -1253,9 +893,9 @@ def register_core_tools(mcp: FastMCP):
         - Dashboard display
         """
         try:
-            service = GDELTServiceOptimized()
-            dashboard = await service.get_dashboard_data(
-                params.start_date, params.end_date
+            pool = await get_db_pool()
+            dashboard = await core_queries.query_dashboard(
+                pool, params.start_date, params.end_date
             )
             
             if params.format == "json":
@@ -1315,9 +955,9 @@ def register_core_tools(mcp: FastMCP):
         - Identify periodic patterns
         """
         try:
-            service = GDELTServiceOptimized()
-            results = await service.analyze_time_series_advanced(
-                params.start_date, params.end_date, params.granularity
+            pool = await get_db_pool()
+            results = await core_queries.query_time_series(
+                pool, params.start_date, params.end_date, params.granularity
             )
             
             if not results:
@@ -1364,9 +1004,9 @@ def register_core_tools(mcp: FastMCP):
         - Geographic density analysis
         """
         try:
-            service = GDELTServiceOptimized()
-            results = await service.get_geo_heatmap(
-                params.start_date, params.end_date, params.precision
+            pool = await get_db_pool()
+            results = await core_queries.query_geo_heatmap(
+                pool, params.start_date, params.end_date, params.precision
             )
             
             if not results:
@@ -1380,7 +1020,7 @@ def register_core_tools(mcp: FastMCP):
                     "avg_conflict": float(row["avg_conflict"]) if row["avg_conflict"] else None,
                     "location": row["sample_location"]
                 }
-                for row in results[:1000]
+                for row in results
             ]
             
             if params.format == "json":
@@ -1426,16 +1066,16 @@ def register_core_tools(mcp: FastMCP):
         - supports fuzzy matching Actor1Name and Actor2Name
         """
         try:
-            service = GDELTServiceOptimized()
+            pool = await get_db_pool()
             
             lines = [f"# 🔍 streamingqueryResult: {params.actor_name}\n"]
             lines.append("| Date | Actor1 | Actor2 | Goldstein | Tone | location |")
             lines.append("|------|--------|--------|-----------|------|------|")
             
             count = 0
-            async for row in service.stream_events_by_actor(
-                params.actor_name, params.start_date, params.end_date,
-                limit=params.max_results
+            async for row in core_queries.query_stream_events(
+                pool, params.actor_name, params.start_date, params.end_date,
+                max_results=params.max_results
             ):
                 # Use sanitize_text preventstop Markdown tablegridbybreakbad
                 lines.append(
@@ -1469,197 +1109,16 @@ def register_core_tools(mcp: FastMCP):
 # Helper Functions
 # ============================================================================
 
-def sanitize_text(text) -> str:
-    """Clean illegal characters in text to prevent Markdown table corruption"""
-    if text is None:
-        return "N/A"
-    text = str(text)
-    # remove surrogate pairs
-    text = text.encode('utf-8', 'ignore').decode('utf-8')
-    # replacecontrolsystemcharacter
-    import unicodedata
-    text = ''.join(
-        char for char in text 
-        if unicodedata.category(char)[0] != 'C' or char in '\n\t\r'
-    )
-    # remove null bytes and Markdown tablegridspecialcharacter
-    text = text.replace('\x00', '').replace('|', ' ').replace('\n', ' ')
-    return text.strip()
 
 
-def _parse_time_hint(time_hint: Optional[str]) -> tuple:
-    """parseTimeHintforDaterange"""
-    end = datetime.now().date()
-    
-    if not time_hint:
-        # Default last 7 days
-        start = end - timedelta(days=7)
-    elif time_hint == 'today':
-        start = end
-    elif time_hint == 'yesterday':
-        start = end - timedelta(days=1)
-        end = start
-    elif time_hint == 'this_week':
-        start = end - timedelta(days=7)
-    elif time_hint == 'this_month':
-        start = end - timedelta(days=30)
-    elif len(time_hint) == 4 and time_hint.isdigit():  # YYYY (e.g. "2024")
-        # Full yearrange
-        start = datetime.strptime(time_hint + "-01-01", '%Y-%m-%d').date()
-        end = datetime.strptime(time_hint + "-12-31", '%Y-%m-%d').date()
-    elif len(time_hint) == 7:  # YYYY-MM
-        start = datetime.strptime(time_hint + "-01", '%Y-%m-%d').date()
-        end = (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-    else:
-        try:
-            start = datetime.strptime(time_hint, '%Y-%m-%d').date()
-            end = start
-        except Exception:
-            start = end - timedelta(days=7)
-    
-    return start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
 
 
-def _parse_region_input(region_input: str) -> list:
-    """
-    Smart parse user region input for index-friendly queries
-    
-    Supports:
-    - Chinese/English: 'Washington' → ['Washington', 'DC']
-    - City + State: 'Washington DC' → ['Washington', 'DC']
-    - Abbreviations: 'DC', 'TX', 'CA'
-    - Full names: 'Washington', 'Texas'
-    - Multiple variants: ['Washington', 'DC', 'Washingto', 'D.C.']
-    
-    Returns list of search terms for index-friendly LIKE queries
-    """
-    import re
-    
-    region = region_input.strip()
-    results = set()
-    
-    # Common Chinese to English mappings
-    cn_to_en = {
-        'Washington': ['Washington', 'DC'],
-        'New York': ['New York', 'NYC'],
-        'Los Angeles': ['Los Angeles', 'LA'],
-        'zhiaddbrother': ['Chicago'],
-        'xiusiton': ['Houston'],
-        'oldGolden Hill': ['San Francisco', 'SF'],
-        'westyamap': ['Seattle'],
-        'waveshidun': ['Boston'],
-        'maiasecret': ['Miami'],
-        'reachpullsi': ['Dallas'],
-        'aositin': ['Austin'],
-        'Philadelphia': ['Philadelphia'],
-        'Atlantabig': ['Atlanta'],
-        'Denver': ['Denver'],
-        'Phoenix': ['Phoenix'],
-        'Detroit': ['Detroit'],
-        'UScountry': ['United States', 'USA', 'US'],
-        'incountry': ['China', 'CHN', 'CN'],
-        'yingcountry': ['United Kingdom', 'UK', 'GBR', 'GB'],
-        'methodcountry': ['France', 'FRA', 'FR'],
-        'virtuecountry': ['Germany', 'DEU', 'DE'],
-        'daythis': ['Japan', 'JPN', 'JP'],
-        'Rusiasi': ['Russia', 'RUS', 'RU'],
-        'addnabig': ['Canada', 'CAN', 'CA'],
-        'mowestbrother': ['Mexico', 'MEX', 'MX'],
-        'printdegree': ['India', 'IND', 'IN'],
-        'aobiglia': ['Australia', 'AUS', 'AU'],
-        'bawest': ['Brazil', 'BRA', 'BR'],
-        'ineast': ['Middle East', 'Mideast'],
-        'Europe': ['Europe', 'European'],
-        'Asia': ['Asia', 'Asian'],
-        'non-continent': ['Africa', 'African'],
-        'virtuestate': ['Texas', 'TX'],
-        'Texasi': ['Texas', 'TX'],
-        'addstate': ['California', 'CA'],
-        'addlifornia': ['California', 'CA'],
-        'fostate': ['Florida', 'FL'],
-        'foroherereach': ['Florida', 'FL'],
-        'binstate': ['Pennsylvania', 'PA'],
-        'binximethodvania': ['Pennsylvania', 'PA'],
-        'Illinois': ['Illinois', 'IL'],
-        'Ohio': ['Ohio', 'OH'],
-        'secretxieroot': ['Michigan', 'MI'],
-        'Georgia': ['Georgia', 'GA'],
-        'northcard': ['North Carolina', 'NC'],
-        'southcard': ['South Carolina', 'SC'],
-        'Virgivania': ['Virginia', 'VA'],
-        'maherelan': ['Maryland', 'MD'],
-        'New Jersey': ['New Jersey', 'NJ'],
-        'machusetts': ['Massachusetts', 'MA'],
-        'Arizothat': ['Arizona', 'AZ'],
-        'Colopullmulti': ['Colorado', 'CO'],
-        'Utah': ['Utah', 'UT'],
-        'withinhuareach': ['Nevada', 'NV'],
-        'Oregon': ['Oregon', 'OR'],
-        'Washingtonstate': ['Washington State', 'WA'],
-        'xiathreatyi': ['Hawaii', 'HI'],
-        'apullsiadd': ['Alaska', 'AK'],
-    }
-    
-    # Check for Chinese mappings
-    if region in cn_to_en:
-        results.update(cn_to_en[region])
-    
-    # Add original input
-    results.add(region)
-    
-    # Remove 'City' suffix if present
-    region_clean = re.sub(r'\s+(City|County|State)$', '', region, flags=re.IGNORECASE)
-    if region_clean != region:
-        results.add(region_clean)
-    
-    # Split by common separators (for "Washington DC" → ["Washington", "DC"])
-    parts = re.split(r'[,\s]+', region)
-    for part in parts:
-        if part and len(part) > 1:  # Ignore single chars
-            results.add(part.strip())
-            # Check if part is Chinese
-            if part in cn_to_en:
-                results.update(cn_to_en[part])
-    
-    # Add common variations for state abbreviations
-    us_states = {
-        'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
-        'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
-        'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
-        'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
-        'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
-        'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
-        'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
-        'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
-        'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
-        'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
-        'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
-        'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
-        'WI': 'Wisconsin', 'WY': 'Wyoming', 'DC': 'District of Columbia',
-    }
-    
-    upper_region = region.upper()
-    if upper_region in us_states:
-        results.add(upper_region)  # Add abbreviation
-        results.add(us_states[upper_region])  # Add full name
-        # Also add with state suffix removed for cities like "Washington"
-        if upper_region == 'DC':
-            results.add('Washington')  # DC is usually Washington DC
-    
-    # Remove duplicates and empty strings
-    return sorted(list(results))
 
 
-def _calculate_risk_level(intensity: float) -> str:
-    """calculateRisk Level"""
-    if intensity > 7:
-        return "extremehigh"
-    elif intensity > 5:
-        return "high"
-    elif intensity > 3:
-        return "medium"
-    else:
-        return "low"
+
+
+
+
 
 
 def _format_search_results_v2(rows: list, columns: list, original_query: str) -> str:
@@ -1730,61 +1189,6 @@ def _format_search_results_v2(rows: list, columns: list, original_query: str) ->
     
     output.append("💡 **Hint**: Use `get_event_detail(fingerprint='...')` ViewEventDetails")
     output.append("📌 Standard fingerprint：ETLalreadyhandleprocess，infoinfocomplete | 📝 Temporary fingerprint：real-timegenerate，basicinfoinfo")
-    return "\n".join(output)
-
-
-def _format_regional_overview_precomputed(rows: list, region: str, 
-                                          start_date, end_date,
-                                          include_trend: bool, 
-                                          include_risks: bool) -> str:
-    """FormatizationprecalculatedistrictregionOverview"""
-    output = []
-    output.append(f"# 🌍 {region} Regional Situation (pre-computed data)")
-    output.append(f"**Timerange**: {start_date} ~ {end_date}")
-    output.append("")
-    
-    # calculateaveragevalue
-    total_events = sum(r[4] for r in rows)  # event_count
-    avg_conflict = sum(r[5] for r in rows if r[5]) / len(rows) if rows else 0
-    
-    intensity = min(10, max(1, avg_conflict))
-    risk_level = _calculate_risk_level(intensity)
-    
-    output.append(f"**Situation Score**: {intensity:.1f}/10 {'🔴' if intensity > 7 else '🟡' if intensity > 4 else '🟢'}")
-    output.append(f"**Risk Level**: {risk_level}")
-    output.append("")
-    
-    output.append("## 📈 Key Metrics")
-    output.append(f"- Total Events: {total_events}")
-    output.append(f"- dayaverageEvent: {total_events / len(rows):.1f}")
-    output.append(f"- averageconflictintensity: {avg_conflict:.2f}")
-    output.append("")
-    
-    if include_trend and len(rows) > 1:
-        output.append("## 📊 Trend")
-        # simpleTrendjudgebreak
-        half = len(rows) // 2
-        first_half = sum(r[5] for r in rows[:half] if r[5]) / half if half else 0
-        second_half = sum(r[5] for r in rows[half:] if r[5]) / (len(rows) - half) if (len(rows) - half) else 0
-        
-        if second_half > first_half * 1.1:
-            output.append("- conflictintensity: 📈 aboveriseTrend")
-        elif second_half < first_half * 0.9:
-            output.append("- conflictintensity: 📉 underfallTrend")
-        else:
-            output.append("- conflictintensity: ➡️ relatively stable")
-        output.append("")
-    
-    if include_risks:
-        output.append("## ⚠️ Risk Assessment")
-        if intensity > 7:
-            output.append("- **High risk**: conflictintensityholdcontinuehighposition")
-        elif intensity > 5:
-            output.append("- **Medium risk**: Local conflicts occur from time to time")
-        else:
-            output.append("- **Low risk**: Overall situation stable")
-        output.append("")
-    
     return "\n".join(output)
 
 

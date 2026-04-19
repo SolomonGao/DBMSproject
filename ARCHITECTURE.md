@@ -7,7 +7,7 @@ This document describes the new architecture of the GDELT Analysis Platform, whi
 ## Design Principles
 
 1. **Data Path ≠ Agent Path**: Dashboard data queries bypass LLM entirely; only complex natural-language analysis goes through the Agent.
-2. **Reuse, Don't Rewrite**: Existing `mcp_server/`, `GDELTServiceOptimized`, and database layers are preserved and imported.
+2. **Reuse, Don't Rewrite**: Existing `mcp_server/` database layers are preserved; SQL query layer extracted into `core_queries.py` as single source of truth.
 3. **LangChain is a Chat Intelligence Layer, Not a Global Middleware**.
 4. **Prefer mature packages**: FastAPI, LangGraph, Vite, ECharts.
 
@@ -84,7 +84,7 @@ This document describes the new architecture of the GDELT Analysis Platform, whi
 
 **Direct database access for Dashboard queries.**
 
-- Wraps `GDELTServiceOptimized` from `mcp_server/app/services/`.
+- Wraps `core_queries` from `mcp_server/app/queries/` for direct DB access.
 - Returns **structured JSON** (Pydantic schemas), not markdown text.
 - Independent database connection pool (does not share with MCP Server).
 
@@ -111,7 +111,7 @@ This document describes the new architecture of the GDELT Analysis Platform, whi
 **Preserved as-is.**
 
 - `core_tools_v2.py`: Tool definitions using FastMCP.
-- `app/services/gdelt_optimized.py`: Database queries, cache, streaming.
+- `app/queries/core_queries.py`: Shared SQL query layer (single source of truth).
 - `app/database/pool.py`: Async MySQL connection pool.
 - Can be launched independently or via FastAPI lifespan (stdio mode).
 
@@ -174,14 +174,11 @@ DBMSproject/
 │   ├── main.py
 │   └── app/
 │       ├── tools/core_tools_v2.py
-│       ├── services/gdelt_optimized.py
+│       ├── queries/core_queries.py
+│       ├── queries/query_utils.py
 │       └── database/pool.py
 │
-├── mcp_app/                    # Preserved CLI client
-│   ├── cli.py
-│   ├── llm.py
-│   └── client.py
-│
+
 ├── run_backend.py              # Launch FastAPI server
 ├── requirements.txt            # Updated dependencies
 ├── pyproject.toml              # Updated dependencies
@@ -200,6 +197,6 @@ DBMSproject/
 
 ## Migration Notes
 
-- Old `web_app/server.py` (http.server) is **deprecated** but kept for reference.
+- Old `web_app/` (http.server chat UI) has been removed. Use `frontend/` (React + Vite) instead.
 - Old `run_web.py` is replaced by `run_backend.py`.
-- `mcp_app/cli.py` remains functional and can target the new FastAPI endpoints.
+- Old `mcp_app/` CLI client has been removed. Use the React Chat Panel instead.

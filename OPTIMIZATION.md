@@ -276,10 +276,9 @@ def sanitize_text(text: str) -> str:
 ```
 
 **Applied At**:
-- `mcp_app/logger.py` - SafeStreamHandler
-- `mcp_app/llm.py` - Message sanitization
-- `mcp_server/app/services/gdelt.py` - Output formatting
-- `mcp_server/app/tools/gdelt_optimized.py` - Stream queries
+- `mcp_server/app/queries/query_utils.py` - Message sanitization
+- `mcp_server/app/queries/core_queries.py` - Output formatting
+- `mcp_server/app/database/streaming.py` - Stream queries
 
 ---
 
@@ -310,21 +309,18 @@ for msg in self.messages:
 
 ### Fix 4: Duplicate Tool Registration
 
-**Problem**: `gdelt.py` and `gdelt_optimized.py` both registered tools, causing confusion.
+**Problem**: Old tool files had overlapping functionality.
 
-**Solution**: Merge into single optimized tool set:
+**Solution**: Consolidated into a single intent-driven tool set:
 
 ```python
 # mcp_server/app/tools/__init__.py
 def init_tools(mcp: FastMCP):
-    # Only register optimized tools
-    from .gdelt_optimized import create_optimized_tools
-    create_optimized_tools(mcp)
+    from .core_tools_v2 import register_core_tools
+    register_core_tools(mcp)
 ```
 
-**Old files backed up**:
-- `mcp_server/app/services/gdelt.py` → `gdelt.py.bak`
-- `mcp_server/app/tools/gdelt.py` → `gdelt.py.bak`
+**Subsequent refactoring**: SQL queries were extracted from services into `core_queries.py` as the single source of truth. The old `gdelt_optimized.py` service layer has been removed.
 
 ---
 
@@ -378,19 +374,22 @@ mcp_server/
 │   ├── database/
 │   │   ├── pool.py                 # Connection pool + retry
 │   │   └── streaming.py            # Streaming & parallel queries (NEW)
-│   ├── services/
-│   │   ├── gdelt.py.bak           # Original (BACKUP)
-│   │   └── gdelt_optimized.py     # Optimized service (NEW)
+│   ├── queries/
+│   │   ├── core_queries.py         # Shared SQL layer (SSOT)
+│   │   └── query_utils.py          # Sanitization helpers
 │   └── tools/
-│       ├── gdelt.py.bak           # Original (BACKUP)
-│       └── gdelt_optimized.py     # All tools with caching (NEW)
+│       └── core_tools_v2.py        # Intent-driven MCP tools
 └── main.py
 
-mcp_app/
-├── router.py                       # Ollama Router (NEW)
-├── cli.py                          # Updated with Router integration
-├── llm.py                          # Fixed encoding issues
-└── logger.py                       # Safe logging with sanitization
+backend/
+├── main.py                         # FastAPI entry point
+├── routers/
+│   ├── data.py                     # Dashboard JSON endpoints
+│   └── agent.py                    # Chat agent endpoints
+├── services/
+│   └── data_service.py             # Direct DB wrapper
+└── agents/
+    └── gdelt_agent.py              # LangGraph ReAct agent
 
 db_scripts/
 ├── gdelt_db_v1.sql                # Database schema

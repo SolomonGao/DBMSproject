@@ -115,9 +115,6 @@ DBMSproject/
 ├── mcp_server/           # Preserved MCP server
 │   └── app/tools/core_tools_v2.py
 │
-├── mcp_app/              # Preserved CLI client
-│   └── cli.py
-│
 ├── run_backend.py        # Launch script
 ├── ARCHITECTURE.md       # Design docs
 └── requirements.txt
@@ -125,9 +122,8 @@ DBMSproject/
 
 ## Legacy Components
 
-- `web_app/` — Old http.server chat UI (deprecated but kept)
-- `mcp_app/cli.py` — CLI client still works standalone
 - `mcp_server/` — MCP server unchanged; can run independently
+- `frontend/` — React Dashboard + Chat UI (Vite + TypeScript)
 
 ## Tech Stack
 

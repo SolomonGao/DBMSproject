@@ -30,15 +30,15 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     print("🚀 Initializing GDELT Analysis Platform...")
     
-    # Initialize DataService (MCP connection) — graceful fallback if MCP unavailable
-    mcp_ok = False
+    # Initialize DataService (DB pool)
+    db_ok = False
     try:
         await data_service.initialize()
-        print("✅ DataService connected to MCP Server")
-        mcp_ok = True
+        print("✅ DataService initialized")
+        db_ok = True
     except Exception as e:
         print(f"⚠️  DataService initialization failed: {e}")
-        print("   Dashboard endpoints will return errors until MCP Server is available.")
+        print("   Dashboard endpoints will return errors until DB is available.")
     
     # Initialize Agent (requires LLM API key; DB optional for some tools)
     try:
@@ -57,8 +57,8 @@ async def lifespan(app: FastAPI):
             if methods:
                 print(f"   {methods:8s} {route.path}")
     
-    status = "🟢" if mcp_ok else "🟡"
-    print(f"\n{status} Server ready (MCP: {'connected' if mcp_ok else 'disconnected'})\n")
+    status = "🟢" if db_ok else "🟡"
+    print(f"\n{status} Server ready (DB: {'connected' if db_ok else 'disconnected'})\n")
     
     yield
     
