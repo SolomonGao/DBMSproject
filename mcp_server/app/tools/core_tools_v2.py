@@ -64,6 +64,10 @@ class SearchEventsInput(BaseModel):
         le=50,
         description="Number of results to return（Default10item(s)）"
     )
+    format: Literal["markdown", "json"] = Field(
+        default="markdown",
+        description="Output format: markdown (for LLM) or json (for API)"
+    )
 
 
 class GetEventDetailInput(BaseModel):
@@ -214,6 +218,10 @@ class DashboardInput(BaseModel):
         description="End date，Format: YYYY-MM-DD",
         pattern=r"^\d{4}-\d{2}-\d{2}$"
     )
+    format: Literal["markdown", "json"] = Field(
+        default="markdown",
+        description="Output format: markdown (for LLM) or json (for API)"
+    )
 
 
 class TimeSeriesInput(BaseModel):
@@ -231,6 +239,10 @@ class TimeSeriesInput(BaseModel):
     granularity: Literal['day', 'week', 'month'] = Field(
         default='day',
         description="Timegranularitydegree: day(day), week(week), month(month)"
+    )
+    format: Literal["markdown", "json"] = Field(
+        default="markdown",
+        description="Output format: markdown (for LLM) or json (for API)"
     )
 
 
@@ -251,6 +263,10 @@ class GeoHeatmapInput(BaseModel):
         ge=1,
         le=4,
         description="sitstandardPrecision(smalldatapositiondata)，exceedbigPrecisionexceedhigh"
+    )
+    format: Literal["markdown", "json"] = Field(
+        default="markdown",
+        description="Output format: markdown (for LLM) or json (for API)"
     )
 
 
@@ -402,6 +418,9 @@ def register_core_tools(mcp: FastMCP):
                         return f"❌ notFoundWith '{params.query}' relatedEvent（Timerange: {date_start} ~ {date_end}）"
                     
                     # Format as readable result
+                    if params.format == "json":
+                        data = [dict(zip(columns, row)) for row in rows]
+                        return json.dumps({"data": data, "query": params.query, "total": len(data)}, default=str, ensure_ascii=False)
                     return _format_search_results_v2(rows, columns, params.query)
         except Exception as e:
             logger.error(f"Search events failed: {e}")
@@ -1239,6 +1258,9 @@ def register_core_tools(mcp: FastMCP):
                 params.start_date, params.end_date
             )
             
+            if params.format == "json":
+                return json.dumps(dashboard, default=str, ensure_ascii=False)
+            
             lines = ["# 📊 DashboardData\n"]
             
             summary = dashboard.get("summary_stats", {})
@@ -1301,6 +1323,9 @@ def register_core_tools(mcp: FastMCP):
             if not results:
                 return "📭 notFoundData"
             
+            if params.format == "json":
+                return json.dumps(results, default=str, ensure_ascii=False)
+            
             lines = [f"# 📈 Timeseriesanalysis ({params.granularity})\n"]
             lines.append(f"**Timerange**: {params.start_date} to {params.end_date}")
             lines.append(f"**Data points**: {len(results)} ")
@@ -1355,8 +1380,11 @@ def register_core_tools(mcp: FastMCP):
                     "avg_conflict": float(row["avg_conflict"]) if row["avg_conflict"] else None,
                     "location": row["sample_location"]
                 }
-                for row in results[:100]
+                for row in results[:1000]
             ]
+            
+            if params.format == "json":
+                return json.dumps(heatmap_data, default=str, ensure_ascii=False)
             
             return f"""# 🗺️ Geographic Heatmap Data
 

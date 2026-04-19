@@ -2,7 +2,7 @@
 Data Routes — Dashboard API
 
 All endpoints return structured JSON for direct frontend chart rendering.
-No LLM involved. Low latency (< 300ms) via caching and parallel queries.
+Delegates to MCP tools (core_tools_v2) via DataService.
 """
 
 import time
@@ -32,12 +32,7 @@ async def get_dashboard(
     service: DataService = Depends(get_data_service),
 ):
     """
-    Get comprehensive dashboard data:
-    - Daily trend (event count, goldstein avg, conflict count)
-    - Top 10 actors
-    - Geographic distribution (top 10 countries)
-    - Event type breakdown
-    - Summary statistics
+    Get comprehensive dashboard data via MCP get_dashboard tool (format=json).
     """
     start_time = time.time()
     try:
@@ -51,7 +46,7 @@ async def get_dashboard(
             elapsed_ms=elapsed_ms,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Dashboard query failed: {e}")
+        raise HTTPException(status_code=503, detail=f"Dashboard query failed: {e}")
 
 
 @router.get("/timeseries", response_model=TimeSeriesResponse)
@@ -62,12 +57,10 @@ async def get_timeseries(
     service: DataService = Depends(get_data_service),
 ):
     """
-    Get time series data with conflict/cooperation breakdown.
-    Aggregated entirely in the database for minimal network transfer.
+    Get time series data via MCP analyze_time_series tool (format=json).
     """
     try:
         rows = await service.get_time_series(start, end, granularity)
-        # Normalize keys
         data = [TimeSeriesPoint(**row) for row in rows]
         return TimeSeriesResponse(
             data=data,
@@ -76,7 +69,7 @@ async def get_timeseries(
             end_date=end,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Time series query failed: {e}")
+        raise HTTPException(status_code=503, detail=f"Time series query failed: {e}")
 
 
 @router.get("/geo", response_model=GeoHeatmapResponse)
@@ -87,8 +80,7 @@ async def get_geo_heatmap(
     service: DataService = Depends(get_data_service),
 ):
     """
-    Get geo heatmap grid data.
-    Filters sparse points (intensity < 5) to reduce frontend rendering load.
+    Get geo heatmap grid data via MCP get_geo_heatmap tool (format=json).
     """
     try:
         rows = await service.get_geo_heatmap(start, end, precision)
@@ -101,7 +93,7 @@ async def get_geo_heatmap(
             total_points=len(data),
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Geo query failed: {e}")
+        raise HTTPException(status_code=503, detail=f"Geo query failed: {e}")
 
 
 @router.get("/events", response_model=EventSearchResponse)
@@ -114,8 +106,7 @@ async def search_events(
     service: DataService = Depends(get_data_service),
 ):
     """
-    Structured event search with optional filters.
-    Returns full event records including fingerprint and headline when available.
+    Structured event search via MCP search_events tool (format=json).
     """
     try:
         rows = await service.search_events(
@@ -132,7 +123,7 @@ async def search_events(
             total=len(data),
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Event search failed: {e}")
+        raise HTTPException(status_code=503, detail=f"Event search failed: {e}")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -140,16 +131,16 @@ async def health_check(
     service: DataService = Depends(get_data_service),
 ):
     """
-    Health check including DB latency and cache statistics.
+    Health check including MCP latency.
     """
     try:
-        db_health = await service.health_check()
+        mcp_health = await service.health_check()
         cache_stats = service.get_cache_stats()
         return HealthResponse(
-            db_status=db_health.get("status", "unknown"),
-            db_latency_ms=db_health.get("latency_ms"),
+            db_status=mcp_health.get("status", "unknown"),
+            db_latency_ms=mcp_health.get("latency_ms"),
             cache_stats=cache_stats,
-            server_time=db_health.get("server_time"),
+            server_time=None,
         )
     except Exception as e:
         return HealthResponse(
