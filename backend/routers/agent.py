@@ -2,10 +2,11 @@
 Agent Routes — Chat API
 
 Conversational endpoints powered by LangGraph ReAct Agent.
+Agent tools are loaded from MCP Server via langchain-mcp-adapters.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from backend.dependencies import get_agent
+from fastapi import APIRouter, HTTPException, Request
+
 from backend.agents.gdelt_agent import GDELTAgent
 from backend.schemas.responses import (
     ChatRequest, ChatResponse, ToolsResponse, ToolInfo,
@@ -18,20 +19,27 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
-    agent: GDELTAgent = Depends(get_agent),
+    req: Request,
 ):
     """
     Natural language chat with tool-calling capabilities.
     
-    The agent can:
-    - Search events by keywords, time, location
-    - Retrieve dashboard statistics
-    - Analyze time series trends
-    - Explore geographic heatmaps
-    
-    Conversation memory is maintained via session_id.
+    Supports custom LLM configuration per request via llm_config.
+    If llm_config is not provided, uses the server's default agent.
     """
+    default_agent = getattr(req.app.state, "agent", None)
+    mcp_tools = getattr(req.app.state, "mcp_tools", [])
+    
+    if default_agent is None:
+        raise HTTPException(status_code=503, detail="Agent not initialized. Check LLM_PROVIDER and API keys.")
+    
     try:
+        # Use custom LLM config if provided
+        if request.llm_config:
+            agent = default_agent.with_config(request.llm_config.model_dump(exclude_none=True))
+        else:
+            agent = default_agent
+        
         result = await agent.chat(
             message=request.message,
             history=request.history,
@@ -47,15 +55,22 @@ async def chat(
             ],
             tools_used=result.get("tools_used", []),
         )
+    except ValueError as e:
+        # Likely invalid LLM config (e.g. missing API key)
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent error: {e}")
 
 
 @router.get("/tools", response_model=ToolsResponse)
 async def list_tools(
-    agent: GDELTAgent = Depends(get_agent),
+    req: Request,
 ):
     """List available tools the agent can use."""
+    agent = getattr(req.app.state, "agent", None)
+    if agent is None:
+        raise HTTPException(status_code=503, detail="Agent not initialized.")
+    
     try:
         tools = agent.get_tool_info()
         return ToolsResponse(
@@ -67,9 +82,13 @@ async def list_tools(
 
 @router.get("/helps", response_model=HelpsResponse)
 async def list_helps(
-    agent: GDELTAgent = Depends(get_agent),
+    req: Request,
 ):
     """List available slash commands and usage tips."""
+    agent = getattr(req.app.state, "agent", None)
+    if agent is None:
+        raise HTTPException(status_code=503, detail="Agent not initialized.")
+    
     try:
         tools = agent.get_tool_info()
         helps = []

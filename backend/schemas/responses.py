@@ -183,10 +183,19 @@ class HealthResponse(BaseResponse):
 # Agent Chat
 # ============================================================================
 
+class LLMConfig(BaseModel):
+    """User-provided LLM configuration for custom model selection."""
+    provider: str = Field(default="kimi", description="kimi, openai, claude, moonshot")
+    api_key: str = Field(..., description="API key for the selected provider")
+    model: Optional[str] = Field(None, description="Model name, e.g. gpt-4o, claude-3-5-sonnet-20241022")
+    base_url: Optional[str] = Field(None, description="Custom base URL for the API")
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     history: List[Dict[str, str]] = Field(default_factory=list)
     session_id: Optional[str] = None
+    llm_config: Optional[LLMConfig] = Field(None, description="Custom LLM configuration. If not provided, uses server default.")
 
 
 class ThinkingStep(BaseModel):
