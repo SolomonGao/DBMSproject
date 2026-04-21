@@ -30,6 +30,37 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from backend.services.data_service import DataService
 
+# ---------------------------------------------------------------------------
+# Monkey-patch langchain-openai to preserve Kimi API's reasoning_content
+# ---------------------------------------------------------------------------
+# Kimi's coding API (api.kimi.com/coding/v1) ALWAYS returns reasoning_content
+# for assistant messages. LangChain drops this field during message conversion.
+# On multi-turn conversations (after tool calls), the API returns 400 because
+# reasoning_content is missing from the assistant message we send back.
+# NOTE: extra_body={"thinking": False} causes 400 on this endpoint, so we
+# must preserve reasoning_content instead of disabling it.
+# ---------------------------------------------------------------------------
+import langchain_openai.chat_models.base as _lc_base
+from langchain_core.messages import AIMessage
+
+_original_convert_dict_to_message = _lc_base._convert_dict_to_message
+_original_convert_message_to_dict = _lc_base._convert_message_to_dict
+
+def _patched_convert_dict_to_message(_dict):
+    msg = _original_convert_dict_to_message(_dict)
+    if isinstance(msg, AIMessage) and "reasoning_content" in _dict:
+        msg.additional_kwargs["reasoning_content"] = _dict["reasoning_content"]
+    return msg
+
+def _patched_convert_message_to_dict(message, api="chat/completions"):
+    d = _original_convert_message_to_dict(message, api)
+    if isinstance(message, AIMessage) and "reasoning_content" in message.additional_kwargs:
+        d["reasoning_content"] = message.additional_kwargs["reasoning_content"]
+    return d
+
+_lc_base._convert_dict_to_message = _patched_convert_dict_to_message
+_lc_base._convert_message_to_dict = _patched_convert_message_to_dict
+
 
 SYSTEM_PROMPT = """You are GDELT Analyst, an intelligent assistant specialized in analyzing the GDELT 2.0 North American event database.
 
@@ -136,9 +167,6 @@ class GDELTAgent:
             event_hooks={"request": [_inject_claude_headers]}
         )
         
-        # OpenAI SDK's chat.completions.create() accepts extra_body as a special
-        # kwarg that gets merged into the request body. LangChain's ChatOpenAI
-        # also supports it as a direct parameter.
         return ChatOpenAI(
             api_key=cfg["api_key"],
             base_url=cfg["base_url"],
@@ -146,24 +174,107 @@ class GDELTAgent:
             temperature=0.3,
             max_tokens=4096,
             http_async_client=http_async_client,
-            extra_body={"thinking": False},
         )
     
     def _build_tools(self) -> List[BaseTool]:
-        """Build LangChain tools from DataService methods."""
+        """Build LangChain tools from DataService methods.
+        
+        Tools migrated from merge-ui tools v2:
+        - search_events, get_event_detail, get_regional_overview
+        - get_hot_events, get_top_events, get_daily_brief
+        - get_dashboard, get_time_series, get_geo_heatmap
+        """
         ds = self.data_service
         
-        async def search_events_tool(query: str, time_hint: Optional[str] = None, location_hint: Optional[str] = None, limit: int = 10) -> str:
-            """Search for events matching a query."""
-            rows = await ds.search_events(query, time_hint, location_hint, max_results=limit)
+        async def search_events_tool(
+            query: str,
+            time_hint: Optional[str] = None,
+            location_hint: Optional[str] = None,
+            event_type: Optional[str] = None,
+            limit: int = 10
+        ) -> str:
+            """Search GDELT events by keywords, time, location, or event type."""
+            rows = await ds.search_events(query, time_hint, location_hint, event_type, max_results=limit)
             if not rows:
                 return "No events found matching the criteria."
             return json.dumps(rows[:5], default=str, indent=2)
         
+        async def get_event_detail_tool(fingerprint: str) -> str:
+            """Get detailed information about a specific event by its fingerprint ID.
+            
+            Fingerprint formats:
+            - Standard: 'US-20240115-WDC-PROTEST-001' (ETL generated)
+            - Temporary: 'EVT-2024-01-15-123456789' (from search_results)
+            """
+            detail = await ds.get_event_detail(fingerprint)
+            if not detail:
+                return f"Event not found for fingerprint: {fingerprint}"
+            return json.dumps(detail, default=str, indent=2)
+        
+        async def get_regional_overview_tool(
+            region: str, time_range: str = "week"
+        ) -> str:
+            """Get regional situation overview with trend and risk analysis.
+            
+            Args:
+                region: Region name or code, e.g. 'USA', 'China', 'Middle East'
+                time_range: 'day', 'week', 'month', 'quarter', or 'year'
+            """
+            result = await ds.get_regional_overview(region, time_range)
+            return json.dumps(result, default=str, indent=2)
+        
+        async def get_hot_events_tool(
+            date: Optional[str] = None,
+            region_filter: Optional[str] = None,
+            top_n: int = 5
+        ) -> str:
+            """Get hot event recommendations for a specific date.
+            
+            Args:
+                date: Date in YYYY-MM-DD format (default: yesterday)
+                region_filter: Optional region filter, e.g. 'Asia', 'Europe', 'USA'
+                top_n: Number of hot events to return (1-20)
+            """
+            rows = await ds.get_hot_events(date, region_filter, top_n)
+            if not rows:
+                return "No hot events found for the specified criteria."
+            return json.dumps(rows, default=str, indent=2)
+        
+        async def get_top_events_tool(
+            start_date: str,
+            end_date: str,
+            region_filter: Optional[str] = None,
+            event_type: Optional[str] = None,
+            top_n: int = 10
+        ) -> str:
+            """Get highest-heat events in a time period.
+            
+            Args:
+                start_date: Start date (YYYY-MM-DD)
+                end_date: End date (YYYY-MM-DD)
+                region_filter: Optional region, e.g. 'USA', 'China'
+                event_type: Optional filter: 'conflict', 'cooperation', 'protest', or 'any'
+                top_n: Number to return (1-50)
+            """
+            rows = await ds.get_top_events(start_date, end_date, region_filter, event_type, top_n)
+            if not rows:
+                return "No events found for the specified criteria."
+            return json.dumps(rows[:10], default=str, indent=2)
+        
+        async def get_daily_brief_tool(query_date: Optional[str] = None) -> str:
+            """Get a daily brief summary for a specific date.
+            
+            Args:
+                query_date: Date in YYYY-MM-DD format (default: yesterday)
+            """
+            result = await ds.get_daily_brief(query_date)
+            if not result:
+                return "No daily brief available for the specified date."
+            return json.dumps(result, default=str, indent=2)
+        
         async def get_dashboard_tool(start_date: str, end_date: str) -> str:
             """Get comprehensive dashboard statistics for a date range."""
             result = await ds.get_dashboard(start_date, end_date)
-            # Summarize key stats
             summary = result.get("summary_stats", {}).get("data", [{}])[0]
             trend = result.get("daily_trend", {})
             return json.dumps({
@@ -190,7 +301,32 @@ class GDELTAgent:
             StructuredTool.from_function(
                 coroutine=search_events_tool,
                 name="search_events",
-                description="Search GDELT events by keywords, time, or location. Returns structured event data.",
+                description="Search GDELT events by keywords, time, location, or event type (conflict/cooperation/protest). Returns structured event data with fingerprints.",
+            ),
+            StructuredTool.from_function(
+                coroutine=get_event_detail_tool,
+                name="get_event_detail",
+                description="Get detailed information about a specific event using its fingerprint ID. Use after search_events to drill down.",
+            ),
+            StructuredTool.from_function(
+                coroutine=get_regional_overview_tool,
+                name="get_regional_overview",
+                description="Get regional situation overview with statistics, trends, and hot events. region='USA'/'China'/'Middle East', time_range='day'/'week'/'month'/'quarter'/'year'.",
+            ),
+            StructuredTool.from_function(
+                coroutine=get_hot_events_tool,
+                name="get_hot_events",
+                description="Get hot event recommendations for a specific date. Use for 'what happened yesterday' or daily brief style queries.",
+            ),
+            StructuredTool.from_function(
+                coroutine=get_top_events_tool,
+                name="get_top_events",
+                description="Get highest-heat (most significant) events in a time period. Supports region and event type filtering.",
+            ),
+            StructuredTool.from_function(
+                coroutine=get_daily_brief_tool,
+                name="get_daily_brief",
+                description="Get a daily brief summary with aggregated statistics for a specific date.",
             ),
             StructuredTool.from_function(
                 coroutine=get_dashboard_tool,
@@ -288,6 +424,8 @@ class GDELTAgent:
             self.tracker.add("agent_response", final_response)
             
         except Exception as e:
+            import traceback, logging
+            logging.getLogger("gdelt_agent").error(f"Agent error: {e}\n{traceback.format_exc()}")
             self.tracker.add("error", str(e))
             final_response = f"I encountered an error: {e}"
         

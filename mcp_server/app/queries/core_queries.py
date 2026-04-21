@@ -328,20 +328,20 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
         if not row:
             return None
 
-        gid = int(row[0]) if row[0] else None
+        gid = int(row['global_event_id']) if row['global_event_id'] else None
         if not gid:
             return None
 
         event_row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
         return {
-            "fingerprint": row[1],
-            "headline": row[2],
-            "summary": row[3],
-            "key_actors": row[4],
-            "event_type_label": row[5],
-            "severity_score": row[6],
-            "location_name": row[7],
-            "location_country": row[8],
+            "fingerprint": row['fingerprint'],
+            "headline": row['headline'],
+            "summary": row['summary'],
+            "key_actors": row['key_actors'],
+            "event_type_label": row['event_type_label'],
+            "severity_score": row['severity_score'],
+            "location_name": row['location_name'],
+            "location_country": row['location_country'],
             "event_data": dict(event_row) if event_row else {},
         }
 
@@ -416,9 +416,9 @@ async def query_hot_events(
         WHERE date = %s
     """, (query_date,))
 
-    if result and result[0]:
+    if result and result['hot_event_fingerprints']:
         import json
-        hot_fingerprints = json.loads(result[0]) if isinstance(result[0], str) else result[0]
+        hot_fingerprints = json.loads(result['hot_event_fingerprints']) if isinstance(result['hot_event_fingerprints'], str) else result['hot_event_fingerprints']
         events = []
         for fp in hot_fingerprints[:top_n]:
             row = await pool.fetchone("""

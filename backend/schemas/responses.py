@@ -205,7 +205,24 @@ class ChatResponse(BaseResponse):
 class ToolInfo(BaseModel):
     name: str
     description: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
 
 
 class ToolsResponse(BaseResponse):
     tools: List[ToolInfo]
+
+
+# ============================================================================
+# Help / Documentation
+# ============================================================================
+
+class HelpItem(BaseModel):
+    command: str
+    description: str
+    example: Optional[str] = None
+
+
+class HelpsResponse(BaseResponse):
+    helps: List[HelpItem]
+    system_prompt_summary: str = "GDELT Analyst — conversational intelligence for geopolitical events"
+    tips: List[str] = Field(default_factory=list)
