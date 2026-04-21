@@ -32,10 +32,14 @@ async def check_status():
         WHERE table_schema = 'gdelt' 
           AND table_name = 'events_table'
     """)
-    print(f"   totalrow count: {result['table_rows']:,}")
-    print(f"   datasize: {result['data_gb']} GB")
-    print(f"   indexsize: {result['index_gb']} GB")
-    print(f"   total: {result['total_gb']} GB")
+    if result:
+        rows = result.get('table_rows')
+        print(f"   totalrow count: {rows:,}" if rows is not None else "   totalrow count: N/A")
+        print(f"   datasize: {result.get('data_gb', 'N/A')} GB")
+        print(f"   indexsize: {result.get('index_gb', 'N/A')} GB")
+        print(f"   total: {result.get('total_gb', 'N/A')} GB")
+    else:
+        print("   unablefetchtableinfo")
     
     # 2. indexcolumntable
     print("\n2️⃣  indexcolumntable:")

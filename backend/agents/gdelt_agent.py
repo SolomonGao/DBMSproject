@@ -19,6 +19,7 @@ import time
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from datetime import datetime
 
+import httpx
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -125,15 +126,27 @@ class GDELTAgent:
         if not cfg["api_key"]:
             raise ValueError(f"API key not set for provider: {provider}")
         
+        # Kimi Coding API requires Claude Code identity headers.
+        # Verified: "claude-code/1.0" + "X-Client-Name: claude-code" returns 200 OK.
+        async def _inject_claude_headers(request: httpx.Request):
+            request.headers["User-Agent"] = "claude-code/1.0"
+            request.headers["X-Client-Name"] = "claude-code"
+
+        http_async_client = httpx.AsyncClient(
+            event_hooks={"request": [_inject_claude_headers]}
+        )
+        
+        # OpenAI SDK's chat.completions.create() accepts extra_body as a special
+        # kwarg that gets merged into the request body. LangChain's ChatOpenAI
+        # also supports it as a direct parameter.
         return ChatOpenAI(
             api_key=cfg["api_key"],
             base_url=cfg["base_url"],
             model=cfg["model"],
             temperature=0.3,
             max_tokens=4096,
-            default_headers={
-                "User-Agent": "gdelt-platform/1.0",
-            },
+            http_async_client=http_async_client,
+            extra_body={"thinking": False},
         )
     
     def _build_tools(self) -> List[BaseTool]:

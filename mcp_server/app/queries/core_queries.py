@@ -20,9 +20,71 @@ DEFAULT_TABLE = "events_table"
 
 async def query_dashboard(pool, start_date: str, end_date: str) -> Dict[str, Any]:
     """Return raw dashboard data: daily_trend, top_actors, geo_distribution, event_types, summary_stats."""
+    # firsttryuseprecomputetabledaily_summary
+    ds_rows = await pool.fetchall(
+        "SELECT CAST(date AS CHAR) as date, total_events, conflict_events, "
+        "avg_goldstein, avg_tone, top_actors, top_locations, event_type_distribution "
+        "FROM daily_summary WHERE date BETWEEN %s AND %s ORDER BY date",
+        (start_date, end_date)
+    )
+    if ds_rows and len(ds_rows) >= 10:
+        import json
+        daily_trend = []
+        all_actors = {}
+        all_countries = {}
+        all_event_types = {}
+        total_events = 0
+        total_articles = 0
+        goldstein_sum = 0
+        tone_sum = 0
+        unique_actors_set = set()
+        for r in ds_rows:
+            daily_trend.append({
+                'SQLDATE': r['date'],
+                'cnt': r['total_events'],
+                'goldstein': r['avg_goldstein'],
+                'conflict': r['conflict_events'],
+            })
+            total_events += r['total_events']
+            goldstein_sum += (r['avg_goldstein'] or 0) * r['total_events']
+            tone_sum += (r['avg_tone'] or 0) * r['total_events']
+            # mergeactors
+            for a in json.loads(r['top_actors'] or '[]'):
+                all_actors[a['name']] = all_actors.get(a['name'], 0) + a['count']
+                unique_actors_set.add(a['name'])
+            # mergecountries
+            for loc in json.loads(r['top_locations'] or '[]'):
+                all_countries[loc['name']] = all_countries.get(loc['name'], 0) + loc['count']
+            # mergeeventtypes
+            for et, ec in json.loads(r['event_type_distribution'] or '{}').items():
+                all_event_types[et] = all_event_types.get(et, 0) + ec
+        top_actors = sorted([{'actor': k, 'event_count': v} for k, v in all_actors.items()], key=lambda x: x['event_count'], reverse=True)[:10]
+        geo_distribution = sorted([{'country_code': k, 'event_count': v} for k, v in all_countries.items()], key=lambda x: x['event_count'], reverse=True)[:10]
+        event_types = sorted([{'event_type': k, 'event_count': v} for k, v in all_event_types.items()], key=lambda x: x['event_count'], reverse=True)
+        # extraquerytotal_articles（daily_summaryNo.storethisfield）
+        articles_result = await pool.fetchone(
+            f"SELECT SUM(NumArticles) as total_articles FROM {DEFAULT_TABLE} WHERE SQLDATE BETWEEN %s AND %s",
+            (start_date, end_date)
+        )
+        total_articles = articles_result['total_articles'] if articles_result else None
+        return {
+            'daily_trend': {'data': daily_trend},
+            'top_actors': {'data': top_actors},
+            'geo_distribution': {'data': geo_distribution},
+            'event_types': {'data': event_types},
+            'summary_stats': {'data': [{
+                'total_events': total_events,
+                'unique_actors': len(unique_actors_set),
+                'avg_goldstein': round(goldstein_sum / total_events, 2) if total_events else 0,
+                'avg_tone': round(tone_sum / total_events, 2) if total_events else 0,
+                'total_articles': total_articles,
+            }]}
+        }
+
+    # fallbackto originalparallelquery
     queries = [
         ("daily_trend", f"""
-            SELECT SQLDATE, COUNT(*) as cnt,
+            SELECT CAST(SQLDATE AS CHAR) as SQLDATE, COUNT(*) as cnt,
                    AVG(GoldsteinScale) as goldstein,
                    SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) as conflict
             FROM {DEFAULT_TABLE}
@@ -92,6 +154,30 @@ async def query_dashboard(pool, start_date: str, end_date: str) -> Dict[str, Any
 # ============================================================================
 
 async def query_time_series(pool, start_date: str, end_date: str, granularity: str = "day") -> List[Dict[str, Any]]:
+    # firsttryuseprecomputetabledaily_summary（ifETLalreadyran）
+    ds_rows = await pool.fetchall(
+        "SELECT CAST(date AS CHAR) as period, total_events as event_count, conflict_events, cooperation_events, "
+        "avg_goldstein, avg_tone FROM daily_summary WHERE date BETWEEN %s AND %s ORDER BY date",
+        (start_date, end_date)
+    )
+    if ds_rows and len(ds_rows) >= 20:
+        result = []
+        for r in ds_rows:
+            total = r['event_count'] or 1
+            result.append({
+                'period': r['period'],
+                'event_count': r['event_count'],
+                'conflict_pct': round(r['conflict_events'] * 100.0 / total, 2) if r['conflict_events'] else 0,
+                'cooperation_pct': round(r['cooperation_events'] * 100.0 / total, 2) if r['cooperation_events'] else 0,
+                'avg_goldstein': r['avg_goldstein'],
+                'std_goldstein': None,
+                'avg_tone': r['avg_tone'],
+                'std_tone': None,
+                'top_actors_json': None,
+            })
+        return result
+
+    # fallbackto originalSQL（forweek/monthorlackdaily_summary）
     if granularity == "week":
         period_expr = "STR_TO_DATE(CONCAT(YEARWEEK(SQLDATE), ' Sunday'), '%%X%%V %%W')"
     elif granularity == "month":
@@ -100,40 +186,22 @@ async def query_time_series(pool, start_date: str, end_date: str, granularity: s
         period_expr = "SQLDATE"
 
     sql = f"""
-    WITH stats AS (
-        SELECT
-            {period_expr} as period,
-            COUNT(*) as event_count,
-            ROUND(SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as conflict_pct,
-            ROUND(SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as cooperation_pct,
-            ROUND(AVG(GoldsteinScale), 2) as avg_goldstein,
-            ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
-            ROUND(AVG(AvgTone), 2) as avg_tone,
-            ROUND(STDDEV(AvgTone), 2) as std_tone
-        FROM {DEFAULT_TABLE}
-        WHERE SQLDATE BETWEEN %s AND %s
-        GROUP BY {period_expr}
-    ),
-    actors AS (
-        SELECT
-            {period_expr} as period,
-            JSON_ARRAYAGG(JSON_OBJECT('actor', Actor1Name, 'count', cnt)) as top_actors_json
-        FROM (
-            SELECT {period_expr}, Actor1Name, COUNT(*) as cnt,
-                   ROW_NUMBER() OVER (PARTITION BY {period_expr} ORDER BY COUNT(*) DESC) as rn
-            FROM {DEFAULT_TABLE}
-            WHERE SQLDATE BETWEEN %s AND %s
-            GROUP BY {period_expr}, Actor1Name
-        ) ranked
-        WHERE rn <= 3
-        GROUP BY {period_expr}
-    )
-    SELECT s.*, a.top_actors_json
-    FROM stats s
-    LEFT JOIN actors a ON s.period = a.period
-    ORDER BY s.period
+    SELECT
+        CAST({period_expr} AS CHAR) as period,
+        COUNT(*) as event_count,
+        ROUND(SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as conflict_pct,
+        ROUND(SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as cooperation_pct,
+        ROUND(AVG(GoldsteinScale), 2) as avg_goldstein,
+        ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
+        ROUND(AVG(AvgTone), 2) as avg_tone,
+        ROUND(STDDEV(AvgTone), 2) as std_tone,
+        NULL as top_actors_json
+    FROM {DEFAULT_TABLE}
+    WHERE SQLDATE BETWEEN %s AND %s
+    GROUP BY {period_expr}
+    ORDER BY {period_expr}
     """
-    return await pool.fetchall(sql, (start_date, end_date, start_date, end_date))
+    return await pool.fetchall(sql, (start_date, end_date))
 
 
 # ============================================================================
@@ -142,6 +210,19 @@ async def query_time_series(pool, start_date: str, end_date: str, granularity: s
 
 async def query_geo_heatmap(pool, start_date: str, end_date: str, precision: int = 2) -> List[Dict[str, Any]]:
     precision = max(1, min(4, int(precision)))
+    # firsttryuseprecomputetablegeo_heatmap_grid
+    gh_rows = await pool.fetchall(
+        f"SELECT ROUND(lat_grid, {precision}) as lat, ROUND(lng_grid, {precision}) as lng, "
+        f"SUM(event_count) as intensity, AVG(avg_goldstein) as avg_conflict "
+        f"FROM geo_heatmap_grid WHERE date BETWEEN %s AND %s "
+        f"GROUP BY ROUND(lat_grid, {precision}), ROUND(lng_grid, {precision}) "
+        f"HAVING intensity >= 5 ORDER BY intensity DESC LIMIT 1000",
+        (start_date, end_date)
+    )
+    if gh_rows and len(gh_rows) >= 10:
+        return [{**r, 'sample_location': None} for r in gh_rows]
+
+    # fallbackto originalSQL
     sql = f"""
     SELECT
         ROUND(ActionGeo_Lat, {precision}) as lat,
@@ -366,7 +447,7 @@ async def query_hot_events(
             COALESCE(f.summary, e.ActionGeo_FullName) as summary,
             COALESCE(f.severity_score, ABS(e.GoldsteinScale)) as severity_score,
             COALESCE(f.location_name, e.ActionGeo_FullName) as location_name,
-            e.SQLDATE as date,
+            CAST(e.SQLDATE AS CHAR) as date,
             e.GoldsteinScale,
             e.NumArticles,
             e.GlobalEventID,
@@ -478,7 +559,7 @@ async def query_stream_events(
     params.append(max_results)
 
     sql = f"""
-        SELECT SQLDATE, Actor1Name, Actor2Name, EventCode,
+        SELECT CAST(SQLDATE AS CHAR) as SQLDATE, Actor1Name, Actor2Name, EventCode,
                GoldsteinScale, AvgTone, ActionGeo_FullName,
                ActionGeo_Lat, ActionGeo_Long
         FROM {DEFAULT_TABLE}

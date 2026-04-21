@@ -7,8 +7,8 @@ import TimeSeriesChart from './TimeSeriesChart';
 import MapPanel from './MapPanel';
 
 export default function Dashboard() {
-  const today = new Date().toISOString().split('T')[0];
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+  const today = '2024-01-31';
+  const thirtyDaysAgo = '2024-01-01';
 
   const [startDate, setStartDate] = useState(thirtyDaysAgo);
   const [endDate, setEndDate] = useState(today);
