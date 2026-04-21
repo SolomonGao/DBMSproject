@@ -27,10 +27,13 @@ export default function ChatPanel() {
     setLoading(true);
 
     try {
-      const history = messages.slice(-10).map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const history = messages
+        .slice(-10)
+        .filter((m) => !(m.role === 'assistant' && m.content.startsWith('Error:')))
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
 
       const res = await api.chat(userMsg.content, history, sessionId);
 

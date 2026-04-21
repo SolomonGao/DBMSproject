@@ -26,7 +26,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
 from langgraph.prebuilt import create_react_agent
-from langgraph.checkpoint.memory import MemorySaver
 
 from backend.services.data_service import DataService
 
@@ -115,13 +114,11 @@ class GDELTAgent:
         # Build LLM
         self.llm = self._build_llm()
         
-        # Build graph agent with memory
-        self.memory = MemorySaver()
+        # Build graph agent (stateless — history is managed by frontend)
         self.graph = create_react_agent(
             model=self.llm,
             tools=self.tools,
             prompt=SYSTEM_PROMPT,
-            checkpointer=self.memory,
         )
     
     def _build_llm(self) -> BaseChatModel:
@@ -388,13 +385,10 @@ class GDELTAgent:
         # Run agent
         tools_used = []
         try:
-            config = {"configurable": {"thread_id": session_id}}
-            
             # Stream to capture intermediate steps
             final_response = ""
             async for event in self.graph.astream(
                 {"messages": lc_messages},
-                config,
                 stream_mode="values",
             ):
                 messages = event.get("messages", [])
