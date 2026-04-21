@@ -294,6 +294,38 @@ class GDELTAgent:
             """Get the current date."""
             return datetime.now().strftime("%Y-%m-%d")
         
+        async def search_news_context_tool(
+            query: str,
+            n_results: int = 5
+        ) -> str:
+            """Search real news article content via ChromaDB vector semantic search.
+            
+            Use this when the user asks about:
+            - Event causes, background, or detailed context
+            - Protester demands or crowd specifics
+            - Police/government response details
+            - Anything requiring reading actual news text (not just GDELT metadata)
+            """
+            result = await ds.search_news_context(query, n_results)
+            
+            if "error" in result:
+                return f"❌ {result.get('error')}: {result.get('message', result.get('message', ''))}"
+            
+            if not result.get("results"):
+                return f"📭 No related news found for '{query}'."
+            
+            output = [f"# 🔍 RAG Search Results: '{query}'\n"]
+            for i, r in enumerate(result["results"]):
+                content = r["content"]
+                snippet = content[:1000] + "..." if len(content) > 1000 else content
+                output.append(f"## 📰 Result {i+1}")
+                output.append(f"- **Event ID**: {r.get('event_id', 'Unknown')}")
+                output.append(f"- **Date**: {r.get('date', 'Unknown')}")
+                output.append(f"- **Source**: {r.get('source_url', 'Unknown')}")
+                output.append(f"\n**Content**:\n{snippet}\n")
+            
+            return "\n".join(output)
+        
         return [
             StructuredTool.from_function(
                 coroutine=search_events_tool,
@@ -344,6 +376,11 @@ class GDELTAgent:
                 coroutine=get_current_date_tool,
                 name="get_current_date",
                 description="Get today's date in YYYY-MM-DD format.",
+            ),
+            StructuredTool.from_function(
+                coroutine=search_news_context_tool,
+                name="search_news_context",
+                description="RAG semantic search over real news articles. Use for event causes, background context, protester demands, police response, or any query requiring actual news text (not just GDELT metadata).",
             ),
         ]
     

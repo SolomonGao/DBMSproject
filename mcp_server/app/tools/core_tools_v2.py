@@ -1278,3 +1278,76 @@ def _format_event_detail_from_raw(event_data: dict, fingerprint: str, params) ->
         output.append("")
     
     return "\n".join(output)
+
+
+# ============================================================================
+# RAG / Vector Search Tool
+# ============================================================================
+
+class SearchNewsContextInput(BaseModel):
+    """Search news context via vector semantic search"""
+    query: str = Field(
+        ...,
+        description="Natural language query for semantic search, e.g. 'protest demands police response'"
+    )
+    n_results: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Number of results to return (default 5, max 10)"
+    )
+    format: Literal["markdown", "json"] = Field(
+        default="markdown",
+        description="Output format: markdown (for LLM) or json (for API)"
+    )
+
+
+@mcp.tool()
+async def search_news_context(params: SearchNewsContextInput) -> str:
+    """
+    Search real news article content via ChromaDB vector semantic search.
+    
+    Use this when the user asks about:
+    - Event causes, background, or detailed context
+    - Protester demands or crowd specifics  
+    - Police/government response details
+    - Anything requiring reading actual news text (not just GDELT metadata)
+    
+    This tool searches the pre-built vector knowledge base of news articles.
+    """
+    try:
+        result = await core_queries.query_search_news_context(
+            params.query, params.n_results
+        )
+        
+        if params.format == "json":
+            return json.dumps(result, default=str, indent=2)
+        
+        # Format as markdown for LLM
+        if "error" in result:
+            return f"❌ {result.get('error')}: {result.get('message', '')}"
+        
+        if not result.get("results"):
+            return f"📭 No related news found for '{params.query}'."
+        
+        output = [f"# 🔍 RAG Search Results: '{params.query}'"]
+        output.append("")
+        
+        for i, r in enumerate(result["results"]):
+            content = r["content"]
+            snippet = content[:1000] + "..." if len(content) > 1000 else content
+            
+            output.append(f"## 📰 Result {i+1}")
+            output.append(f"- **Event ID**: {r.get('event_id', 'Unknown')}")
+            output.append(f"- **Date**: {r.get('date', 'Unknown')}")
+            output.append(f"- **Source**: {r.get('source_url', 'Unknown')}")
+            output.append("")
+            output.append(f"**Content**:")
+            output.append(snippet)
+            output.append("")
+        
+        return "\n".join(output)
+        
+    except Exception as e:
+        logger.error(f"search_news_context failed: {e}")
+        return f"❌ RAG search failed: {str(e)}"

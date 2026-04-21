@@ -22,6 +22,7 @@ from mcp_server.app.queries.core_queries import (
     query_hot_events,
     query_top_events,
     query_daily_brief,
+    query_search_news_context,
 )
 
 
@@ -91,6 +92,12 @@ class DataService:
 
     async def get_daily_brief(self, query_date: Optional[str] = None) -> Optional[Dict[str, Any]]:
         return await query_daily_brief(self._pool, query_date)
+
+    async def search_news_context(
+        self, query: str, n_results: int = 5
+    ) -> Dict[str, Any]:
+        """Search news article content via ChromaDB vector semantic search."""
+        return await query_search_news_context(query, n_results)
 
     def get_cache_stats(self) -> Dict[str, Any]:
         return {"mode": "shared_queries", "note": "Queries handled by core_queries"}

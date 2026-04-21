@@ -6,6 +6,7 @@ formatting only (markdown for LLM, JSON for Dashboard).
 """
 
 import asyncio
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
@@ -571,3 +572,95 @@ async def query_stream_events(
 
     async for row in streaming.stream(sql, tuple(params)):
         yield dict(row)
+
+
+# ============================================================================# RAG / Vector Search (ChromaDB)
+# ============================================================================
+
+def get_chroma_db_path() -> str:
+    """Get the ChromaDB persistent storage path."""
+    # Navigate from mcp_server/app/queries/ up to project root
+    project_root = Path(__file__).resolve().parents[2]
+    return str(project_root / 'chroma_db')
+
+
+async def query_search_news_context(
+    query: str,
+    n_results: int = 5
+) -> Dict[str, Any]:
+    """
+    Search news article content via ChromaDB vector semantic search.
+    
+    Args:
+        query: Natural language search query
+        n_results: Number of results to return (default 5, max 10)
+    
+    Returns:
+        Dict with 'results' list and 'query' metadata
+    """
+    try:
+        import chromadb
+        from chromadb.utils import embedding_functions
+        
+        db_path = get_chroma_db_path()
+        if not os.path.exists(db_path):
+            return {
+                "error": "Vector database not found",
+                "db_path": db_path,
+                "message": "Please build the knowledge base first"
+            }
+        
+        client = chromadb.PersistentClient(path=db_path)
+        ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="all-MiniLM-L6-v2"
+        )
+        
+        try:
+            collection = client.get_collection(
+                name="gdelt_news_collection",
+                embedding_function=ef
+            )
+        except Exception:
+            return {
+                "error": "Collection not found",
+                "message": "News collection 'gdelt_news_collection' not found. Please build the knowledge base first."
+            }
+        
+        results = collection.query(
+            query_texts=[query],
+            n_results=min(n_results, 10)
+        )
+        
+        if not results['documents'] or not results['documents'][0]:
+            return {
+                "query": query,
+                "results": [],
+                "message": f"No related news found for '{query}'"
+            }
+        
+        # Format results
+        formatted_results = []
+        for i in range(len(results['documents'][0])):
+            formatted_results.append({
+                "event_id": results['ids'][0][i],
+                "date": results['metadatas'][0][i].get('date', 'Unknown'),
+                "source_url": results['metadatas'][0][i].get('source_url', 'Unknown'),
+                "content": results['documents'][0][i],
+            })
+        
+        return {
+            "query": query,
+            "results": formatted_results,
+            "count": len(formatted_results)
+        }
+        
+    except ImportError:
+        return {
+            "error": "Missing dependencies",
+            "message": "ChromaDB not installed. Run: pip install chromadb sentence-transformers"
+        }
+    except Exception as e:
+        return {
+            "error": "Search failed",
+            "message": str(e)
+        }
