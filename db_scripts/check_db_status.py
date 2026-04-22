@@ -6,9 +6,9 @@ used formonitorindexusecaseandquerysexcan
 
 import sys
 import os
-sys.path.insert(0, 'mcp_server')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.database.pool import DatabasePool
+from backend.database.pool import DatabasePool
 import asyncio
 
 async def check_status():
@@ -108,15 +108,6 @@ async def check_status():
             print("   pausenoimportrecordlog")
     except:
         print("   importrecordlogtablenotsavein")
-    
-    # 6. querycachestatusstate
-    print("\n6️⃣  querycachestatusstate:")
-    from app.cache import query_cache
-    stats = query_cache.get_stats()
-    print(f"   cacheitemproject: {stats['size']} / {stats['maxsize']}")
-    print(f"   commandintimenumber: {stats['hits']:,}")
-    print(f"   notcommandin: {stats['misses']:,}")
-    print(f"   commandinrate: {stats['hit_rate']}")
     
     print("\n" + "=" * 70)
     print("checkcompleted！")

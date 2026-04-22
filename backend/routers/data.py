@@ -134,11 +134,11 @@ async def health_check(
     Health check including MCP latency.
     """
     try:
-        mcp_health = await service.health_check()
+        db_health = await service.health_check()
         cache_stats = service.get_cache_stats()
         return HealthResponse(
-            db_status=mcp_health.get("status", "unknown"),
-            db_latency_ms=mcp_health.get("latency_ms"),
+            db_status=db_health.get("status", "unknown"),
+            db_latency_ms=db_health.get("latency_ms"),
             cache_stats=cache_stats,
             server_time=None,
         )

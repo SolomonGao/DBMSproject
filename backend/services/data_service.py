@@ -1,18 +1,18 @@
 """
 Data Service — Thin wrapper around shared core_queries.
 
-No SQL is written here. All queries go through mcp_server.app.queries.core_queries,
+No SQL is written here. All queries go through backend.queries.core_queries,
 ensuring a single source of truth for data logic.
 
 Dashboard calls these directly (fast, < 300ms).
-Chat Agent calls them via MCP tools (standard protocol).
+Planner Executor calls them via parallel asyncio.gather.
 """
 
 import time
 from typing import List, Dict, Any, Optional
 
-from mcp_server.app.database.pool import DatabasePool, get_db_pool
-from mcp_server.app.queries.core_queries import (
+from backend.database.pool import DatabasePool, get_db_pool
+from backend.queries.core_queries import (
     query_dashboard,
     query_time_series,
     query_geo_heatmap,
@@ -22,12 +22,13 @@ from mcp_server.app.queries.core_queries import (
     query_hot_events,
     query_top_events,
     query_daily_brief,
+    query_stream_events,
     query_search_news_context,
 )
 
 
 class DataService:
-    """High-performance data service for Dashboard APIs."""
+    """High-performance data service for Dashboard APIs and Planner Executor."""
 
     def __init__(self):
         self._pool: Optional[DatabasePool] = None
@@ -39,7 +40,7 @@ class DataService:
             self._initialized = True
 
     async def close(self):
-        from mcp_server.app.database.pool import close_db_pool
+        from backend.database.pool import close_db_pool
         await close_db_pool()
         self._pool = None
         self._initialized = False
@@ -76,8 +77,11 @@ class DataService:
     async def get_event_detail(self, fingerprint: str) -> Optional[Dict[str, Any]]:
         return await query_event_detail(self._pool, fingerprint)
 
-    async def get_regional_overview(self, region: str, time_range: str = "week") -> Dict[str, Any]:
-        return await query_regional_overview(self._pool, region, time_range)
+    async def get_regional_overview(
+        self, region: str, time_range: str = "week",
+        start_date: Optional[str] = None, end_date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        return await query_regional_overview(self._pool, region, time_range, start_date, end_date)
 
     async def get_hot_events(
         self, query_date: Optional[str] = None, region_filter: Optional[str] = None, top_n: int = 5
@@ -92,6 +96,23 @@ class DataService:
 
     async def get_daily_brief(self, query_date: Optional[str] = None) -> Optional[Dict[str, Any]]:
         return await query_daily_brief(self._pool, query_date)
+
+    async def stream_events(
+        self,
+        actor_name: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        max_results: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Memory-friendly streaming query for events by actor name."""
+        rows = []
+        async for row in query_stream_events(
+            self._pool, actor_name, start_date, end_date, max_results
+        ):
+            rows.append(row)
+            if len(rows) >= max_results:
+                break
+        return rows
 
     async def search_news_context(
         self, query: str, n_results: int = 5

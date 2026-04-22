@@ -13,7 +13,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Dashboard
+  // Dashboard (direct data endpoints)
   getDashboard: (start: string, end: string) =>
     fetchJson<any>(`/api/v1/data/dashboard?start=${start}&end=${end}`),
 
@@ -28,12 +28,17 @@ export const api = {
 
   health: () => fetchJson<any>('/api/v1/data/health'),
 
-  // Agent
-  chat: (message: string, history: any[] = [], sessionId?: string) =>
-    fetchJson<any>('/api/v1/agent/chat', {
+  // AI Analyze (Planner + Executor)
+  analyze: (query: string, llmConfig?: any) =>
+    fetchJson<any>('/api/v1/analyze', {
       method: 'POST',
-      body: JSON.stringify({ message, history, session_id: sessionId }),
+      body: JSON.stringify({ query, llm_config: llmConfig }),
     }),
 
-  listTools: () => fetchJson<any>('/api/v1/agent/tools'),
+  // AI Report (delayed load)
+  generateReport: (data: any, prompt?: string, llmConfig?: any) =>
+    fetchJson<any>('/api/v1/analyze/report', {
+      method: 'POST',
+      body: JSON.stringify({ data, prompt, llm_config: llmConfig }),
+    }),
 };

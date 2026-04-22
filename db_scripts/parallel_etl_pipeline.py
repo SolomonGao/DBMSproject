@@ -24,9 +24,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 # add project path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'mcp_server'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.database.pool import DatabasePool
+from backend.database.pool import DatabasePool
 
 # configure log
 logging.basicConfig(

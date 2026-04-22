@@ -72,7 +72,7 @@ export default function MapPanel({ data, title = 'Event Density Map' }: Props) {
     });
 
     if (bounds.length > 0) {
-      mapInstance.current.fitBounds(bounds as L.LatLngExpression[], { padding: [40, 40] });
+      mapInstance.current.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [40, 40] });
     }
   }, [data]);
 

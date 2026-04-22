@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { LayoutDashboard, MessageSquare, Activity } from 'lucide-react';
+import { LayoutDashboard, Sparkles, Activity } from 'lucide-react';
 import Dashboard from './components/Dashboard';
-import ChatPanel from './components/ChatPanel';
+import ExplorePanel from './components/ExplorePanel';
 
-type Tab = 'dashboard' | 'chat';
+type Tab = 'dashboard' | 'explore';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [activeTab, setActiveTab] = useState<Tab>('explore');
 
   return (
     <div className="app-layout">
@@ -18,25 +18,25 @@ export default function App() {
 
         <div className="nav-tabs">
           <button
+            className={`nav-tab ${activeTab === 'explore' ? 'active' : ''}`}
+            onClick={() => setActiveTab('explore')}
+          >
+            <Sparkles size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            AI Explore
+          </button>
+          <button
             className={`nav-tab ${activeTab === 'dashboard' ? 'active' : ''}`}
             onClick={() => setActiveTab('dashboard')}
           >
             <LayoutDashboard size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
             Dashboard
           </button>
-          <button
-            className={`nav-tab ${activeTab === 'chat' ? 'active' : ''}`}
-            onClick={() => setActiveTab('chat')}
-          >
-            <MessageSquare size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-            Analyst Chat
-          </button>
         </div>
       </header>
 
       <main className="app-body">
+        {activeTab === 'explore' && <ExplorePanel />}
         {activeTab === 'dashboard' && <Dashboard />}
-        {activeTab === 'chat' && <ChatPanel />}
       </main>
     </div>
   );

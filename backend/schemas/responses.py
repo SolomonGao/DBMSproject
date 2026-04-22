@@ -235,3 +235,45 @@ class HelpsResponse(BaseResponse):
     helps: List[HelpItem]
     system_prompt_summary: str = "GDELT Analyst — conversational intelligence for geopolitical events"
     tips: List[str] = Field(default_factory=list)
+
+
+# ============================================================================
+# AI Analyze / Visualization
+# ============================================================================
+
+class AnalyzeRequest(BaseModel):
+    """Natural language query for AI-driven data exploration."""
+    query: str = Field(..., min_length=1, max_length=4000, description="Natural language data request")
+    llm_config: Optional[LLMConfig] = Field(None, description="Custom LLM configuration for Planner and Report")
+
+
+class QueryStepOutput(BaseModel):
+    type: str
+    params: Dict[str, Any]
+
+
+class QueryPlanOutput(BaseModel):
+    intent: str
+    time_range: Optional[Dict[str, str]] = None
+    steps: List[QueryStepOutput]
+    visualizations: List[str]
+
+
+class ReportOutput(BaseModel):
+    summary: str
+    key_findings: List[str]
+
+
+class AnalyzeResponse(BaseResponse):
+    query: str
+    plan: QueryPlanOutput
+    data: Dict[str, Any]
+    report: Optional[ReportOutput] = None
+    elapsed_ms: Optional[float] = None
+
+
+class ReportRequest(BaseModel):
+    """Request to generate an AI report from existing query results."""
+    data: Dict[str, Any] = Field(..., description="Query results from /analyze")
+    prompt: Optional[str] = Field(None, description="Optional custom prompt for the report")
+    llm_config: Optional[LLMConfig] = Field(None, description="Custom LLM configuration")

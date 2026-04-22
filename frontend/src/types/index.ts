@@ -42,17 +42,39 @@ export interface EventItem {
   summary?: string;
 }
 
-export interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  thinking_steps?: ThinkingStep[];
-  tools_used?: string[];
+// AI Analyze types
+export interface LLMConfig {
+  provider: string;
+  api_key: string;
+  model?: string;
+  base_url?: string;
 }
 
-export interface ThinkingStep {
+export interface QueryStep {
   type: string;
-  content?: string;
-  data?: Record<string, any>;
+  params: Record<string, any>;
+}
+
+export interface QueryPlan {
+  intent: string;
+  time_range?: { start: string; end: string };
+  steps: QueryStep[];
+  visualizations: string[];
+}
+
+export interface ReportResult {
+  summary: string;
+  key_findings: string[];
+}
+
+export interface AnalyzeResponse {
+  ok: boolean;
+  query: string;
+  plan: QueryPlan;
+  data: Record<string, { type: string; data: any }>;
+  report?: ReportResult;
+  elapsed_ms?: number;
+  error?: string;
 }
 
 export interface ApiResponse<T> {

@@ -1,8 +1,7 @@
 """
-Core Queries — Shared SQL layer for MCP tools and FastAPI DataService.
+Core Queries — Shared SQL layer for FastAPI DataService and internal services.
 
-All data-fetching logic lives here. Callers (core_tools_v2, DataService) handle
-formatting only (markdown for LLM, JSON for Dashboard).
+All data-fetching logic lives here. Callers handle formatting only.
 """
 
 import asyncio
@@ -352,21 +351,28 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
 # ============================================================================
 
 async def query_regional_overview(
-    pool, region: str, time_range: str = "week"
+    pool, region: str, time_range: str = "week",
+    start_date: Optional[str] = None, end_date: Optional[str] = None
 ) -> Dict[str, Any]:
-    end_date = datetime.now().date()
-    days_map = {'day': 1, 'week': 7, 'month': 30, 'quarter': 90, 'year': 365}
-    start_date = end_date - timedelta(days=days_map.get(time_range, 7))
+    if start_date and end_date:
+        start = start_date
+        end = end_date
+    else:
+        end_dt = datetime.now().date()
+        days_map = {'day': 1, 'week': 7, 'month': 30, 'quarter': 90, 'year': 365}
+        start_dt = end_dt - timedelta(days=days_map.get(time_range, 7))
+        start = start_dt.strftime('%Y-%m-%d')
+        end = end_dt.strftime('%Y-%m-%d')
 
     # Try pre-computed stats first
     stats_rows = await pool.fetchall("""
         SELECT * FROM region_daily_stats
         WHERE region_code = %s AND date BETWEEN %s AND %s
         ORDER BY date DESC LIMIT 7
-    """, (region.upper(), start_date, end_date))
+    """, (region.upper(), start, end))
 
     if stats_rows:
-        return {"source": "precomputed", "rows": [dict(r) for r in stats_rows], "region": region, "start": str(start_date), "end": str(end_date)}
+        return {"source": "precomputed", "rows": [dict(r) for r in stats_rows], "region": region, "start": start, "end": end}
 
     # Fallback: real-time query
     row = await pool.fetchone(f"""
@@ -379,7 +385,7 @@ async def query_regional_overview(
         FROM {DEFAULT_TABLE}
         WHERE SQLDATE BETWEEN %s AND %s
           AND (ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)
-    """, (start_date, end_date, region.upper(), f'%{region}%'))
+    """, (start, end, region.upper(), f'%{region}%'))
 
     hot_events = await pool.fetchall(f"""
         SELECT Actor1Name, Actor2Name, EventCode, GoldsteinScale,
@@ -387,17 +393,17 @@ async def query_regional_overview(
         FROM {DEFAULT_TABLE}
         WHERE SQLDATE BETWEEN %s AND %s
           AND (ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)
-        ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+        ORDER BY NumArticles DESC, ABS(GoldsteinScale) DESC
         LIMIT 5
-    """, (start_date, end_date, region.upper(), f'%{region}%'))
+    """, (start, end, region.upper(), f'%{region}%'))
 
     return {
         "source": "realtime",
         "summary": dict(row) if row else {},
         "hot_events": [dict(r) for r in hot_events],
         "region": region,
-        "start": str(start_date),
-        "end": str(end_date),
+        "start": start,
+        "end": end,
     }
 
 
@@ -505,7 +511,7 @@ async def query_top_events(
             NumSources, AvgTone, SOURCEURL
         FROM {DEFAULT_TABLE}
         WHERE {where_clause}
-        ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+        ORDER BY NumArticles DESC, ABS(GoldsteinScale) DESC
         LIMIT %s
     """
     params.append(top_n)
@@ -579,7 +585,7 @@ async def query_stream_events(
 
 def get_chroma_db_path() -> str:
     """Get the ChromaDB persistent storage path."""
-    # Navigate from mcp_server/app/queries/ up to project root
+    # Navigate from backend/queries/ up to project root
     project_root = Path(__file__).resolve().parents[2]
     return str(project_root / 'chroma_db')
 

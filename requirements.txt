@@ -1,9 +1,6 @@
 # GDELT Analysis Platform Dependencies
 # 安装: pip install -r requirements.txt
 
-# MCP Framework
-mcp>=1.0.0
-fastmcp>=1.0.0
 
 # API Server
 fastapi>=0.115.0
@@ -42,4 +39,3 @@ sentence-transformers
 
 # Optional: YAML config support
 # pyyaml>=6.0
-langchain-mcp-adapters>=0.2.0
