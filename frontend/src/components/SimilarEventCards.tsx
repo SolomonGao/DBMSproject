@@ -30,13 +30,16 @@ function formatDate(dateStr?: string): string {
 }
 
 export default function SimilarEventCards({ events, onEventClick }: Props) {
-  if (!events || events.length === 0) {
+  if (!Array.isArray(events) || events.length === 0) {
+    const errorMsg = events && typeof events === 'object' && 'error' in events
+      ? String((events as any).error)
+      : 'No similar events found.';
     return (
       <div className="panel">
         <h3 style={{ fontSize: 14, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
           Similar Events
         </h3>
-        <p style={{ color: '#888', fontSize: 14 }}>No similar events found.</p>
+        <p style={{ color: '#888', fontSize: 14 }}>{errorMsg}</p>
       </div>
     );
   }

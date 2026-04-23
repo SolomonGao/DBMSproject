@@ -93,6 +93,7 @@ export interface QueryStep {
 
 export interface QueryPlan {
   intent: string;
+  thinking?: string;
   time_range?: { start: string; end: string };
   steps: QueryStep[];
   visualizations: string[];
@@ -107,7 +108,7 @@ export interface AnalyzeResponse {
   ok: boolean;
   query: string;
   plan: QueryPlan;
-  data: Record<string, { type: string; data: any }>;
+  data: Record<string, { type: string; data: any; error?: string }>;
   report?: ReportResult;
   elapsed_ms?: number;
   error?: string;

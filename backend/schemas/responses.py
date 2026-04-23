@@ -288,6 +288,7 @@ class QueryStepOutput(BaseModel):
 
 class QueryPlanOutput(BaseModel):
     intent: str
+    thinking: Optional[str] = None
     time_range: Optional[Dict[str, str]] = None
     steps: List[QueryStepOutput]
     visualizations: List[str]

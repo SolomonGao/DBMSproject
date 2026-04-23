@@ -90,7 +90,7 @@ export default function EventDetailCard({ event }: Props) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 20px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Calendar size={15} color="#6b7280" />
-          <span style={{ fontSize: 14, color: '#4b5563' }}>{formatDate(event.SQLDATE)}</span>
+          <span style={{ fontSize: 14, color: '#4b5563' }}>{formatDate(ed.SQLDATE)}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <MapPin size={15} color="#6b7280" />

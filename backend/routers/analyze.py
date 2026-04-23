@@ -72,6 +72,7 @@ async def analyze(request: AnalyzeRequest):
             query=request.query,
             plan=QueryPlanOutput(
                 intent=plan.intent,
+                thinking=plan.thinking,
                 time_range=plan.time_range,
                 steps=[{"type": s.type, "params": s.params} for s in plan.steps],
                 visualizations=plan.visualizations,

@@ -136,8 +136,18 @@ export default function TimeSeriesChart({ data, title = 'Event Trends' }: Props)
 
     const handleResize = () => chartInstance.current?.resize();
     window.addEventListener('resize', handleResize);
+
+    // Fix: resize when container becomes visible (e.g. tab switch)
+    const resizeObserver = new ResizeObserver(() => {
+      chartInstance.current?.resize();
+    });
+    if (chartRef.current) {
+      resizeObserver.observe(chartRef.current);
+    }
+
     return () => {
       window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
     };
   }, [data]);
 

@@ -34,17 +34,23 @@ class Executor:
         for i, step in enumerate(plan.steps):
             # Resolve cross-step dependencies
             params = dict(step.params)
-            if step.type == "similar_events" and params.get("seed_event_id") is None:
-                # Try to extract GlobalEventID from a prior event_detail result
-                for key, val in output.items():
-                    if val.get("type") == "event_detail" and val.get("data"):
-                        ed = val["data"]
-                        gid = None
-                        if isinstance(ed, dict):
-                            gid = ed.get("event_data", {}).get("GlobalEventID")
-                        if gid:
-                            params["seed_event_id"] = int(gid)
-                            break
+            if step.type == "similar_events":
+                seed = params.get("seed_event_id")
+                # If seed is missing or not a valid integer, try to extract from prior event_detail
+                if seed is None or not isinstance(seed, int):
+                    try:
+                        seed = int(seed)
+                        params["seed_event_id"] = seed
+                    except (ValueError, TypeError):
+                        for key, val in output.items():
+                            if val.get("type") == "event_detail" and val.get("data"):
+                                ed = val["data"]
+                                gid = None
+                                if isinstance(ed, dict):
+                                    gid = ed.get("event_data", {}).get("GlobalEventID")
+                                if gid:
+                                    params["seed_event_id"] = int(gid)
+                                    break
 
             resolved_step = QueryStep(type=step.type, params=params)
             result = await self._execute_step(i, resolved_step)
@@ -83,6 +89,22 @@ class Executor:
             if seed_id is None:
                 return {"error": "seed_event_id not provided and no event_detail found"}
             return await self.ds.get_similar_events(int(seed_id), p.get("limit", 10))
+
+        if step_type == "hot_events":
+            return await self.ds.get_hot_events(
+                query_date=p.get("query_date"),
+                region_filter=p.get("region_filter"),
+                top_n=p.get("top_n", 10),
+            )
+
+        if step_type == "top_events":
+            return await self.ds.get_top_events(
+                start_date=p.get("start_date"),
+                end_date=p.get("end_date"),
+                region_filter=p.get("region_filter"),
+                event_type=p.get("event_type"),
+                top_n=p.get("top_n", 10),
+            )
 
         raise ValueError(f"Unknown step type: {step_type}")
 

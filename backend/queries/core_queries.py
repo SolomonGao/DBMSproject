@@ -643,8 +643,8 @@ async def query_time_series(pool, start_date: str, end_date: str, granularity: s
     SELECT
         CAST({period_expr} AS CHAR) as period,
         COUNT(*) as event_count,
-        ROUND(SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as conflict_pct,
-        ROUND(SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as cooperation_pct,
+        ROUND(SUM(CASE WHEN GoldsteinScale < -5 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as conflict_pct,
+        ROUND(SUM(CASE WHEN GoldsteinScale > 5 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as cooperation_pct,
         ROUND(AVG(GoldsteinScale), 2) as avg_goldstein,
         ROUND(STDDEV(GoldsteinScale), 2) as std_goldstein,
         ROUND(AVG(AvgTone), 2) as avg_tone,
@@ -735,11 +735,21 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
 
         row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
         if row:
-            result = dict(row)
-            for k, v in list(result.items()):
+            event_data = dict(row)
+            for k, v in list(event_data.items()):
                 if isinstance(v, bytes):
-                    result[k] = v.hex()
-            return result
+                    event_data[k] = v.hex()
+            return {
+                "fingerprint": fingerprint,
+                "headline": f"{event_data.get('Actor1Name', 'Unknown')} vs {event_data.get('Actor2Name', 'Unknown')}",
+                "summary": event_data.get('ActionGeo_FullName', ''),
+                "key_actors": str([event_data.get('Actor1Name'), event_data.get('Actor2Name')]),
+                "event_type_label": None,
+                "severity_score": abs(event_data.get('GoldsteinScale', 0)),
+                "location_name": event_data.get('ActionGeo_FullName'),
+                "location_country": event_data.get('ActionGeo_CountryCode'),
+                "event_data": event_data,
+            }
         return None
     else:
         row = await pool.fetchone("""
@@ -1014,14 +1024,10 @@ async def query_stream_events(
 # ============================================================================
 
 async def query_similar_events(pool, seed_event_id: int, limit: int = 10) -> List[Dict[str, Any]]:
-    """Find events similar to a seed event based on actor, location, or event type.
+    """Find events similar to a seed event based on actor and event type.
     
-    Matches on:
-    - Same Actor1Name or Actor2Name
-    - Same ActionGeo_CountryCode (region)
-    - Same EventRootCode (first 2 chars of EventCode)
-    
-    Excludes the seed event and same-day events to get temporal variety.
+    Uses indexed queries merged in Python for performance on large tables.
+    Searches within ±30 days of the seed event.
     """
     seed = await pool.fetchone(f"""
         SELECT GlobalEventID, Actor1Name, Actor2Name, ActionGeo_CountryCode,
@@ -1034,58 +1040,81 @@ async def query_similar_events(pool, seed_event_id: int, limit: int = 10) -> Lis
         return []
     
     a1, a2 = seed['Actor1Name'], seed['Actor2Name']
-    cc, rc, sd = seed['ActionGeo_CountryCode'], seed['EventRootCode'], seed['SQLDATE']
+    rc, sd = seed['EventRootCode'], seed['SQLDATE']
     
-    # Build actor match conditions — embed values directly (safe: from DB, not user input)
-    actor_conds = []
+    from datetime import datetime, timedelta
+    sd_dt = datetime.strptime(sd, '%Y-%m-%d')
+    window_start = (sd_dt - timedelta(days=30)).strftime('%Y-%m-%d')
+    window_end = (sd_dt + timedelta(days=30)).strftime('%Y-%m-%d')
+    
+    candidate_ids = {}  # id -> match_reasons
+    
+    # --- Actor match (most relevant, uses index_merge on actor1+actor2) ---
+    actor_names = []
     if a1:
-        escaped_a1 = a1.replace("'", "''")
-        actor_conds.append(f"(e.Actor1Name = '{escaped_a1}' OR e.Actor2Name = '{escaped_a1}')")
+        actor_names.append(a1)
     if a2 and a2 != a1:
-        escaped_a2 = a2.replace("'", "''")
-        actor_conds.append(f"(e.Actor1Name = '{escaped_a2}' OR e.Actor2Name = '{escaped_a2}')")
+        actor_names.append(a2)
     
-    actor_sql = f"({' OR '.join(actor_conds)})" if actor_conds else "FALSE"
+    for an in actor_names:
+        rows = await pool.fetchall(f"""
+            SELECT GlobalEventID FROM {DEFAULT_TABLE}
+            WHERE SQLDATE BETWEEN %s AND %s
+              AND GlobalEventID != %s
+              AND SQLDATE != %s
+              AND (Actor1Name = %s OR Actor2Name = %s)
+            ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+            LIMIT %s
+        """, (window_start, window_end, seed_event_id, sd, an, an, limit * 2))
+        for r in rows:
+            gid = r['GlobalEventID']
+            if gid not in candidate_ids:
+                candidate_ids[gid] = set()
+            candidate_ids[gid].add('Same actor')
     
-    sql = f"""
+    # --- Type match (fallback when actor results are sparse, uses idx_event_root) ---
+    if len(candidate_ids) < limit:
+        rows = await pool.fetchall(f"""
+            SELECT GlobalEventID FROM {DEFAULT_TABLE}
+            WHERE SQLDATE BETWEEN %s AND %s
+              AND GlobalEventID != %s
+              AND SQLDATE != %s
+              AND EventRootCode = %s
+            ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+            LIMIT %s
+        """, (window_start, window_end, seed_event_id, sd, rc, limit))
+        for r in rows:
+            gid = r['GlobalEventID']
+            if gid not in candidate_ids:
+                candidate_ids[gid] = set()
+            candidate_ids[gid].add('Same event type')
+    
+    if not candidate_ids:
+        return []
+    
+    # Fetch full details for candidates
+    id_list = ','.join(str(gid) for gid in candidate_ids.keys())
+    detail_rows = await pool.fetchall(f"""
         SELECT
             e.GlobalEventID,
             CAST(e.SQLDATE AS CHAR) as SQLDATE,
             e.Actor1Name, e.Actor2Name,
             e.EventCode, e.GoldsteinScale, e.AvgTone, e.NumArticles,
             e.ActionGeo_FullName, e.ActionGeo_CountryCode,
-            f.fingerprint, f.headline, f.summary, f.event_type_label,
-            (CASE WHEN {actor_sql} THEN 1 ELSE 0 END) as actor_match,
-            (CASE WHEN e.ActionGeo_CountryCode = '{cc}' THEN 1 ELSE 0 END) as region_match,
-            (CASE WHEN LEFT(e.EventCode, 2) = '{rc}' THEN 1 ELSE 0 END) as type_match
+            f.fingerprint, f.headline, f.summary, f.event_type_label
         FROM {DEFAULT_TABLE} e
         LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-        WHERE e.GlobalEventID != %s
-          AND e.SQLDATE != %s
-          AND (
-              {actor_sql}
-              OR e.ActionGeo_CountryCode = '{cc}'
-              OR LEFT(e.EventCode, 2) = '{rc}'
-          )
+        WHERE e.GlobalEventID IN ({id_list})
         ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
         LIMIT %s
-    """
-    
-    params = (seed_event_id, sd, limit)
-    
-    rows = await pool.fetchall(sql, params)
+    """, (limit,))
     
     result = []
-    for r in rows:
+    for r in detail_rows:
         d = dict(r)
-        reasons = []
-        if d.pop('actor_match', 0):
-            reasons.append('Same actor')
-        if d.pop('region_match', 0):
-            reasons.append('Same region')
-        if d.pop('type_match', 0):
-            reasons.append('Same event type')
-        d['match_reason'] = reasons[0] if reasons else 'Related'
+        gid = d['GlobalEventID']
+        reasons = list(candidate_ids.get(gid, ['Related']))
+        d['match_reason'] = reasons[0]
         d['match_reasons'] = reasons
         result.append(d)
     

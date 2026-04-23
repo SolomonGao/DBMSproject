@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users, Brain, Terminal } from 'lucide-react';
 import { api } from '../api/client';
 import type { AnalyzeResponse, ReportResult, EventItem } from '../types';
 import EventDetailCard from './EventDetailCard';
@@ -68,9 +68,35 @@ export default function ExplorePanel() {
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Typing animation for thinking
+  const [thinkingText, setThinkingText] = useState('');
+  const [thinkingDone, setThinkingDone] = useState(false);
+  const [showData, setShowData] = useState(false);
+
   // Report delayed load state
   const [report, setReport] = useState<ReportResult | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+
+  // Typing effect for AI thinking
+  useEffect(() => {
+    if (result?.plan?.thinking) {
+      const fullText = result.plan.thinking;
+      setThinkingText('');
+      setThinkingDone(false);
+      setShowData(false);
+      let i = 0;
+      const interval = setInterval(() => {
+        i++;
+        setThinkingText(fullText.slice(0, i));
+        if (i >= fullText.length) {
+          clearInterval(interval);
+          setThinkingDone(true);
+          setTimeout(() => setShowData(true), 400);
+        }
+      }, 12);
+      return () => clearInterval(interval);
+    }
+  }, [result]);
 
   const handleSubmit = async () => {
     if (!query.trim() || loading) return;
@@ -121,7 +147,7 @@ export default function ExplorePanel() {
     if (!result) return null;
     for (const key of Object.keys(result.data)) {
       const item = result.data[key];
-      if (item.type === type) return item.data;
+      if (item.type === type && !item.error) return item.data;
     }
     return null;
   };
@@ -209,20 +235,57 @@ export default function ExplorePanel() {
       {/* Results */}
       {result && !isOffTopic && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Query Plan Badge */}
-          <div className="plan-badge">
-            <CheckCircle size={14} color="#059669" />
-            <span>
-              <strong>Intent:</strong> {result.plan.intent} &middot; {' '}
-              <strong>Time:</strong> {result.elapsed_ms}ms
-            </span>
-          </div>
+          {/* AI Thinking */}
+          {result.plan.thinking && (
+            <div
+              style={{
+                background: '#f0f9ff',
+                border: '1px solid #bae6fd',
+                borderRadius: 12,
+                padding: '14px 18px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <Brain size={16} color="#0284c7" />
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#0369a1' }}>
+                  AI Decision
+                </span>
+                <span style={{ fontSize: 11, color: '#7dd3fc', marginLeft: 'auto' }}>
+                  {result.elapsed_ms}ms
+                </span>
+              </div>
+              <p style={{ fontSize: 14, color: '#0c4a6e', lineHeight: 1.6, margin: 0, minHeight: 22 }}>
+                {thinkingText}
+                {!thinkingDone && <span style={{ display: 'inline-block', width: 2, height: 16, background: '#0284c7', marginLeft: 2, verticalAlign: 'middle', animation: 'blink 1s infinite' }} />}
+              </p>
+              {/* Tool execution status */}
+              {thinkingDone && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, paddingTop: 10, borderTop: '1px solid #bae6fd' }}>
+                  <Terminal size={13} color="#0284c7" />
+                  <span style={{ fontSize: 12, color: '#0369a1', fontFamily: 'monospace' }}>
+                    {result.plan.steps.map(s => s.type).join(' → ')}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
-          {/* AI Report — always at top */}
-          {vizes.includes('report') && (
-            <div>
-              {reportLoading ? (
-                <div className="panel" style={{ background: '#fafafa' }}>
+          {/* Data loading state */}
+          {thinkingDone && !showData && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px', background: '#fafafa', borderRadius: 10, border: '1px dashed #e2e8f0' }}>
+              <Loader2 size={16} className="spinning" color="#888" />
+              <span style={{ fontSize: 14, color: '#888' }}>
+                Executing {result.plan.steps.length} tool{result.plan.steps.length > 1 ? 's' : ''}...
+              </span>
+            </div>
+          )}
+
+          {/* Data content — fades in after thinking completes */}
+          {showData && (
+            <>
+              {/* AI Report */}
+              {reportLoading && (
+                <div className="panel" style={{ background: '#fafafa', animation: 'fadeIn 0.5s ease' }}>
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <FileText size={18} color="#2563eb" />
                     AI Report
@@ -232,46 +295,42 @@ export default function ExplorePanel() {
                     Generating summary...
                   </div>
                 </div>
-              ) : report ? (
-                <ReportPanel report={report} />
-              ) : null}
-            </div>
-          )}
+              )}
+              {report && <div style={{ animation: 'fadeIn 0.5s ease' }}><ReportPanel report={report} /></div>}
 
-          {/* Event Detail Card */}
-          {eventDetail && vizes.includes('event_detail') && (
-            <EventDetailCard event={eventDetail} />
-          )}
+              {/* Event Detail Card */}
+              {eventDetail && (
+                <div style={{ animation: 'fadeIn 0.5s ease' }}>
+                  <EventDetailCard event={eventDetail} />
+                </div>
+              )}
 
-          {/* Similar Events */}
-          {similarEvents && vizes.includes('similar_events') && (
-            <SimilarEventCards
-              events={similarEvents}
-              onEventClick={(evt) => handleEventClick(evt)}
-            />
-          )}
+              {/* Similar Events */}
+              {similarEvents && (
+                <div style={{ animation: 'fadeIn 0.6s ease' }}>
+                  <SimilarEventCards events={similarEvents} onEventClick={handleEventClick} />
+                </div>
+              )}
 
-          {/* Search Results (broad search) */}
-          {searchEvents && Array.isArray(searchEvents) && searchEvents.length > 0 && vizes.includes('event_table') && !eventDetail && (
-            <div className="panel">
-              <h3 style={{ fontSize: 14, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 16 }}>
-                Search Results <span style={{ fontSize: 12, color: '#888', fontWeight: 400 }}>({searchEvents.length})</span>
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {searchEvents.slice(0, 10).map((evt: EventItem, i: number) => (
-                  <CompactEventCard
-                    key={i}
-                    event={evt}
-                    onClick={() => handleEventClick(evt)}
-                  />
-                ))}
-                {searchEvents.length > 10 && (
-                  <p style={{ textAlign: 'center', color: '#888', fontSize: 12, marginTop: 4 }}>
-                    + {searchEvents.length - 10} more events
-                  </p>
-                )}
-              </div>
-            </div>
+              {/* Search Results */}
+              {searchEvents && Array.isArray(searchEvents) && searchEvents.length > 0 && !eventDetail && (
+                <div className="panel" style={{ animation: 'fadeIn 0.6s ease' }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 16 }}>
+                    Search Results <span style={{ fontSize: 12, color: '#888', fontWeight: 400 }}>({searchEvents.length})</span>
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {searchEvents.slice(0, 10).map((evt: EventItem, i: number) => (
+                      <CompactEventCard key={i} event={evt} onClick={() => handleEventClick(evt)} />
+                    ))}
+                    {searchEvents.length > 10 && (
+                      <p style={{ textAlign: 'center', color: '#888', fontSize: 12, marginTop: 4 }}>
+                        + {searchEvents.length - 10} more events
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

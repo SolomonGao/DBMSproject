@@ -19,9 +19,15 @@ body {
 /* Dashboard grid layout */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
   padding: 16px;
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .panel {
@@ -234,4 +240,16 @@ body {
   border-radius: 8px;
   margin-bottom: 16px;
   font-size: 14px;
+}
+
+/* Fade in animation for data panels */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Blink cursor for typing effect */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }

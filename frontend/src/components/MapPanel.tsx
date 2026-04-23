@@ -36,7 +36,14 @@ export default function MapPanel({
     mapInstance.current = map;
     layerGroup.current = L.layerGroup().addTo(map);
 
+    // Fix: invalidate size when container becomes visible (e.g. tab switch)
+    const observer = new ResizeObserver(() => {
+      mapInstance.current?.invalidateSize();
+    });
+    observer.observe(mapRef.current);
+
     return () => {
+      observer.disconnect();
       mapInstance.current?.remove();
       mapInstance.current = null;
       layerGroup.current = null;
