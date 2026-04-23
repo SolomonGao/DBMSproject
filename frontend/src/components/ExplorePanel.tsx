@@ -1,12 +1,66 @@
 import { useState } from 'react';
-import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning } from 'lucide-react';
+import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users } from 'lucide-react';
 import { api } from '../api/client';
-import type { AnalyzeResponse, GeoPoint, TimeSeriesPoint, ReportResult } from '../types';
-import StatsCards from './StatsCards';
-import TimeSeriesChart from './TimeSeriesChart';
-import MapPanel from './MapPanel';
-import EventTable from './EventTable';
+import type { AnalyzeResponse, ReportResult, EventItem } from '../types';
+import EventDetailCard from './EventDetailCard';
+import SimilarEventCards from './SimilarEventCards';
 import ReportPanel from './ReportPanel';
+
+// Compact event card for search results
+function CompactEventCard({ event, onClick }: { event: EventItem; onClick: () => void }) {
+  const headline = event.headline || `${event.Actor1Name || 'Unknown'} vs ${event.Actor2Name || 'Unknown'}`;
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: '#f8fafc',
+        border: '1px solid #e2e8f0',
+        borderRadius: 10,
+        padding: '12px 16px',
+        cursor: 'pointer',
+        transition: 'all 0.15s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = '#cbd5e1';
+        e.currentTarget.style.background = '#f1f5f9';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = '#e2e8f0';
+        e.currentTarget.style.background = '#f8fafc';
+      }}
+    >
+      <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a', marginBottom: 6, lineHeight: 1.4 }}>
+        {headline}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'center' }}>
+        {event.SQLDATE && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#6b7280' }}>
+            <Calendar size={11} />
+            {event.SQLDATE}
+          </span>
+        )}
+        {event.ActionGeo_FullName && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#6b7280' }}>
+            <MapPin size={11} />
+            {event.ActionGeo_FullName}
+          </span>
+        )}
+        {(event.Actor1Name || event.Actor2Name) && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#6b7280' }}>
+            <Users size={11} />
+            {event.Actor1Name || '?'}
+            {event.Actor2Name ? ` vs ${event.Actor2Name}` : ''}
+          </span>
+        )}
+        {event.NumArticles !== undefined && (
+          <span style={{ fontSize: 11, color: '#f97316', fontWeight: 600 }}>
+            {event.NumArticles} articles
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ExplorePanel() {
   const [query, setQuery] = useState('');
@@ -62,7 +116,7 @@ export default function ExplorePanel() {
     }
   };
 
-  // Extract data from result for visualizations
+  // Extract data from result by type
   const getDataByType = (type: string) => {
     if (!result) return null;
     for (const key of Object.keys(result.data)) {
@@ -75,35 +129,34 @@ export default function ExplorePanel() {
   const vizes = result?.plan?.visualizations || [];
   const isOffTopic = result?.plan?.intent === 'off_topic';
 
-  // Helper: get event_detail data (single event) and wrap as array for EventTable
-  const getEventDetailData = () => {
-    if (!result) return null;
-    for (const key of Object.keys(result.data)) {
-      const item = result.data[key];
-      if (item.type === 'event_detail' && item.data) {
-        // event_detail returns a single object; wrap as array
-        const d = item.data;
-        const eventData = d.event_data || {};
-        return [{
-          GlobalEventID: eventData.GlobalEventID,
-          SQLDATE: eventData.SQLDATE,
-          Actor1Name: eventData.Actor1Name || d.key_actors,
-          Actor2Name: eventData.Actor2Name,
-          ActionGeo_FullName: eventData.ActionGeo_FullName || d.location_name,
-          ActionGeo_Lat: eventData.ActionGeo_Lat,
-          ActionGeo_Long: eventData.ActionGeo_Long,
-          NumArticles: eventData.NumArticles,
-          GoldsteinScale: eventData.GoldsteinScale,
-          EventCode: eventData.EventCode,
-          fingerprint: d.fingerprint,
-          headline: d.headline,
-          summary: d.summary,
-          event_type_label: d.event_type_label,
-          severity_score: d.severity_score,
-        }];
-      }
-    }
-    return null;
+  // Get event detail data
+  const eventDetail = getDataByType('event_detail');
+  const similarEvents = getDataByType('similar_events');
+  const searchEvents = getDataByType('events') || getDataByType('top_events') || getDataByType('hot_events');
+
+  // When user clicks a search result or similar event, load its detail
+  const handleEventClick = (evt: EventItem) => {
+    // Construct EVT query from GlobalEventID
+    const gid = evt.GlobalEventID;
+    if (!gid) return;
+    // Use a simple query that the planner will recognize as an event lookup
+    // Format: EVT-YYYY-MM-DD-ID
+    const date = evt.SQLDATE || '2024-01-01';
+    const formattedDate = date.includes('-') ? date : `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
+    const evtQuery = `EVT-${formattedDate}-${gid}`;
+    setQuery(evtQuery);
+    // Trigger search
+    setTimeout(() => {
+      api.analyze(evtQuery).then((res) => {
+        if (res.ok !== false) {
+          setResult(res);
+          setReport(null);
+          if (res.plan.visualizations.includes('report') && res.plan.report_prompt) {
+            loadReport(res.data, res.plan.report_prompt);
+          }
+        }
+      }).catch(console.error);
+    }, 0);
   };
 
   return (
@@ -116,7 +169,7 @@ export default function ExplorePanel() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask anything about geopolitical events... e.g. 'What happened in Washington DC in February 2024?'"
+          placeholder="Search an event by keyword, fingerprint, or ask about a specific incident..."
           className="search-input"
         />
         <button
@@ -144,93 +197,82 @@ export default function ExplorePanel() {
       {isOffTopic && (
         <div style={{ padding: 24, background: '#f8fafc', borderRadius: 12, textAlign: 'center' }}>
           <MessageSquareWarning size={40} color="#64748b" style={{ marginBottom: 12 }} />
-          <h3 style={{ color: '#475569', marginBottom: 8 }}>I&apos;m a GDELT data analyst</h3>
+          <h3 style={{ color: '#475569', marginBottom: 8 }}>I&apos;m a GDELT event analyst</h3>
           <p style={{ color: '#64748b', fontSize: 14 }}>
-            Ask me about geopolitical events, regional trends, or specific incidents.
+            Ask me about specific geopolitical events, incidents, or search by event ID.
             <br />
-            For example: &quot;What happened in DC in Feb 2024?&quot; or &quot;Show me conflict trends in Q1 2024.&quot;
+            For example: &quot;What happened with US-20240101-VIR-MASS-1149261787?&quot; or &quot;Show me protests in Washington DC.&quot;
           </p>
         </div>
       )}
 
       {/* Results */}
       {result && !isOffTopic && (
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Query Plan Badge */}
           <div className="plan-badge">
             <CheckCircle size={14} color="#059669" />
             <span>
               <strong>Intent:</strong> {result.plan.intent} &middot; {' '}
-              <strong>Steps:</strong> {result.plan.steps.length} &middot; {' '}
               <strong>Time:</strong> {result.elapsed_ms}ms
             </span>
           </div>
 
-          {/* Dynamic Visualizations */}
-          <div className="viz-grid">
-            {/* Stats Cards */}
-            {(vizes.includes('stats_cards') || vizes.includes('dashboard')) && (
-              <div className="viz-full">
-                <StatsCards data={getDataByType('dashboard')} />
-              </div>
-            )}
-
-            {/* Timeline Chart */}
-            {(vizes.includes('timeline') || vizes.includes('timeseries')) && (
-              <div className="viz-half">
-                <TimeSeriesChart
-                  data={(getDataByType('timeseries') || []) as TimeSeriesPoint[]}
-                  title="Event Trends"
-                />
-              </div>
-            )}
-
-            {/* Map */}
-            {(vizes.includes('map') || vizes.includes('heatmap') || vizes.includes('geo')) && (
-              <div className="viz-half">
-                <MapPanel
-                  data={(getDataByType('geo') || []) as GeoPoint[]}
-                  title="Geographic Distribution"
-                />
-              </div>
-            )}
-
-            {/* Event Table */}
-            {(vizes.includes('event_table') || vizes.includes('events') || vizes.includes('top_events') || vizes.includes('hot_events')) && (
-              <div className="viz-full">
-                <EventTable
-                  data={
-                    getDataByType('top_events') ||
-                    getDataByType('hot_events') ||
-                    getDataByType('events') ||
-                    getEventDetailData() ||
-                    []
-                  }
-                  title="Key Events"
-                />
-              </div>
-            )}
-
-            {/* Report */}
-            {vizes.includes('report') && (
-              <div className="viz-full">
-                {reportLoading ? (
-                  <div className="panel" style={{ background: '#fafafa' }}>
-                    <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <FileText size={18} color="#2563eb" />
-                      AI Report
-                    </h3>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#888', fontSize: 14 }}>
-                      <Loader2 size={16} className="spinning" />
-                      Generating summary...
-                    </div>
+          {/* AI Report — always at top */}
+          {vizes.includes('report') && (
+            <div>
+              {reportLoading ? (
+                <div className="panel" style={{ background: '#fafafa' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <FileText size={18} color="#2563eb" />
+                    AI Report
+                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#888', fontSize: 14 }}>
+                    <Loader2 size={16} className="spinning" />
+                    Generating summary...
                   </div>
-                ) : report ? (
-                  <ReportPanel report={report} />
-                ) : null}
+                </div>
+              ) : report ? (
+                <ReportPanel report={report} />
+              ) : null}
+            </div>
+          )}
+
+          {/* Event Detail Card */}
+          {eventDetail && vizes.includes('event_detail') && (
+            <EventDetailCard event={eventDetail} />
+          )}
+
+          {/* Similar Events */}
+          {similarEvents && vizes.includes('similar_events') && (
+            <SimilarEventCards
+              events={similarEvents}
+              onEventClick={(evt) => handleEventClick(evt)}
+            />
+          )}
+
+          {/* Search Results (broad search) */}
+          {searchEvents && Array.isArray(searchEvents) && searchEvents.length > 0 && vizes.includes('event_table') && !eventDetail && (
+            <div className="panel">
+              <h3 style={{ fontSize: 14, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 16 }}>
+                Search Results <span style={{ fontSize: 12, color: '#888', fontWeight: 400 }}>({searchEvents.length})</span>
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {searchEvents.slice(0, 10).map((evt: EventItem, i: number) => (
+                  <CompactEventCard
+                    key={i}
+                    event={evt}
+                    onClick={() => handleEventClick(evt)}
+                  />
+                ))}
+                {searchEvents.length > 10 && (
+                  <p style={{ textAlign: 'center', color: '#888', fontSize: 12, marginTop: 4 }}>
+                    + {searchEvents.length - 10} more events
+                  </p>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </div>

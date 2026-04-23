@@ -20,7 +20,9 @@ class Executor:
 
     async def execute(self, plan: QueryPlan) -> Dict[str, Any]:
         """
-        Execute all steps in a query plan concurrently.
+        Execute all steps in a query plan.
+        Steps run sequentially to allow cross-step dependencies (e.g. similar_events
+        needs the GlobalEventID from event_detail).
 
         Returns:
             dict mapping step index to result data
@@ -28,17 +30,25 @@ class Executor:
         if not plan.steps:
             return {}
 
-        # Build coroutines for each step
-        tasks = []
-        for i, step in enumerate(plan.steps):
-            tasks.append(self._execute_step(i, step))
-
-        # Run all queries in parallel
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Package results
         output = {}
-        for i, (step, result) in enumerate(zip(plan.steps, results)):
+        for i, step in enumerate(plan.steps):
+            # Resolve cross-step dependencies
+            params = dict(step.params)
+            if step.type == "similar_events" and params.get("seed_event_id") is None:
+                # Try to extract GlobalEventID from a prior event_detail result
+                for key, val in output.items():
+                    if val.get("type") == "event_detail" and val.get("data"):
+                        ed = val["data"]
+                        gid = None
+                        if isinstance(ed, dict):
+                            gid = ed.get("event_data", {}).get("GlobalEventID")
+                        if gid:
+                            params["seed_event_id"] = int(gid)
+                            break
+
+            resolved_step = QueryStep(type=step.type, params=params)
+            result = await self._execute_step(i, resolved_step)
+
             key = f"{step.type}_{i}"
             if isinstance(result, Exception):
                 print(f"[Executor] Step {i} ({step.type}) failed: {result}", flush=True)
@@ -53,34 +63,6 @@ class Executor:
         p = step.params
         step_type = step.type
 
-        if step_type == "dashboard":
-            return await self.ds.get_dashboard(
-                p.get("start_date"), p.get("end_date")
-            )
-
-        if step_type == "overview":
-            return await self.ds.get_regional_overview(
-                p.get("region", "USA"),
-                p.get("time_range", "month"),
-                p.get("start_date"),
-                p.get("end_date")
-            )
-
-        if step_type == "top_events":
-            return await self.ds.get_top_events(
-                p.get("start_date"), p.get("end_date"),
-                p.get("region_filter"),
-                p.get("event_type"),
-                p.get("top_n", 10)
-            )
-
-        if step_type == "hot_events":
-            return await self.ds.get_hot_events(
-                p.get("date"),
-                p.get("region_filter"),
-                p.get("top_n", 5)
-            )
-
         if step_type == "events":
             return await self.ds.search_events(
                 query_text=p.get("query", ""),
@@ -93,34 +75,14 @@ class Executor:
                 max_results=p.get("limit", 20),
             )
 
-        if step_type == "timeseries":
-            return await self.ds.get_time_series(
-                p.get("start_date"), p.get("end_date"),
-                p.get("granularity", "day")
-            )
-
-        if step_type == "geo":
-            precision = p.get("precision", 2)
-            try:
-                precision = int(precision)
-            except (ValueError, TypeError):
-                print(f"[Executor] Invalid geo precision '{precision}', defaulting to 2", flush=True)
-                precision = 2
-            return await self.ds.get_geo_heatmap(
-                p.get("start_date"), p.get("end_date"), precision
-            )
-
-        if step_type == "daily_brief":
-            return await self.ds.get_daily_brief(p.get("date"))
-
-        if step_type == "news_context":
-            return await self.ds.search_news_context(
-                p.get("query", ""),
-                p.get("n_results", 5)
-            )
-
         if step_type == "event_detail":
             return await self.ds.get_event_detail(p.get("fingerprint", ""))
+
+        if step_type == "similar_events":
+            seed_id = p.get("seed_event_id")
+            if seed_id is None:
+                return {"error": "seed_event_id not provided and no event_detail found"}
+            return await self.ds.get_similar_events(int(seed_id), p.get("limit", 10))
 
         raise ValueError(f"Unknown step type: {step_type}")
 

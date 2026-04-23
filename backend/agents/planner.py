@@ -121,14 +121,10 @@ The JSON must match this exact schema:
 }
 
 Valid query types for "type" field:
-- dashboard: {start_date, end_date}
-- overview: {region, time_range} — region like "USA", "Canada"; time_range like "week", "month"
-- top_events: {start_date, end_date, region_filter, event_type, top_n}
-- events: {query, time_hint, location_hint, limit}
-- timeseries: {start_date, end_date, granularity} — granularity: "day", "week", "month"
-- geo: {start_date, end_date, precision} — precision MUST be an integer 1-4 (1=country, 2=region, 3=city area, 4=street). NEVER use "city" or other strings.
-- daily_brief: {date}
-- news_context: {query, n_results}
+- events: {query, time_hint, location_hint, limit} — broad event search
+- event_detail: {fingerprint} — specific event by fingerprint ID
+- similar_events: {seed_event_id} — events similar to a given event (usually paired with event_detail)
+- news_context: {query, n_results} — semantic news search
 
 Date rules:
 - "last month" = previous calendar month
@@ -142,10 +138,13 @@ Off-topic detection:
 - Do NOT generate a default search for greetings or irrelevant input.
 
 Rules:
-- Max 3 steps. Prefer dashboard + timeseries.
-- Always include "report" in visualizations unless user says "just show data".
-- Do NOT use event_detail or news_context unless specifically asked.
-- For geo precision, ONLY integers 1-4 are allowed."""
+- You are an EVENT ANALYST. Focus on finding SPECIFIC EVENTS and their context.
+- Max 2 steps. Prefer event_detail + similar_events for specific events.
+- For broad searches, use a single "events" step.
+- Always include "report" in visualizations.
+- Do NOT use dashboard, timeseries, geo, overview, top_events, or hot_events.
+- When user provides a fingerprint or event ID, use event_detail step.
+- When user asks about a specific event, always add similar_events as a second step."""
 
 
 def _extract_json(text: str) -> Optional[Dict]:
@@ -242,9 +241,12 @@ class Planner:
             return QueryPlan(
                 intent="event_detail_lookup",
                 time_range=None,
-                steps=[QueryStep(type="event_detail", params={"fingerprint": fp})],
-                visualizations=["event_table"],
-                report_prompt=f"Show details for event {fp}."
+                steps=[
+                    QueryStep(type="event_detail", params={"fingerprint": fp}),
+                    QueryStep(type="similar_events", params={"seed_event_id": None}),
+                ],
+                visualizations=["event_detail", "similar_events", "report"],
+                report_prompt=f"Analyze event {fp} in detail, including its background, key actors, and significance."
             )
 
         # EVT-ID format (e.g. EVT-2024-01-01-1149261787)
@@ -254,56 +256,22 @@ class Planner:
             return QueryPlan(
                 intent="event_detail_lookup",
                 time_range=None,
-                steps=[QueryStep(type="event_detail", params={"fingerprint": fp})],
-                visualizations=["event_table"],
-                report_prompt=f"Show details for event {fp}."
-            )
-
-        # Pattern matching
-        if 'dashboard' in q or 'overview' in q or 'summary' in q:
-            return QueryPlan(
-                intent="dashboard_summary",
-                time_range={"start": start_date, "end": end_date},
-                steps=[QueryStep(type="dashboard", params={"start_date": start_date, "end_date": end_date})],
-                visualizations=["stats_cards", "timeline", "report"],
-                report_prompt=f"Summarize the geopolitical dashboard for {start_date} to {end_date}."
-            )
-
-        if 'map' in q or 'heatmap' in q or 'where' in q or 'geo' in q or 'location' in q:
-            return QueryPlan(
-                intent="geographic_analysis",
-                time_range={"start": start_date, "end": end_date},
-                steps=[QueryStep(type="geo", params={"start_date": start_date, "end_date": end_date, "precision": 2})],
-                visualizations=["map", "report"],
-                report_prompt=f"Analyze geographic event distribution for {start_date} to {end_date}."
-            )
-
-        if 'conflict' in q or 'cooperation' in q or 'trend' in q or 'trends' in q:
-            region = "USA"
-            if 'canada' in q: region = "CA"
-            if 'mexico' in q: region = "MX"
-            return QueryPlan(
-                intent="conflict_trend_analysis",
-                time_range={"start": start_date, "end": end_date},
                 steps=[
-                    QueryStep(type="timeseries", params={"start_date": start_date, "end_date": end_date, "granularity": "day"}),
-                    QueryStep(type="top_events", params={"start_date": start_date, "end_date": end_date, "region_filter": region, "event_type": "conflict", "top_n": 10}),
-                    QueryStep(type="geo", params={"start_date": start_date, "end_date": end_date, "precision": 2}),
+                    QueryStep(type="event_detail", params={"fingerprint": fp}),
+                    QueryStep(type="similar_events", params={"seed_event_id": None}),
                 ],
-                visualizations=["timeline", "heatmap", "event_table", "report"],
-                report_prompt=f"Analyze conflict and cooperation trends in {region} for {start_date} to {end_date}."
+                visualizations=["event_detail", "similar_events", "report"],
+                report_prompt=f"Analyze event {fp} in detail, including its background, key actors, and significance."
             )
 
-        if 'event' in q or 'happened' in q or 'news' in q or 'what' in q:
-            return QueryPlan(
-                intent="event_search",
-                time_range={"start": start_date, "end": end_date},
-                steps=[QueryStep(type="events", params={"query": query, "limit": 20})],
-                visualizations=["event_table", "report"],
-                report_prompt=f"Summarize key events matching: {query}"
-            )
-
-        return None
+        # Default: event search (broad keyword search)
+        return QueryPlan(
+            intent="event_search",
+            time_range={"start": start_date, "end": end_date} if start_date and end_date else None,
+            steps=[QueryStep(type="events", params={"query": query, "limit": 20})],
+            visualizations=["event_table", "report"],
+            report_prompt=f"Summarize key events matching: {query}"
+        )
 
     async def plan(self, user_query: str) -> QueryPlan:
         """Generate a query plan from user input."""

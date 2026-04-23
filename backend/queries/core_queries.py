@@ -1009,7 +1009,91 @@ async def query_stream_events(
         yield dict(row)
 
 
-# ============================================================================# RAG / Vector Search (ChromaDB)
+# ============================================================================
+# Similar Events
+# ============================================================================
+
+async def query_similar_events(pool, seed_event_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+    """Find events similar to a seed event based on actor, location, or event type.
+    
+    Matches on:
+    - Same Actor1Name or Actor2Name
+    - Same ActionGeo_CountryCode (region)
+    - Same EventRootCode (first 2 chars of EventCode)
+    
+    Excludes the seed event and same-day events to get temporal variety.
+    """
+    seed = await pool.fetchone(f"""
+        SELECT GlobalEventID, Actor1Name, Actor2Name, ActionGeo_CountryCode,
+               ActionGeo_FullName, EventRootCode, CAST(SQLDATE AS CHAR) as SQLDATE
+        FROM {DEFAULT_TABLE}
+        WHERE GlobalEventID = %s
+    """, (seed_event_id,))
+    
+    if not seed:
+        return []
+    
+    a1, a2 = seed['Actor1Name'], seed['Actor2Name']
+    cc, rc, sd = seed['ActionGeo_CountryCode'], seed['EventRootCode'], seed['SQLDATE']
+    
+    # Build actor match conditions — embed values directly (safe: from DB, not user input)
+    actor_conds = []
+    if a1:
+        escaped_a1 = a1.replace("'", "''")
+        actor_conds.append(f"(e.Actor1Name = '{escaped_a1}' OR e.Actor2Name = '{escaped_a1}')")
+    if a2 and a2 != a1:
+        escaped_a2 = a2.replace("'", "''")
+        actor_conds.append(f"(e.Actor1Name = '{escaped_a2}' OR e.Actor2Name = '{escaped_a2}')")
+    
+    actor_sql = f"({' OR '.join(actor_conds)})" if actor_conds else "FALSE"
+    
+    sql = f"""
+        SELECT
+            e.GlobalEventID,
+            CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
+            e.EventCode, e.GoldsteinScale, e.AvgTone, e.NumArticles,
+            e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            f.fingerprint, f.headline, f.summary, f.event_type_label,
+            (CASE WHEN {actor_sql} THEN 1 ELSE 0 END) as actor_match,
+            (CASE WHEN e.ActionGeo_CountryCode = '{cc}' THEN 1 ELSE 0 END) as region_match,
+            (CASE WHEN LEFT(e.EventCode, 2) = '{rc}' THEN 1 ELSE 0 END) as type_match
+        FROM {DEFAULT_TABLE} e
+        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+        WHERE e.GlobalEventID != %s
+          AND e.SQLDATE != %s
+          AND (
+              {actor_sql}
+              OR e.ActionGeo_CountryCode = '{cc}'
+              OR LEFT(e.EventCode, 2) = '{rc}'
+          )
+        ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+        LIMIT %s
+    """
+    
+    params = (seed_event_id, sd, limit)
+    
+    rows = await pool.fetchall(sql, params)
+    
+    result = []
+    for r in rows:
+        d = dict(r)
+        reasons = []
+        if d.pop('actor_match', 0):
+            reasons.append('Same actor')
+        if d.pop('region_match', 0):
+            reasons.append('Same region')
+        if d.pop('type_match', 0):
+            reasons.append('Same event type')
+        d['match_reason'] = reasons[0] if reasons else 'Related'
+        d['match_reasons'] = reasons
+        result.append(d)
+    
+    return result
+
+
+# ============================================================================
+# RAG / Vector Search (ChromaDB)
 # ============================================================================
 
 def get_chroma_db_path() -> str:

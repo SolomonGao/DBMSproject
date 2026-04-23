@@ -21,6 +21,7 @@ from backend.queries.core_queries import (
     query_suggest_actors,
     query_suggest_locations,
     query_event_detail,
+    query_similar_events,
     query_regional_overview,
     query_hot_events,
     query_top_events,
@@ -108,6 +109,9 @@ class DataService:
 
     async def get_event_detail(self, fingerprint: str) -> Optional[Dict[str, Any]]:
         return await query_event_detail(self._pool, fingerprint)
+
+    async def get_similar_events(self, seed_event_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        return await query_similar_events(self._pool, seed_event_id, limit)
 
     async def get_regional_overview(
         self, region: str, time_range: str = "week",

@@ -42,6 +42,10 @@ export interface EventItem {
   summary?: string;
   event_type_label?: string;
   severity_score?: number;
+  SOURCEURL?: string;
+  key_actors?: string;
+  location_name?: string;
+  location_country?: string;
 }
 
 export interface GeoEventPoint {

@@ -84,7 +84,7 @@ async def analyze(request: AnalyzeRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"[Analyze] FAILED: {e}")
+        print(f"[Analyze] FAILED: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
 
@@ -107,5 +107,5 @@ async def generate_report(request: ReportRequest):
             key_findings=report.key_findings,
         )
     except Exception as e:
-        logger.error(f"[Analyze/Report] FAILED: {e}")
+        print(f"[Analyze/Report] FAILED: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"Report generation failed: {e}")
