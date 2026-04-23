@@ -15,11 +15,13 @@ from backend.schemas.responses import (
     DashboardResponse,
     TimeSeriesResponse,
     GeoHeatmapResponse,
+    GeoEventsResponse,
     EventSearchResponse,
     HealthResponse,
     EventItem,
     TimeSeriesPoint,
     GeoPoint,
+    GeoEventPoint,
 )
 
 router = APIRouter(prefix="/data", tags=["data"])
@@ -98,10 +100,13 @@ async def get_geo_heatmap(
 
 @router.get("/events", response_model=EventSearchResponse)
 async def search_events(
-    query: str = Query(..., description="Search query text"),
+    query: Optional[str] = Query(None, description="Search query text"),
+    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     time_hint: Optional[str] = Query(None, description="e.g. 2024-01, this_month"),
     location_hint: Optional[str] = Query(None, description="Location keyword"),
     event_type: Optional[str] = Query(None, description="conflict | cooperation | protest"),
+    actor: Optional[str] = Query(None, description="Actor name keyword"),
     limit: int = Query(20, ge=1, le=50),
     service: DataService = Depends(get_data_service),
 ):
@@ -111,19 +116,55 @@ async def search_events(
     try:
         rows = await service.search_events(
             query_text=query,
+            start_date=start,
+            end_date=end,
             time_hint=time_hint,
             location_hint=location_hint,
             event_type=event_type,
+            actor=actor,
             max_results=limit,
         )
         data = [EventItem(**row) for row in rows]
         return EventSearchResponse(
             data=data,
-            query=query,
+            query=query or "",
             total=len(data),
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Event search failed: {e}")
+
+
+@router.get("/geo/events", response_model=GeoEventsResponse)
+async def get_geo_events(
+    start: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end: str = Query(..., description="End date (YYYY-MM-DD)"),
+    location_hint: Optional[str] = Query(None, description="Location keyword"),
+    event_type: Optional[str] = Query(None, description="conflict | cooperation | protest"),
+    actor: Optional[str] = Query(None, description="Actor name keyword"),
+    limit: int = Query(100, ge=1, le=200),
+    service: DataService = Depends(get_data_service),
+):
+    """
+    Get individual event points with coordinates for map display.
+    """
+    try:
+        rows = await service.get_geo_events(
+            start_date=start,
+            end_date=end,
+            location_hint=location_hint,
+            event_type=event_type,
+            actor=actor,
+            max_results=limit,
+        )
+        data = [GeoEventPoint(**row) for row in rows]
+        return GeoEventsResponse(
+            data=data,
+            start_date=start,
+            end_date=end,
+            total_points=len(data),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Geo events query failed: {e}")
 
 
 @router.get("/health", response_model=HealthResponse)

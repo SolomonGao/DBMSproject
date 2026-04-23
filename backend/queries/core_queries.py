@@ -248,13 +248,18 @@ async def query_geo_heatmap(pool, start_date: str, end_date: str, precision: int
 
 async def query_search_events(
     pool,
-    query_text: str,
+    query_text: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     time_hint: Optional[str] = None,
     location_hint: Optional[str] = None,
     event_type: Optional[str] = None,
-    max_results: int = 20
+    actor: Optional[str] = None,
+    max_results: int = 20,
 ) -> List[Dict[str, Any]]:
-    if time_hint:
+    if start_date and end_date:
+        date_start, date_end = start_date, end_date
+    elif time_hint:
         date_start, date_end = parse_time_hint(time_hint)
     else:
         end = datetime.now().date()
@@ -264,7 +269,8 @@ async def query_search_events(
 
     sql = f"""
     SELECT
-        e.GlobalEventID, e.SQLDATE, e.Actor1Name, e.Actor2Name,
+        e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
+        e.Actor1Name, e.Actor2Name,
         e.EventCode, e.GoldsteinScale, e.AvgTone, e.NumArticles,
         e.ActionGeo_FullName, e.ActionGeo_CountryCode,
         e.ActionGeo_Lat, e.ActionGeo_Long,
@@ -288,6 +294,11 @@ async def query_search_events(
         if event_type in type_conditions:
             sql += f" AND {type_conditions[event_type]}"
 
+    if actor:
+        sql += " AND (e.Actor1Name LIKE %s OR e.Actor2Name LIKE %s)"
+        params.extend([f"%{actor}%", f"%{actor}%"])
+
+    # query_text used for ordering weight, not filtering
     sql += """
     ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
     LIMIT %s
@@ -295,6 +306,75 @@ async def query_search_events(
     params.append(min(max_results, 50))
 
     return await pool.fetchall(sql, tuple(params))
+
+
+async def query_geo_events(
+    pool,
+    start_date: str,
+    end_date: str,
+    location_hint: Optional[str] = None,
+    event_type: Optional[str] = None,
+    actor: Optional[str] = None,
+    max_results: int = 100,
+) -> List[Dict[str, Any]]:
+    """Return individual event points with coordinates for map display."""
+    sql = f"""
+    SELECT
+        e.GlobalEventID,
+        CAST(e.SQLDATE AS CHAR) as SQLDATE,
+        e.Actor1Name,
+        e.Actor2Name,
+        e.EventCode,
+        e.GoldsteinScale,
+        e.AvgTone,
+        e.NumArticles,
+        e.ActionGeo_FullName,
+        e.ActionGeo_CountryCode,
+        e.ActionGeo_Lat as lat,
+        e.ActionGeo_Long as lng,
+        f.fingerprint,
+        f.headline,
+        f.summary,
+        f.event_type_label
+    FROM {DEFAULT_TABLE} e
+    LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+    WHERE e.SQLDATE BETWEEN %s AND %s
+      AND e.ActionGeo_Lat IS NOT NULL
+      AND e.ActionGeo_Long IS NOT NULL
+    """
+    params = [start_date, end_date]
+
+    if location_hint:
+        sql += " AND (e.ActionGeo_FullName LIKE %s OR e.ActionGeo_CountryCode = %s)"
+        params.extend([f"%{location_hint}%", location_hint.upper()[:3]])
+
+    if event_type and event_type != "any":
+        type_conditions = {
+            "conflict": "e.GoldsteinScale < -5",
+            "cooperation": "e.GoldsteinScale > 5",
+            "protest": "e.EventRootCode = '14'",
+        }
+        if event_type in type_conditions:
+            sql += f" AND {type_conditions[event_type]}"
+
+    if actor:
+        sql += " AND (e.Actor1Name LIKE %s OR e.Actor2Name LIKE %s)"
+        params.extend([f"%{actor}%", f"%{actor}%"])
+
+    sql += """
+    ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+    LIMIT %s
+    """
+    params.append(min(max_results, 100))
+
+    rows = await pool.fetchall(sql, tuple(params))
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['lat'] = float(d['lat']) if d['lat'] is not None else None
+        d['lng'] = float(d['lng']) if d['lng'] is not None else None
+        result.append(d)
+    return result
 
 
 # ============================================================================

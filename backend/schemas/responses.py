@@ -119,6 +119,35 @@ class GeoHeatmapResponse(BaseResponse):
     total_points: int
 
 
+class GeoEventPoint(BaseModel):
+    global_event_id: int = Field(..., alias="GlobalEventID")
+    sql_date: str = Field(..., alias="SQLDATE")
+    actor1_name: Optional[str] = Field(None, alias="Actor1Name")
+    actor2_name: Optional[str] = Field(None, alias="Actor2Name")
+    event_code: Optional[str] = Field(None, alias="EventCode")
+    goldstein_scale: Optional[float] = Field(None, alias="GoldsteinScale")
+    avg_tone: Optional[float] = Field(None, alias="AvgTone")
+    num_articles: Optional[int] = Field(None, alias="NumArticles")
+    action_geo_full_name: Optional[str] = Field(None, alias="ActionGeo_FullName")
+    action_geo_country_code: Optional[str] = Field(None, alias="ActionGeo_CountryCode")
+    lat: float
+    lng: float
+    fingerprint: Optional[str] = None
+    headline: Optional[str] = None
+    summary: Optional[str] = None
+    event_type_label: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
+
+
+class GeoEventsResponse(BaseResponse):
+    data: List[GeoEventPoint]
+    start_date: str
+    end_date: str
+    total_points: int
+
+
 # ============================================================================
 # Event Search Data
 # ============================================================================

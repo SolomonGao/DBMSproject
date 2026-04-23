@@ -23,8 +23,28 @@ export const api = {
   getGeoHeatmap: (start: string, end: string, precision = 2) =>
     fetchJson<any>(`/api/v1/data/geo?start=${start}&end=${end}&precision=${precision}`),
 
-  searchEvents: (query: string, limit = 20) =>
-    fetchJson<any>(`/api/v1/data/events?query=${encodeURIComponent(query)}&limit=${limit}`),
+  searchEvents: (query?: string, start?: string, end?: string, location?: string, eventType?: string, actor?: string, limit = 20) => {
+    const params = new URLSearchParams();
+    if (query) params.set('query', query);
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    if (location) params.set('location_hint', location);
+    if (eventType && eventType !== 'any') params.set('event_type', eventType);
+    if (actor) params.set('actor', actor);
+    params.set('limit', String(limit));
+    return fetchJson<any>(`/api/v1/data/events?${params.toString()}`);
+  },
+
+  getGeoEvents: (start: string, end: string, location?: string, eventType?: string, actor?: string, limit = 100) => {
+    const params = new URLSearchParams();
+    params.set('start', start);
+    params.set('end', end);
+    if (location) params.set('location_hint', location);
+    if (eventType && eventType !== 'any') params.set('event_type', eventType);
+    if (actor) params.set('actor', actor);
+    params.set('limit', String(limit));
+    return fetchJson<any>(`/api/v1/data/geo/events?${params.toString()}`);
+  },
 
   health: () => fetchJson<any>('/api/v1/data/health'),
 

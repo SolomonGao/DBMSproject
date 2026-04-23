@@ -40,6 +40,36 @@ export interface EventItem {
   fingerprint?: string;
   headline?: string;
   summary?: string;
+  event_type_label?: string;
+  severity_score?: number;
+}
+
+export interface GeoEventPoint {
+  GlobalEventID: number;
+  SQLDATE: string;
+  Actor1Name?: string;
+  Actor2Name?: string;
+  EventCode?: string;
+  GoldsteinScale?: number;
+  AvgTone?: number;
+  NumArticles?: number;
+  ActionGeo_FullName?: string;
+  ActionGeo_CountryCode?: string;
+  lat: number;
+  lng: number;
+  fingerprint?: string;
+  headline?: string;
+  summary?: string;
+  event_type_label?: string;
+}
+
+export interface FilterState {
+  startDate: string;
+  endDate: string;
+  location: string;
+  actor: string;
+  eventType: string;
+  keyword: string;
 }
 
 // AI Analyze types

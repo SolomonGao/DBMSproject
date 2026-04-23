@@ -83,11 +83,14 @@ class Executor:
 
         if step_type == "events":
             return await self.ds.search_events(
-                p.get("query", ""),
-                p.get("time_hint"),
-                p.get("location_hint"),
-                p.get("event_type"),
-                p.get("limit", 20)
+                query_text=p.get("query", ""),
+                start_date=p.get("start_date"),
+                end_date=p.get("end_date"),
+                time_hint=p.get("time_hint"),
+                location_hint=p.get("location_hint"),
+                event_type=p.get("event_type"),
+                actor=p.get("actor"),
+                max_results=p.get("limit", 20),
             )
 
         if step_type == "timeseries":
