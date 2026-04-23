@@ -75,6 +75,37 @@ export default function ExplorePanel() {
   const vizes = result?.plan?.visualizations || [];
   const isOffTopic = result?.plan?.intent === 'off_topic';
 
+  // Helper: get event_detail data (single event) and wrap as array for EventTable
+  const getEventDetailData = () => {
+    if (!result) return null;
+    for (const key of Object.keys(result.data)) {
+      const item = result.data[key];
+      if (item.type === 'event_detail' && item.data) {
+        // event_detail returns a single object; wrap as array
+        const d = item.data;
+        const eventData = d.event_data || {};
+        return [{
+          GlobalEventID: eventData.GlobalEventID,
+          SQLDATE: eventData.SQLDATE,
+          Actor1Name: eventData.Actor1Name || d.key_actors,
+          Actor2Name: eventData.Actor2Name,
+          ActionGeo_FullName: eventData.ActionGeo_FullName || d.location_name,
+          ActionGeo_Lat: eventData.ActionGeo_Lat,
+          ActionGeo_Long: eventData.ActionGeo_Long,
+          NumArticles: eventData.NumArticles,
+          GoldsteinScale: eventData.GoldsteinScale,
+          EventCode: eventData.EventCode,
+          fingerprint: d.fingerprint,
+          headline: d.headline,
+          summary: d.summary,
+          event_type_label: d.event_type_label,
+          severity_score: d.severity_score,
+        }];
+      }
+    }
+    return null;
+  };
+
   return (
     <div>
       {/* Search Input */}
@@ -172,6 +203,7 @@ export default function ExplorePanel() {
                     getDataByType('top_events') ||
                     getDataByType('hot_events') ||
                     getDataByType('events') ||
+                    getEventDetailData() ||
                     []
                   }
                   title="Key Events"

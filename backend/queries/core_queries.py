@@ -735,7 +735,11 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
 
         row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
         if row:
-            return dict(row)
+            result = dict(row)
+            for k, v in list(result.items()):
+                if isinstance(v, bytes):
+                    result[k] = v.hex()
+            return result
         return None
     else:
         row = await pool.fetchone("""
@@ -753,6 +757,11 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
             return None
 
         event_row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
+        event_data = dict(event_row) if event_row else {}
+        # Clean non-JSON-serializable values (e.g. MySQL POINT bytes)
+        for k, v in list(event_data.items()):
+            if isinstance(v, bytes):
+                event_data[k] = v.hex()
         return {
             "fingerprint": row['fingerprint'],
             "headline": row['headline'],
@@ -762,7 +771,7 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
             "severity_score": row['severity_score'],
             "location_name": row['location_name'],
             "location_country": row['location_country'],
-            "event_data": dict(event_row) if event_row else {},
+            "event_data": event_data,
         }
 
 

@@ -235,6 +235,30 @@ class Planner:
             start_date = start_dt.strftime('%Y-%m-%d')
             end_date = end_dt.strftime('%Y-%m-%d')
 
+        # Fingerprint / event ID detection (e.g. US-20240101-VIR-MASS-1149261787)
+        fingerprint_match = _re.search(r'\b([A-Z]{2}-\d{8}-[A-Z]{3}-[A-Z]+-\d+)\b', query, _re.IGNORECASE)
+        if fingerprint_match:
+            fp = fingerprint_match.group(1)
+            return QueryPlan(
+                intent="event_detail_lookup",
+                time_range=None,
+                steps=[QueryStep(type="event_detail", params={"fingerprint": fp})],
+                visualizations=["event_table"],
+                report_prompt=f"Show details for event {fp}."
+            )
+
+        # EVT-ID format (e.g. EVT-2024-01-01-1149261787)
+        evt_match = _re.search(r'\b(EVT-\d{4}-\d{2}-\d{2}-\d+)\b', query, _re.IGNORECASE)
+        if evt_match:
+            fp = evt_match.group(1)
+            return QueryPlan(
+                intent="event_detail_lookup",
+                time_range=None,
+                steps=[QueryStep(type="event_detail", params={"fingerprint": fp})],
+                visualizations=["event_table"],
+                report_prompt=f"Show details for event {fp}."
+            )
+
         # Pattern matching
         if 'dashboard' in q or 'overview' in q or 'summary' in q:
             return QueryPlan(

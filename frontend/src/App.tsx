@@ -35,8 +35,12 @@ export default function App() {
       </header>
 
       <main className="app-body">
-        {activeTab === 'explore' && <ExplorePanel />}
-        {activeTab === 'dashboard' && <Dashboard />}
+        <div style={{ display: activeTab === 'explore' ? 'block' : 'none' }}>
+          <ExplorePanel />
+        </div>
+        <div style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}>
+          <Dashboard />
+        </div>
       </main>
     </div>
   );
