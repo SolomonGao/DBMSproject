@@ -23,28 +23,38 @@ export const api = {
   getGeoHeatmap: (start: string, end: string, precision = 2) =>
     fetchJson<any>(`/api/v1/data/geo?start=${start}&end=${end}&precision=${precision}`),
 
-  searchEvents: (query?: string, start?: string, end?: string, location?: string, eventType?: string, actor?: string, limit = 20) => {
+  searchEvents: (query?: string, start?: string, end?: string, location?: string, locationExact?: string, eventType?: string, actor?: string, actorExact?: string, limit = 20) => {
     const params = new URLSearchParams();
     if (query) params.set('query', query);
     if (start) params.set('start', start);
     if (end) params.set('end', end);
     if (location) params.set('location_hint', location);
+    if (locationExact) params.set('location_exact', locationExact);
     if (eventType && eventType !== 'any') params.set('event_type', eventType);
     if (actor) params.set('actor', actor);
+    if (actorExact) params.set('actor_exact', actorExact);
     params.set('limit', String(limit));
     return fetchJson<any>(`/api/v1/data/events?${params.toString()}`);
   },
 
-  getGeoEvents: (start: string, end: string, location?: string, eventType?: string, actor?: string, limit = 100) => {
+  getGeoEvents: (start: string, end: string, location?: string, locationExact?: string, eventType?: string, actor?: string, actorExact?: string, limit = 100) => {
     const params = new URLSearchParams();
     params.set('start', start);
     params.set('end', end);
     if (location) params.set('location_hint', location);
+    if (locationExact) params.set('location_exact', locationExact);
     if (eventType && eventType !== 'any') params.set('event_type', eventType);
     if (actor) params.set('actor', actor);
+    if (actorExact) params.set('actor_exact', actorExact);
     params.set('limit', String(limit));
     return fetchJson<any>(`/api/v1/data/geo/events?${params.toString()}`);
   },
+
+  suggestActors: (q: string, limit = 10) =>
+    fetchJson<any>(`/api/v1/data/suggestions/actors?q=${encodeURIComponent(q)}&limit=${limit}`),
+
+  suggestLocations: (q: string, limit = 10) =>
+    fetchJson<any>(`/api/v1/data/suggestions/locations?q=${encodeURIComponent(q)}&limit=${limit}`),
 
   health: () => fetchJson<any>('/api/v1/data/health'),
 

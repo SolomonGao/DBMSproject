@@ -148,6 +148,11 @@ class GeoEventsResponse(BaseResponse):
     total_points: int
 
 
+class SuggestionsResponse(BaseResponse):
+    items: List[str]
+    query: str
+
+
 # ============================================================================
 # Event Search Data
 # ============================================================================

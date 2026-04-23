@@ -17,7 +17,9 @@ export default function Dashboard() {
     startDate: thirtyDaysAgo,
     endDate: today,
     location: '',
+    locationExact: '',
     actor: '',
+    actorExact: '',
     eventType: 'any',
     keyword: '',
   });
@@ -68,16 +70,20 @@ export default function Dashboard() {
           filters.startDate,
           filters.endDate,
           filters.location || undefined,
+          filters.locationExact || undefined,
           filters.eventType,
           filters.actor || undefined,
+          filters.actorExact || undefined,
           50
         ),
         api.getGeoEvents(
           filters.startDate,
           filters.endDate,
           filters.location || undefined,
+          filters.locationExact || undefined,
           filters.eventType,
           filters.actor || undefined,
+          filters.actorExact || undefined,
           100
         ),
       ]);

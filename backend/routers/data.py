@@ -17,6 +17,7 @@ from backend.schemas.responses import (
     GeoHeatmapResponse,
     GeoEventsResponse,
     EventSearchResponse,
+    SuggestionsResponse,
     HealthResponse,
     EventItem,
     TimeSeriesPoint,
@@ -104,14 +105,16 @@ async def search_events(
     start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     time_hint: Optional[str] = Query(None, description="e.g. 2024-01, this_month"),
-    location_hint: Optional[str] = Query(None, description="Location keyword"),
+    location_hint: Optional[str] = Query(None, description="Location keyword (fuzzy)"),
+    location_exact: Optional[str] = Query(None, description="Location exact match (fast, uses index)"),
     event_type: Optional[str] = Query(None, description="conflict | cooperation | protest"),
-    actor: Optional[str] = Query(None, description="Actor name keyword"),
+    actor: Optional[str] = Query(None, description="Actor name keyword (fuzzy)"),
+    actor_exact: Optional[str] = Query(None, description="Actor exact match (fast, uses index)"),
     limit: int = Query(20, ge=1, le=50),
     service: DataService = Depends(get_data_service),
 ):
     """
-    Structured event search via MCP search_events tool (format=json).
+    Structured event search. Use *_exact params for fast index-backed exact match.
     """
     try:
         rows = await service.search_events(
@@ -120,8 +123,10 @@ async def search_events(
             end_date=end,
             time_hint=time_hint,
             location_hint=location_hint,
+            location_exact=location_exact,
             event_type=event_type,
             actor=actor,
+            actor_exact=actor_exact,
             max_results=limit,
         )
         data = [EventItem(**row) for row in rows]
@@ -138,9 +143,11 @@ async def search_events(
 async def get_geo_events(
     start: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end: str = Query(..., description="End date (YYYY-MM-DD)"),
-    location_hint: Optional[str] = Query(None, description="Location keyword"),
+    location_hint: Optional[str] = Query(None, description="Location keyword (fuzzy)"),
+    location_exact: Optional[str] = Query(None, description="Location exact match (fast, uses index)"),
     event_type: Optional[str] = Query(None, description="conflict | cooperation | protest"),
-    actor: Optional[str] = Query(None, description="Actor name keyword"),
+    actor: Optional[str] = Query(None, description="Actor name keyword (fuzzy)"),
+    actor_exact: Optional[str] = Query(None, description="Actor exact match (fast, uses index)"),
     limit: int = Query(100, ge=1, le=200),
     service: DataService = Depends(get_data_service),
 ):
@@ -152,8 +159,10 @@ async def get_geo_events(
             start_date=start,
             end_date=end,
             location_hint=location_hint,
+            location_exact=location_exact,
             event_type=event_type,
             actor=actor,
+            actor_exact=actor_exact,
             max_results=limit,
         )
         data = [GeoEventPoint(**row) for row in rows]
@@ -165,6 +174,34 @@ async def get_geo_events(
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Geo events query failed: {e}")
+
+
+@router.get("/suggestions/actors", response_model=SuggestionsResponse)
+async def suggest_actors(
+    q: str = Query(..., min_length=1, description="Actor name prefix"),
+    limit: int = Query(10, ge=1, le=50),
+    service: DataService = Depends(get_data_service),
+):
+    """Return actor names matching the prefix for autocomplete."""
+    try:
+        items = await service.suggest_actors(prefix=q, limit=limit)
+        return SuggestionsResponse(items=items, query=q)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Suggestion failed: {e}")
+
+
+@router.get("/suggestions/locations", response_model=SuggestionsResponse)
+async def suggest_locations(
+    q: str = Query(..., min_length=1, description="Location name prefix"),
+    limit: int = Query(10, ge=1, le=50),
+    service: DataService = Depends(get_data_service),
+):
+    """Return location names matching the prefix for autocomplete."""
+    try:
+        items = await service.suggest_locations(prefix=q, limit=limit)
+        return SuggestionsResponse(items=items, query=q)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Suggestion failed: {e}")
 
 
 @router.get("/health", response_model=HealthResponse)

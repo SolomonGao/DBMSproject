@@ -11,6 +11,460 @@ from datetime import datetime, timedelta
 
 from .query_utils import parse_time_hint, parse_region_input, sanitize_text
 
+
+# ============================================================================
+# Location condition builder (uses parse_region_input for smart matching)
+# ============================================================================
+
+def _build_smart_location_condition(location_hint: Optional[str], location_exact: Optional[str]) -> tuple[str, list]:
+    """Build location SQL using parse_region_input for alias support and prefix indexing."""
+    if location_exact:
+        if len(location_exact) <= 3 and location_exact.isalpha():
+            return " AND ActionGeo_CountryCode = %s", [location_exact.upper()[:3]]
+        return " AND ActionGeo_FullName = %s", [location_exact]
+    
+    if not location_hint:
+        return "", []
+    
+    terms = parse_region_input(location_hint)
+    conditions = []
+    params = []
+    
+    for term in terms:
+        if not term or len(term) < 2:
+            continue
+        # Prefix match on full location name (index-friendly)
+        conditions.append("ActionGeo_FullName LIKE %s")
+        params.append(f"{term}%")
+        # Match city/state within comma-separated location
+        conditions.append("ActionGeo_FullName LIKE %s")
+        params.append(f"%, {term}%")
+        # Country code exact match for short alpha terms
+        if len(term) <= 3 and term.isalpha():
+            conditions.append("ActionGeo_CountryCode = %s")
+            params.append(term.upper()[:3])
+    
+    if not conditions:
+        return "", []
+    
+    return f" AND ({' OR '.join(conditions)})", params
+
+
+def _build_actor_condition(actor: Optional[str], actor_exact: Optional[str]) -> tuple[str, list]:
+    """Build actor SQL condition. Exact match uses index; fuzzy uses LIKE."""
+    if actor_exact:
+        return " AND (Actor1Name = %s OR Actor2Name = %s)", [actor_exact, actor_exact]
+    if actor:
+        return " AND (Actor1Name LIKE %s OR Actor2Name LIKE %s)", [f"%{actor}%", f"%{actor}%"]
+    return "", []
+
+
+async def query_suggest_actors(pool, prefix: str, limit: int = 10) -> List[str]:
+    """Return actor names matching prefix using indexed LIKE prefix search.
+    Results ordered by frequency (hot actors first)."""
+    prefix_up = prefix.upper()
+    rows = await pool.fetchall(
+        f"""SELECT Actor1Name as name, COUNT(*) as cnt FROM {DEFAULT_TABLE}
+            WHERE Actor1Name LIKE %s
+            GROUP BY name
+            ORDER BY cnt DESC
+            LIMIT %s""",
+        (f"{prefix_up}%", limit)
+    )
+    return [r['name'] for r in rows if r['name']]
+
+
+# State abbreviation / name -> canonical location mapping for fast suggestion
+_us_state_suggestions: dict[str, str] = {
+    # Abbreviations
+    'AL': 'Alabama, United States', 'AK': 'Alaska, United States', 'AZ': 'Arizona, United States',
+    'AR': 'Arkansas, United States', 'CA': 'California, United States', 'CO': 'Colorado, United States',
+    'CT': 'Connecticut, United States', 'DE': 'Delaware, United States', 'FL': 'Florida, United States',
+    'GA': 'Georgia, United States', 'HI': 'Hawaii, United States', 'ID': 'Idaho, United States',
+    'IL': 'Illinois, United States', 'IN': 'Indiana, United States', 'IA': 'Iowa, United States',
+    'KS': 'Kansas, United States', 'KY': 'Kentucky, United States', 'LA': 'Louisiana, United States',
+    'ME': 'Maine, United States', 'MD': 'Maryland, United States', 'MA': 'Massachusetts, United States',
+    'MI': 'Michigan, United States', 'MN': 'Minnesota, United States', 'MS': 'Mississippi, United States',
+    'MO': 'Missouri, United States', 'MT': 'Montana, United States', 'NE': 'Nebraska, United States',
+    'NV': 'Nevada, United States', 'NH': 'New Hampshire, United States', 'NJ': 'New Jersey, United States',
+    'NM': 'New Mexico, United States', 'NY': 'New York, United States', 'NC': 'North Carolina, United States',
+    'ND': 'North Dakota, United States', 'OH': 'Ohio, United States', 'OK': 'Oklahoma, United States',
+    'OR': 'Oregon, United States', 'PA': 'Pennsylvania, United States', 'RI': 'Rhode Island, United States',
+    'SC': 'South Carolina, United States', 'SD': 'South Dakota, United States', 'TN': 'Tennessee, United States',
+    'TX': 'Texas, United States', 'UT': 'Utah, United States', 'VT': 'Vermont, United States',
+    'VA': 'Virginia, United States', 'WA': 'Washington, United States', 'WV': 'West Virginia, United States',
+    'WI': 'Wisconsin, United States', 'WY': 'Wyoming, United States', 'DC': 'Washington, District of Columbia, United States',
+}
+
+# Build reverse lookup by state name (lowercase) -> canonical location
+_us_state_by_name: dict[str, str] = {}
+for _abbr, _loc in _us_state_suggestions.items():
+    # Extract state name from "State, United States"
+    _state_name = _loc.split(',')[0].strip().lower()
+    _us_state_by_name[_state_name] = _loc
+    # Also add abbreviation
+    _us_state_by_name[_abbr.lower()] = _loc
+
+# Add multi-word states
+_us_state_by_name.update({
+    'new york': 'New York, United States',
+    'north carolina': 'North Carolina, United States',
+    'south carolina': 'South Carolina, United States',
+    'north dakota': 'North Dakota, United States',
+    'south dakota': 'South Dakota, United States',
+    'west virginia': 'West Virginia, United States',
+    'new hampshire': 'New Hampshire, United States',
+    'new jersey': 'New Jersey, United States',
+    'new mexico': 'New Mexico, United States',
+    'rhode island': 'Rhode Island, United States',
+    'district of columbia': 'Washington, District of Columbia, United States',
+})
+
+
+async def query_suggest_locations(pool, prefix: str, limit: int = 10) -> List[str]:
+    """Return location names matching prefix or alias using indexed LIKE prefix search.
+    
+    Collects results from all parsed terms (e.g. TX -> Texas) so abbreviations
+    show full-name matches in suggestions. State full names are prioritized first.
+    """
+    terms = parse_region_input(prefix)
+    state_matches: list[str] = []
+    other_results: set[str] = set()
+    
+    # Fast-path: state abbreviations OR full state names -> canonical location
+    for term in terms:
+        term_up = term.upper()
+        if term_up in _us_state_suggestions:
+            state_name = _us_state_suggestions[term_up]
+            if state_name not in state_matches:
+                state_matches.append(state_name)
+        # Also check by full state name (e.g. "Texas" -> "Texas, United States")
+        term_lower = term.strip().lower()
+        if term_lower in _us_state_by_name:
+            state_name = _us_state_by_name[term_lower]
+            if state_name not in state_matches:
+                state_matches.append(state_name)
+    
+    for term in terms:
+        if not term or len(term) < 2:
+            continue
+        rows = await pool.fetchall(
+            f"""SELECT DISTINCT ActionGeo_FullName as name FROM {DEFAULT_TABLE}
+                WHERE ActionGeo_FullName LIKE %s
+                LIMIT %s""",
+            (f"{term}%", limit)
+        )
+        for r in rows:
+            name = r['name']
+            if name and name not in state_matches:
+                other_results.add(name)
+    
+    # State names first, then others sorted alphabetically
+    combined = state_matches + sorted(other_results)
+    return combined[:limit]
+
+
+# ============================================================================
+# Optimized search SQL builder
+# ============================================================================
+
+def _build_optimized_search_sql(
+    start_date: str,
+    end_date: str,
+    location_hint: Optional[str],
+    location_exact: Optional[str],
+    event_type: Optional[str],
+    actor: Optional[str],
+    actor_exact: Optional[str],
+    max_results: int,
+) -> tuple[str, list]:
+    """Build optimized search SQL. Uses subquery + FORCE INDEX for exact matches."""
+    
+    loc_cond, loc_params = _build_smart_location_condition(location_hint, location_exact)
+    act_cond, act_params = _build_actor_condition(actor, actor_exact)
+    
+    # Determine best index hint for the inner query
+    force_index = ""
+    if actor_exact and not location_exact:
+        force_index = "FORCE INDEX (idx_date_actor)"
+    elif location_exact and not actor_exact:
+        force_index = "FORCE INDEX (idx_date_geo)"
+    
+    # Event type condition
+    type_sql = ""
+    if event_type and event_type != "any":
+        type_conditions = {
+            "conflict": "GoldsteinScale < -5",
+            "cooperation": "GoldsteinScale > 5",
+            "protest": "EventRootCode = '14'",
+        }
+        if event_type in type_conditions:
+            type_sql = f" AND {type_conditions[event_type]}"
+    
+    # Build inner WHERE for subquery
+    inner_where = f"SQLDATE BETWEEN %s AND %s"
+    inner_params = [start_date, end_date]
+    
+    if actor_exact:
+        inner_where += " AND Actor1Name = %s"
+        inner_params.append(actor_exact)
+    elif actor:
+        inner_where += " AND (Actor1Name LIKE %s OR Actor2Name LIKE %s)"
+        inner_params.extend([f"%{actor}%", f"%{actor}%"])
+    
+    if location_exact:
+        if len(location_exact) <= 3 and location_exact.isalpha():
+            inner_where += " AND ActionGeo_CountryCode = %s"
+            inner_params.append(location_exact.upper()[:3])
+        else:
+            inner_where += " AND ActionGeo_FullName = %s"
+            inner_params.append(location_exact)
+    elif location_hint:
+        # For inner query with hint, use simplified location condition
+        hint_terms = parse_region_input(location_hint)
+        loc_conds = []
+        for term in hint_terms:
+            if not term or len(term) < 2:
+                continue
+            loc_conds.append("ActionGeo_FullName LIKE %s")
+            inner_params.append(f"{term}%")
+            if len(term) <= 3 and term.isalpha():
+                loc_conds.append("ActionGeo_CountryCode = %s")
+                inner_params.append(term.upper()[:3])
+        if loc_conds:
+            inner_where += f" AND ({' OR '.join(loc_conds)})"
+    
+    inner_where += type_sql
+    
+    # Use subquery pattern for exact matches (much faster), regular query for fuzzy
+    if actor_exact or location_exact:
+        sql = f"""
+        SELECT
+            e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
+            e.EventCode, e.GoldsteinScale, e.AvgTone, e.NumArticles,
+            e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            e.ActionGeo_Lat, e.ActionGeo_Long,
+            f.fingerprint, f.headline, f.summary, f.event_type_label, f.severity_score
+        FROM (
+            SELECT GlobalEventID FROM {DEFAULT_TABLE} {force_index}
+            WHERE {inner_where}
+            ORDER BY NumArticles DESC
+            LIMIT %s
+        ) ids
+        JOIN {DEFAULT_TABLE} e ON e.GlobalEventID = ids.GlobalEventID
+        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+        """
+        params = inner_params + [max_results]
+    else:
+        # Fallback: regular query for fuzzy search (slower but flexible)
+        sql = f"""
+        SELECT
+            e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
+            e.EventCode, e.GoldsteinScale, e.AvgTone, e.NumArticles,
+            e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            e.ActionGeo_Lat, e.ActionGeo_Long,
+            f.fingerprint, f.headline, f.summary, f.event_type_label, f.severity_score
+        FROM {DEFAULT_TABLE} e
+        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+        WHERE e.SQLDATE BETWEEN %s AND %s
+        """
+        params = [start_date, end_date]
+        
+        if location_hint:
+            loc_sql, loc_p = _build_smart_location_condition(location_hint, None)
+            sql += loc_sql.replace("ActionGeo", "e.ActionGeo")
+            params.extend(loc_p)
+        
+        sql += type_sql.replace("GoldsteinScale", "e.GoldsteinScale").replace("EventRootCode", "e.EventRootCode")
+        
+        if actor:
+            sql += " AND (e.Actor1Name LIKE %s OR e.Actor2Name LIKE %s)"
+            params.extend([f"%{actor}%", f"%{actor}%"])
+        
+        sql += """
+        ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+        LIMIT %s
+        """
+        params.append(max_results)
+    
+    return sql, params
+
+
+async def query_search_events(
+    pool,
+    query_text: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    time_hint: Optional[str] = None,
+    location_hint: Optional[str] = None,
+    location_exact: Optional[str] = None,
+    event_type: Optional[str] = None,
+    actor: Optional[str] = None,
+    actor_exact: Optional[str] = None,
+    max_results: int = 20,
+) -> List[Dict[str, Any]]:
+    if start_date and end_date:
+        date_start, date_end = start_date, end_date
+    elif time_hint:
+        date_start, date_end = parse_time_hint(time_hint)
+    else:
+        end = datetime.now().date()
+        start = end - timedelta(days=30)
+        date_start = start.strftime("%Y-%m-%d")
+        date_end = end.strftime("%Y-%m-%d")
+
+    sql, params = _build_optimized_search_sql(
+        date_start, date_end,
+        location_hint, location_exact,
+        event_type, actor, actor_exact,
+        min(max_results, 50),
+    )
+    return await pool.fetchall(sql, tuple(params))
+
+
+async def query_geo_events(
+    pool,
+    start_date: str,
+    end_date: str,
+    location_hint: Optional[str] = None,
+    location_exact: Optional[str] = None,
+    event_type: Optional[str] = None,
+    actor: Optional[str] = None,
+    actor_exact: Optional[str] = None,
+    max_results: int = 100,
+) -> List[Dict[str, Any]]:
+    """Return individual event points with coordinates for map display.
+    
+    NOTE: No JOIN with event_fingerprints for speed. Headline/summary not included.
+    """
+    loc_cond, loc_params = _build_smart_location_condition(location_hint, location_exact)
+    act_cond, act_params = _build_actor_condition(actor, actor_exact)
+    
+    force_index = ""
+    if actor_exact and not location_exact:
+        force_index = "FORCE INDEX (idx_date_actor)"
+    elif location_exact and not actor_exact:
+        force_index = "FORCE INDEX (idx_date_geo)"
+    
+    type_sql = ""
+    if event_type and event_type != "any":
+        type_conditions = {
+            "conflict": "GoldsteinScale < -5",
+            "cooperation": "GoldsteinScale > 5",
+            "protest": "EventRootCode = '14'",
+        }
+        if event_type in type_conditions:
+            type_sql = f" AND {type_conditions[event_type]}"
+    
+    if actor_exact or location_exact:
+        inner_where = f"SQLDATE BETWEEN %s AND %s"
+        inner_params = [start_date, end_date]
+        
+        if actor_exact:
+            inner_where += " AND Actor1Name = %s"
+            inner_params.append(actor_exact)
+        elif actor:
+            inner_where += " AND (Actor1Name LIKE %s OR Actor2Name LIKE %s)"
+            inner_params.extend([f"%{actor}%", f"%{actor}%"])
+        
+        if location_exact:
+            if len(location_exact) <= 3 and location_exact.isalpha():
+                inner_where += " AND ActionGeo_CountryCode = %s"
+                inner_params.append(location_exact.upper()[:3])
+            else:
+                inner_where += " AND ActionGeo_FullName = %s"
+                inner_params.append(location_exact)
+        elif location_hint:
+            hint_terms = parse_region_input(location_hint)
+            loc_conds = []
+            for term in hint_terms:
+                if not term or len(term) < 2:
+                    continue
+                loc_conds.append("ActionGeo_FullName LIKE %s")
+                inner_params.append(f"{term}%")
+                if len(term) <= 3 and term.isalpha():
+                    loc_conds.append("ActionGeo_CountryCode = %s")
+                    inner_params.append(term.upper()[:3])
+            if loc_conds:
+                inner_where += f" AND ({' OR '.join(loc_conds)})"
+        
+        inner_where += type_sql
+        
+        sql = f"""
+        SELECT
+            e.GlobalEventID,
+            CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name,
+            e.Actor2Name,
+            e.EventCode,
+            e.GoldsteinScale,
+            e.AvgTone,
+            e.NumArticles,
+            e.ActionGeo_FullName,
+            e.ActionGeo_CountryCode,
+            e.ActionGeo_Lat as lat,
+            e.ActionGeo_Long as lng
+        FROM (
+            SELECT GlobalEventID FROM {DEFAULT_TABLE} {force_index}
+            WHERE {inner_where}
+              AND ActionGeo_Lat IS NOT NULL
+              AND ActionGeo_Long IS NOT NULL
+            ORDER BY NumArticles DESC
+            LIMIT %s
+        ) ids
+        JOIN {DEFAULT_TABLE} e ON e.GlobalEventID = ids.GlobalEventID
+        """
+        params = inner_params + [min(max_results, 100)]
+    else:
+        sql = f"""
+        SELECT
+            e.GlobalEventID,
+            CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name,
+            e.Actor2Name,
+            e.EventCode,
+            e.GoldsteinScale,
+            e.AvgTone,
+            e.NumArticles,
+            e.ActionGeo_FullName,
+            e.ActionGeo_CountryCode,
+            e.ActionGeo_Lat as lat,
+            e.ActionGeo_Long as lng
+        FROM {DEFAULT_TABLE} e
+        WHERE e.SQLDATE BETWEEN %s AND %s
+          AND e.ActionGeo_Lat IS NOT NULL
+          AND e.ActionGeo_Long IS NOT NULL
+        """
+        params = [start_date, end_date]
+        
+        if location_hint:
+            loc_sql, loc_p = _build_smart_location_condition(location_hint, None)
+            sql += loc_sql.replace("ActionGeo", "e.ActionGeo")
+            params.extend(loc_p)
+        
+        sql += type_sql.replace("GoldsteinScale", "e.GoldsteinScale").replace("EventRootCode", "e.EventRootCode")
+        
+        if actor:
+            sql += " AND (e.Actor1Name LIKE %s OR e.Actor2Name LIKE %s)"
+            params.extend([f"%{actor}%", f"%{actor}%"])
+        
+        sql += """
+        ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+        LIMIT %s
+        """
+        params.append(min(max_results, 100))
+
+    rows = await pool.fetchall(sql, tuple(params))
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['lat'] = float(d['lat']) if d['lat'] is not None else None
+        d['lng'] = float(d['lng']) if d['lng'] is not None else None
+        result.append(d)
+    return result
+
 DEFAULT_TABLE = "events_table"
 
 
@@ -246,135 +700,21 @@ async def query_geo_heatmap(pool, start_date: str, end_date: str, precision: int
 # Event Search
 # ============================================================================
 
-async def query_search_events(
-    pool,
-    query_text: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    time_hint: Optional[str] = None,
-    location_hint: Optional[str] = None,
-    event_type: Optional[str] = None,
-    actor: Optional[str] = None,
-    max_results: int = 20,
-) -> List[Dict[str, Any]]:
-    if start_date and end_date:
-        date_start, date_end = start_date, end_date
-    elif time_hint:
-        date_start, date_end = parse_time_hint(time_hint)
-    else:
-        end = datetime.now().date()
-        start = end - timedelta(days=30)
-        date_start = start.strftime("%Y-%m-%d")
-        date_end = end.strftime("%Y-%m-%d")
+# ============================================================================
+# Suggestion helpers
+# ============================================================================
 
-    sql = f"""
-    SELECT
-        e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
-        e.Actor1Name, e.Actor2Name,
-        e.EventCode, e.GoldsteinScale, e.AvgTone, e.NumArticles,
-        e.ActionGeo_FullName, e.ActionGeo_CountryCode,
-        e.ActionGeo_Lat, e.ActionGeo_Long,
-        f.fingerprint, f.headline, f.summary, f.event_type_label, f.severity_score
-    FROM {DEFAULT_TABLE} e
-    LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-    WHERE e.SQLDATE BETWEEN %s AND %s
-    """
-    params = [date_start, date_end]
+async def query_suggest_actors(pool, prefix: str, limit: int = 10) -> List[str]:
+    """Return actor names matching prefix using indexed LIKE prefix search."""
+    prefix_up = prefix.upper()
+    rows = await pool.fetchall(
+        f"""SELECT DISTINCT Actor1Name as name FROM {DEFAULT_TABLE}
+            WHERE Actor1Name LIKE %s
+            LIMIT %s""",
+        (f"{prefix_up}%", limit)
+    )
+    return [r['name'] for r in rows if r['name']]
 
-    if location_hint:
-        sql += " AND (e.ActionGeo_FullName LIKE %s OR e.ActionGeo_CountryCode = %s)"
-        params.extend([f"%{location_hint}%", location_hint.upper()[:3]])
-
-    if event_type and event_type != "any":
-        type_conditions = {
-            "conflict": "e.GoldsteinScale < -5",
-            "cooperation": "e.GoldsteinScale > 5",
-            "protest": "e.EventRootCode = '14'",
-        }
-        if event_type in type_conditions:
-            sql += f" AND {type_conditions[event_type]}"
-
-    if actor:
-        sql += " AND (e.Actor1Name LIKE %s OR e.Actor2Name LIKE %s)"
-        params.extend([f"%{actor}%", f"%{actor}%"])
-
-    # query_text used for ordering weight, not filtering
-    sql += """
-    ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
-    LIMIT %s
-    """
-    params.append(min(max_results, 50))
-
-    return await pool.fetchall(sql, tuple(params))
-
-
-async def query_geo_events(
-    pool,
-    start_date: str,
-    end_date: str,
-    location_hint: Optional[str] = None,
-    event_type: Optional[str] = None,
-    actor: Optional[str] = None,
-    max_results: int = 100,
-) -> List[Dict[str, Any]]:
-    """Return individual event points with coordinates for map display."""
-    sql = f"""
-    SELECT
-        e.GlobalEventID,
-        CAST(e.SQLDATE AS CHAR) as SQLDATE,
-        e.Actor1Name,
-        e.Actor2Name,
-        e.EventCode,
-        e.GoldsteinScale,
-        e.AvgTone,
-        e.NumArticles,
-        e.ActionGeo_FullName,
-        e.ActionGeo_CountryCode,
-        e.ActionGeo_Lat as lat,
-        e.ActionGeo_Long as lng,
-        f.fingerprint,
-        f.headline,
-        f.summary,
-        f.event_type_label
-    FROM {DEFAULT_TABLE} e
-    LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-    WHERE e.SQLDATE BETWEEN %s AND %s
-      AND e.ActionGeo_Lat IS NOT NULL
-      AND e.ActionGeo_Long IS NOT NULL
-    """
-    params = [start_date, end_date]
-
-    if location_hint:
-        sql += " AND (e.ActionGeo_FullName LIKE %s OR e.ActionGeo_CountryCode = %s)"
-        params.extend([f"%{location_hint}%", location_hint.upper()[:3]])
-
-    if event_type and event_type != "any":
-        type_conditions = {
-            "conflict": "e.GoldsteinScale < -5",
-            "cooperation": "e.GoldsteinScale > 5",
-            "protest": "e.EventRootCode = '14'",
-        }
-        if event_type in type_conditions:
-            sql += f" AND {type_conditions[event_type]}"
-
-    if actor:
-        sql += " AND (e.Actor1Name LIKE %s OR e.Actor2Name LIKE %s)"
-        params.extend([f"%{actor}%", f"%{actor}%"])
-
-    sql += """
-    ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
-    LIMIT %s
-    """
-    params.append(min(max_results, 100))
-
-    rows = await pool.fetchall(sql, tuple(params))
-    result = []
-    for r in rows:
-        d = dict(r)
-        d['lat'] = float(d['lat']) if d['lat'] is not None else None
-        d['lng'] = float(d['lng']) if d['lng'] is not None else None
-        result.append(d)
-    return result
 
 
 # ============================================================================

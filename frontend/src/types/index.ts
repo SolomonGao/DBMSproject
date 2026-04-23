@@ -67,7 +67,9 @@ export interface FilterState {
   startDate: string;
   endDate: string;
   location: string;
+  locationExact: string;
   actor: string;
+  actorExact: string;
   eventType: string;
   keyword: string;
 }

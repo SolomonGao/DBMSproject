@@ -18,6 +18,8 @@ from backend.queries.core_queries import (
     query_geo_heatmap,
     query_search_events,
     query_geo_events,
+    query_suggest_actors,
+    query_suggest_locations,
     query_event_detail,
     query_regional_overview,
     query_hot_events,
@@ -70,25 +72,39 @@ class DataService:
         self, query_text: Optional[str] = None,
         start_date: Optional[str] = None, end_date: Optional[str] = None,
         time_hint: Optional[str] = None,
-        location_hint: Optional[str] = None, event_type: Optional[str] = None,
-        actor: Optional[str] = None, max_results: int = 20,
+        location_hint: Optional[str] = None,
+        location_exact: Optional[str] = None,
+        event_type: Optional[str] = None,
+        actor: Optional[str] = None,
+        actor_exact: Optional[str] = None,
+        max_results: int = 20,
     ) -> List[Dict[str, Any]]:
         return await query_search_events(
             self._pool, query_text, start_date, end_date,
-            time_hint, location_hint, event_type, actor, max_results
+            time_hint, location_hint, location_exact,
+            event_type, actor, actor_exact, max_results
         )
 
     async def get_geo_events(
         self, start_date: str, end_date: str,
         location_hint: Optional[str] = None,
+        location_exact: Optional[str] = None,
         event_type: Optional[str] = None,
         actor: Optional[str] = None,
+        actor_exact: Optional[str] = None,
         max_results: int = 100,
     ) -> List[Dict[str, Any]]:
         return await query_geo_events(
             self._pool, start_date, end_date,
-            location_hint, event_type, actor, max_results
+            location_hint, location_exact,
+            event_type, actor, actor_exact, max_results
         )
+
+    async def suggest_actors(self, prefix: str, limit: int = 10) -> List[str]:
+        return await query_suggest_actors(self._pool, prefix, limit)
+
+    async def suggest_locations(self, prefix: str, limit: int = 10) -> List[str]:
+        return await query_suggest_locations(self._pool, prefix, limit)
 
     async def get_event_detail(self, fingerprint: str) -> Optional[Dict[str, Any]]:
         return await query_event_detail(self._pool, fingerprint)
