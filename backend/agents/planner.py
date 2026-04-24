@@ -155,25 +155,47 @@ Rules:
 
 
 def _extract_json(text: str) -> Optional[Dict]:
-    """Extract JSON from LLM response, handling markdown code blocks."""
+    """Extract JSON from LLM response, handling markdown code blocks and inline text."""
     text = text.strip()
-    
-    # Try to find JSON in markdown code block
-    match = re.search(r'```(?:json)?\s*(\{.*?)\s*```', text, re.DOTALL)
+
+    # Try JSON inside markdown code blocks first
+    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
         except json.JSONDecodeError:
             pass
-    
-    # Try to find raw JSON object
-    match = re.search(r'(\{.*\})', text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            pass
-    
+
+    # Fallback: scan for the first valid top-level JSON object
+    start = None
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(text):
+        if ch == '"' and not escape:
+            in_string = not in_string
+        if in_string and ch == '\\' and not escape:
+            escape = True
+            continue
+        if escape:
+            escape = False
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == '}':
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    candidate = text[start:i+1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        start = None
+                        continue
     return None
 
 
@@ -205,11 +227,12 @@ class Planner:
         r'^(hi+|hello|hey|thanks?|thank you|ok+|bye|goodbye|see you|[?]+)\s*$',
         re.IGNORECASE
     )
+    _EVT_ID_PATTERN = re.compile(r'\bEVT-\d{4}-\d{2}-\d{2}-\d+\b', re.IGNORECASE)
 
     def _rule_based_plan(self, query: str) -> Optional[QueryPlan]:
-        """Minimal rule-based guard: only handle obvious off-topic greetings.
+        """Minimal rule-based guard: handle greetings and direct EVT-ID lookups.
         Everything else goes to LLM for intelligent tool selection."""
-        q = query.lower().strip()
+        q = query.strip()
         if len(q) < 3 or self._GREETING_PATTERNS.match(q):
             return QueryPlan(
                 intent="off_topic",
@@ -218,7 +241,19 @@ class Planner:
                 visualizations=[],
                 report_prompt=None,
             )
-        # Let LLM handle all real queries
+
+        evt_match = self._EVT_ID_PATTERN.search(q)
+        if evt_match:
+            evt_id = evt_match.group(0).upper()
+            return QueryPlan(
+                intent="specific_event_lookup",
+                thinking=f"Detected EVT-ID {evt_id}; performing direct event lookup.",
+                steps=[QueryStep(type="event_detail", params={"fingerprint": evt_id})],
+                visualizations=["event_table", "report"],
+                report_prompt=f"Analyze the event {evt_id} and summarize the key findings.",
+            )
+
+        # Let LLM handle all other queries
         return None
 
     async def plan(self, user_query: str) -> QueryPlan:
@@ -313,18 +348,28 @@ class ReportGenerator:
         try:
             response = await self.llm.ainvoke(messages)
             content = response.content if hasattr(response, "content") else str(response)
-            
+
             raw = _extract_json(content)
             if raw is None:
-                raise ValueError("Could not extract JSON from report response")
-            
+                print("[ReportGenerator] warning: could not extract JSON from report response, falling back to raw text", flush=True)
+                summary_text = content.strip()
+                if len(summary_text) > 4000:
+                    summary_text = summary_text[:4000] + "... [truncated]"
+                return ReportResult(
+                    summary=summary_text,
+                    key_findings=[],
+                )
+
             return ReportResult(
                 summary=raw.get("summary", ""),
                 key_findings=raw.get("key_findings", []),
             )
-        except Exception as e:
-            print(f"[ReportGenerator] failed: {e}", flush=True); raise
+        except ValueError as e:
+            print(f"[ReportGenerator] fallback on ValueError: {e}", flush=True)
             return ReportResult(
-                summary="Unable to generate report due to an error. Please review the raw data.",
+                summary=str(e),
                 key_findings=[],
             )
+        except Exception as e:
+            print(f"[ReportGenerator] failed: {e}", flush=True)
+            raise
