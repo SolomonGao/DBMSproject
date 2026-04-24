@@ -77,6 +77,21 @@ export default function ExplorePanel() {
   const [report, setReport] = useState<ReportResult | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
 
+  const DEFAULT_REPORT_PROMPT = 'Summarize the key insights from this GDELT data.';
+  const AUTO_REPORT_STEP_TYPES = ['event_detail', 'similar_events'];
+
+  const shouldAutoGenerateReport = (plan: AnalyzeResponse['plan'] | undefined, queryText: string) => {
+    if (!plan || plan.intent === 'off_topic') return false;
+    if (AUTO_REPORT_STEP_TYPES.some((type) => plan.steps.some((step) => step.type === type))) {
+      return true;
+    }
+    // Specific EVT-ID queries are treated as event-related
+    if (/EVT-[0-9T:-]+/i.test(queryText)) {
+      return true;
+    }
+    return false;
+  };
+
   // Typing effect for AI thinking
   useEffect(() => {
     if (result?.plan?.thinking) {
@@ -111,9 +126,9 @@ export default function ExplorePanel() {
         setError(res.error || 'Analysis failed');
       } else {
         setResult(res);
-        // Delayed report load
-        if (res.plan.visualizations.includes('report') && res.plan.report_prompt) {
-          loadReport(res.data, res.plan.report_prompt);
+        const shouldAuto = shouldAutoGenerateReport(res.plan, query.trim());
+        if (shouldAuto) {
+          loadReport(res.data, res.plan.report_prompt || DEFAULT_REPORT_PROMPT);
         }
       }
     } catch (err: any) {
@@ -154,6 +169,8 @@ export default function ExplorePanel() {
 
   const vizes = result?.plan?.visualizations || [];
   const isOffTopic = result?.plan?.intent === 'off_topic';
+  const isAutoReport = shouldAutoGenerateReport(result?.plan, query);
+  const canGenerateReport = !!result && !isOffTopic && !isAutoReport;
 
   // Get event detail data
   const eventDetail = getDataByType('event_detail');
@@ -177,8 +194,9 @@ export default function ExplorePanel() {
         if (res.ok !== false) {
           setResult(res);
           setReport(null);
-          if (res.plan.visualizations.includes('report') && res.plan.report_prompt) {
-            loadReport(res.data, res.plan.report_prompt);
+          const shouldAuto = shouldAutoGenerateReport(res.plan, evtQuery);
+          if (shouldAuto) {
+            loadReport(res.data, res.plan.report_prompt || DEFAULT_REPORT_PROMPT);
           }
         }
       }).catch(console.error);
@@ -292,8 +310,35 @@ export default function ExplorePanel() {
                   </h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#888', fontSize: 14 }}>
                     <Loader2 size={16} className="spinning" />
-                    Generating summary...
+                    Report generating...
                   </div>
+                </div>
+              )}
+              {!reportLoading && canGenerateReport && !report && (
+                <div className="panel" style={{ background: '#f8fafc', animation: 'fadeIn 0.5s ease' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <FileText size={18} color="#2563eb" />
+                    AI Report
+                  </h3>
+                  <p style={{ margin: 0, color: '#475569', fontSize: 14, lineHeight: 1.6 }}>
+                    This query is not clearly event-specific. Click below to generate a report when needed.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => loadReport(result.data, result.plan.report_prompt || DEFAULT_REPORT_PROMPT)}
+                    style={{
+                      marginTop: 12,
+                      padding: '10px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: '#2563eb',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Generate Report
+                  </button>
                 </div>
               )}
               {report && <div style={{ animation: 'fadeIn 0.5s ease' }}><ReportPanel report={report} /></div>}
