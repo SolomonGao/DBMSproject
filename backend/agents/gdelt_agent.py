@@ -15,9 +15,10 @@ and the Agent layer is logically distinct from the MCP tool-definition layer.
 import asyncio
 import json
 import os
+import re
 import time
 from typing import List, Dict, Any, Optional, AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
@@ -68,6 +69,8 @@ Your capabilities:
 2. Retrieve event details, trends, and statistics
 3. Compare regions, actors, or time periods
 4. Explain causes and context using news semantic search
+5. Analyze true bilateral country-pair trends using Actor1CountryCode/Actor2CountryCode
+6. Forecast future event intensity with the trained Transformer Hawkes Process (THP) model
 
 Guidelines:
 - Be concise but insightful (2-4 paragraphs max)
@@ -75,6 +78,10 @@ Guidelines:
 - Always cite specific numbers, dates, and actor names when available
 - If data is ambiguous, say so clearly
 - Use the available tools to fetch real data rather than hallucinating
+- For bilateral country questions such as United States vs Canada, call get_country_pair_trends before using broad regional summaries.
+- For forecast, prediction, risk outlook, or next-N-day questions, call get_event_forecast and mention the forecast source, model, prediction interval, and peak risk day.
+- For "why", "cause", "background", "context", or narrative explanation questions, call search_news_context first, then combine the retrieved context with structured SQL statistics.
+- Treat ChromaDB RAG results as semantic context and examples, not as exact aggregate counts.
 
 When comparing two things (e.g., Washington vs New York), fetch data for BOTH before analyzing.
 """
@@ -172,6 +179,194 @@ class GDELTAgent:
             max_tokens=4096,
             http_async_client=http_async_client,
         )
+
+    def _extract_country_pair(self, message: str) -> Optional[tuple[str, str]]:
+        country_patterns = [
+            ("United States", r"\b(united states|usa|u\.s\.|us|america)\b"),
+            ("Canada", r"\b(canada|canadian|can)\b"),
+            ("Mexico", r"\b(mexico|mexican|mex)\b"),
+            ("China", r"\b(china|chinese|chn)\b"),
+            ("Russia", r"\b(russia|russian|rus)\b"),
+            ("Ukraine", r"\b(ukraine|ukrainian|ukr)\b"),
+            ("Israel", r"\b(israel|israeli|isr)\b"),
+        ]
+        found: List[str] = []
+        lowered = message.lower()
+        for country, pattern in country_patterns:
+            if re.search(pattern, lowered) and country not in found:
+                found.append(country)
+        if len(found) >= 2:
+            return found[0], found[1]
+        return None
+
+    def _extract_year_range(self, message: str) -> Optional[tuple[str, str]]:
+        match = re.search(r"\b(20\d{2})\b", message)
+        if not match:
+            return None
+        year = match.group(1)
+        return f"{year}-01-01", f"{year}-12-31"
+
+    def _extract_iso_date(self, message: str) -> Optional[str]:
+        match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", message)
+        return match.group(1) if match else None
+
+    def _extract_event_type(self, message: str) -> str:
+        lowered = message.lower()
+        if "conflict" in lowered:
+            return "conflict"
+        if "cooperation" in lowered or "cooperative" in lowered:
+            return "cooperation"
+        if "protest" in lowered:
+            return "protest"
+        return "all"
+
+    def _extract_forecast_days(self, message: str) -> int:
+        match = re.search(r"\bnext\s+(\d{1,2})\s+days?\b", message.lower())
+        if not match:
+            match = re.search(r"\b(\d{1,2})[-\s]?day\b", message.lower())
+        if not match:
+            return 7
+        return max(1, min(int(match.group(1)), 60))
+
+    def _format_country_pair_reply(self, result: Dict[str, Any]) -> str:
+        summary = result.get("summary", {}) or {}
+        total = int(summary.get("total_events") or 0)
+        cooperation = int(summary.get("cooperation_events") or 0)
+        conflict = int(summary.get("conflict_events") or 0)
+        neutral = int(summary.get("neutral_events") or 0)
+        peak_conflict = result.get("peak_conflict_day") or {}
+        peak_cooperation = result.get("peak_cooperation_day") or {}
+        country_a = result.get("country_a")
+        country_b = result.get("country_b")
+        start_date = result.get("start_date")
+        end_date = result.get("end_date")
+
+        return (
+            f"From {start_date} to {end_date}, GDELT records {total:,} bilateral events "
+            f"between {country_a} and {country_b}. Cooperation is the dominant pattern: "
+            f"{cooperation:,} cooperative events ({summary.get('cooperation_pct', 0)}%) versus "
+            f"{conflict:,} conflict events ({summary.get('conflict_pct', 0)}%), with "
+            f"{neutral:,} neutral events. The average Goldstein score is "
+            f"{summary.get('avg_goldstein', 'n/a')}, so the overall relationship is coded as "
+            f"{summary.get('dominant_trend', 'mixed')}.\n\n"
+            f"The strongest conflict spike is {peak_conflict.get('period', 'n/a')} "
+            f"({peak_conflict.get('conflict_pct', 'n/a')}% conflict), while the strongest "
+            f"cooperation day is {peak_cooperation.get('period', 'n/a')} "
+            f"({peak_cooperation.get('cooperation_pct', 'n/a')}% cooperation). "
+            f"This answer uses the fast bilateral country-pair path based on "
+            f"Actor1CountryCode/Actor2CountryCode, not broad regional keyword matching."
+        )
+
+    def _format_forecast_reply(self, result: Dict[str, Any]) -> str:
+        forecast = result.get("forecast", []) or []
+        summary = result.get("summary", {}) or {}
+        checkpoint = result.get("checkpoint", {}) or {}
+        first = forecast[0] if forecast else {}
+        peak_date = summary.get("peak_risk_date") or first.get("date", "n/a")
+        model = result.get("model", "THP")
+        target = result.get("target", {}) or {}
+        target_label = target.get("region") or target.get("actor") or "global"
+
+        return (
+            f"Forecast source: THP model + GDELT data. For {target_label}, the model "
+            f"predicts {round(float(first.get('median_events') or first.get('expected_events') or 0)):,} "
+            f"median events on {first.get('date', 'the first forecast day')}, with an interval of "
+            f"{round(float(first.get('low_events') or 0)):,} to "
+            f"{round(float(first.get('high_events') or 0)):,}.\n\n"
+            f"The peak risk day is {peak_date}. Model: {model}; checkpoint loaded: "
+            f"{bool(checkpoint.get('available'))}. This fast path skips the full LLM tool loop and "
+            f"calls the trained THP forecast service directly."
+        )
+
+    async def _try_fast_answer(self, message: str) -> Optional[Dict[str, Any]]:
+        lowered = message.lower()
+        forecast_cues = ("forecast", "predict", "prediction", "risk outlook", "next")
+        if any(cue in lowered for cue in forecast_cues):
+            forecast_start = self._extract_iso_date(message)
+            country_pair = self._extract_country_pair(message)
+            if forecast_start and country_pair:
+                start = datetime.strptime(forecast_start, "%Y-%m-%d").date()
+                forecast_days = self._extract_forecast_days(message)
+                event_type = self._extract_event_type(message)
+                target = f"{country_pair[0]} and {country_pair[1]}"
+                history_start = start - timedelta(days=30)
+                history_end = start - timedelta(days=1)
+                self.tracker.add(
+                    "tool_call",
+                    "Fast path: get_event_forecast",
+                    {
+                        "name": "get_event_forecast",
+                        "args": {
+                            "forecast_start_date": forecast_start,
+                            "target": target,
+                            "event_type": event_type,
+                            "forecast_days": forecast_days,
+                        },
+                    },
+                )
+                result = await self.data_service.forecast_event_risk(
+                    start_date=history_start.strftime("%Y-%m-%d"),
+                    end_date=history_end.strftime("%Y-%m-%d"),
+                    region=target,
+                    actor=None,
+                    event_type=event_type,
+                    forecast_days=forecast_days,
+                )
+                self.tracker.add(
+                    "tool_result",
+                    "Result from get_event_forecast",
+                    {"name": "get_event_forecast", "preview": json.dumps(result.get("summary", {}), default=str)[:200]},
+                )
+                reply = self._format_forecast_reply(result)
+                self.tracker.add("agent_response", reply)
+                return {
+                    "reply": reply,
+                    "thinking_steps": self.tracker.steps,
+                    "tools_used": ["get_event_forecast"],
+                }
+
+        comparison_cues = ("compare", "versus", " vs ", "between", "trend", "trends")
+        relation_cues = ("cooperation", "cooperative", "conflict", "conflictual", "goldstein")
+        if not any(cue in lowered for cue in comparison_cues):
+            return None
+        if not any(cue in lowered for cue in relation_cues):
+            return None
+
+        country_pair = self._extract_country_pair(message)
+        date_range = self._extract_year_range(message)
+        if not country_pair or not date_range:
+            return None
+
+        country_a, country_b = country_pair
+        start_date, end_date = date_range
+        self.tracker.add(
+            "tool_call",
+            "Fast path: get_country_pair_trends",
+            {
+                "name": "get_country_pair_trends",
+                "args": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "country_a": country_a,
+                    "country_b": country_b,
+                },
+            },
+        )
+        result = await self.data_service.get_country_pair_trends(
+            start_date, end_date, country_a, country_b
+        )
+        self.tracker.add(
+            "tool_result",
+            "Result from get_country_pair_trends",
+            {"name": "get_country_pair_trends", "preview": json.dumps(result.get("summary", {}), default=str)[:200]},
+        )
+        reply = self._format_country_pair_reply(result)
+        self.tracker.add("agent_response", reply)
+        return {
+            "reply": reply,
+            "thinking_steps": self.tracker.steps,
+            "tools_used": ["get_country_pair_trends"],
+        }
     
     def _build_tools(self) -> List[BaseTool]:
         """Build LangChain tools from DataService methods.
@@ -284,6 +479,109 @@ class GDELTAgent:
             """Get time series data showing trends over time."""
             rows = await ds.get_time_series(start_date, end_date, granularity)
             return json.dumps(rows, default=str, indent=2)
+
+        async def get_country_pair_trends_tool(
+            start_date: str,
+            end_date: str,
+            country_a: str,
+            country_b: str,
+        ) -> str:
+            """Get true bilateral cooperation/conflict trends between two countries.
+
+            Uses Actor1CountryCode/Actor2CountryCode in both directions, so it is
+            the right tool for questions like United States vs Canada in 2024.
+            """
+            result = await ds.get_country_pair_trends(start_date, end_date, country_a, country_b)
+            daily = result.get("daily", [])
+            top_conflict_days = sorted(
+                daily, key=lambda row: float(row.get("conflict_pct") or 0), reverse=True
+            )[:3]
+            top_cooperation_days = sorted(
+                daily, key=lambda row: float(row.get("cooperation_pct") or 0), reverse=True
+            )[:3]
+            compact_result = {
+                "country_a": result.get("country_a"),
+                "country_b": result.get("country_b"),
+                "code_a": result.get("code_a"),
+                "code_b": result.get("code_b"),
+                "start_date": result.get("start_date"),
+                "end_date": result.get("end_date"),
+                "source": result.get("source"),
+                "summary": result.get("summary"),
+                "daily_points": len(daily),
+                "peak_conflict_day": result.get("peak_conflict_day"),
+                "peak_cooperation_day": result.get("peak_cooperation_day"),
+                "top_conflict_days": top_conflict_days,
+                "top_cooperation_days": top_cooperation_days,
+            }
+            return json.dumps(compact_result, default=str, indent=2)
+
+        async def get_event_forecast_tool(
+            forecast_start_date: str,
+            target: str = "global",
+            event_type: str = "all",
+            forecast_days: int = 7,
+            lookback_days: int = 30,
+        ) -> str:
+            """Forecast future GDELT event intensity with the trained THP model.
+
+            Args:
+                forecast_start_date: First forecast day in YYYY-MM-DD format.
+                target: Forecast target. Examples: 'United States and Canada',
+                    'Police and United States', 'actor_pair: Canada and United States',
+                    'Canada', or 'global'.
+                event_type: 'all', 'conflict', 'cooperation', or 'protest'.
+                forecast_days: Number of days to forecast, 1-60.
+                lookback_days: Historical days before forecast_start_date, usually 30.
+            """
+            try:
+                start = datetime.strptime(forecast_start_date, "%Y-%m-%d").date()
+            except ValueError:
+                return "Invalid forecast_start_date. Use YYYY-MM-DD, for example 2024-02-01."
+
+            safe_forecast_days = max(1, min(int(forecast_days or 7), 60))
+            safe_lookback_days = max(7, min(int(lookback_days or 30), 120))
+            history_start = start - timedelta(days=safe_lookback_days)
+            history_end = start - timedelta(days=1)
+            normalized_event_type = (event_type or "all").lower()
+            if normalized_event_type not in {"all", "conflict", "cooperation", "protest"}:
+                normalized_event_type = "all"
+
+            target_text = (target or "").strip()
+            region = None if target_text.lower() in {"", "global", "all", "overall"} else target_text
+
+            result = await ds.forecast_event_risk(
+                start_date=history_start.strftime("%Y-%m-%d"),
+                end_date=history_end.strftime("%Y-%m-%d"),
+                region=region,
+                actor=None,
+                event_type=normalized_event_type,
+                forecast_days=safe_forecast_days,
+            )
+            checkpoint = result.get("checkpoint", {}) or {}
+            metadata = checkpoint.get("metadata", {}) or {}
+            compact_result = {
+                "source": "THP model + GDELT data",
+                "model": result.get("model"),
+                "target": result.get("target"),
+                "series_key": checkpoint.get("series_key"),
+                "checkpoint_available": checkpoint.get("available"),
+                "checkpoint_error": checkpoint.get("error"),
+                "model_metadata": {
+                    "model_version": metadata.get("model_version"),
+                    "best_epoch": metadata.get("best_epoch"),
+                    "completed_epochs": metadata.get("completed_epochs"),
+                    "device": metadata.get("device"),
+                    "amp": metadata.get("amp"),
+                },
+                "baseline_comparison": checkpoint.get("baseline_comparison"),
+                "summary": result.get("summary"),
+                "forecast": result.get("forecast", [])[:safe_forecast_days],
+                "attention_context": result.get("attention_context", [])[:5],
+                "recent_history": result.get("recent_history", [])[-7:],
+                "meta": result.get("_meta"),
+            }
+            return json.dumps(compact_result, default=str, indent=2)
         
         async def get_geo_heatmap_tool(start_date: str, end_date: str, precision: int = 2) -> str:
             """Get geographic heatmap data showing event density."""
@@ -309,18 +607,24 @@ class GDELTAgent:
             result = await ds.search_news_context(query, n_results)
             
             if "error" in result:
-                return f"❌ {result.get('error')}: {result.get('message', result.get('message', ''))}"
+                return f"ChromaDB search error: {result.get('error')}: {result.get('message', '')}"
             
             if not result.get("results"):
-                return f"📭 No related news found for '{query}'."
+                return f"No ChromaDB semantic context found for '{query}'."
             
-            output = [f"# 🔍 RAG Search Results: '{query}'\n"]
+            output = [f"# ChromaDB RAG context for: '{query}'\n"]
             for i, r in enumerate(result["results"]):
                 content = r["content"]
                 snippet = content[:1000] + "..." if len(content) > 1000 else content
-                output.append(f"## 📰 Result {i+1}")
+                output.append(f"## Result {i+1}")
                 output.append(f"- **Event ID**: {r.get('event_id', 'Unknown')}")
                 output.append(f"- **Date**: {r.get('date', 'Unknown')}")
+                output.append(f"- **Actors**: {r.get('actor1', '')} / {r.get('actor2', '')}")
+                output.append(f"- **Location**: {r.get('location', '')}")
+                output.append(f"- **Event type**: {r.get('event_type', '')}")
+                output.append(f"- **Goldstein**: {r.get('goldstein', '')}")
+                if r.get("distance") is not None:
+                    output.append(f"- **Vector distance**: {float(r['distance']):.4f}")
                 output.append(f"- **Source**: {r.get('source_url', 'Unknown')}")
                 output.append(f"\n**Content**:\n{snippet}\n")
             
@@ -366,6 +670,16 @@ class GDELTAgent:
                 coroutine=get_time_series_tool,
                 name="get_time_series",
                 description="Get time series trends data. Granularity: day, week, or month.",
+            ),
+            StructuredTool.from_function(
+                coroutine=get_country_pair_trends_tool,
+                name="get_country_pair_trends",
+                description="Get true bilateral cooperation/conflict trends between two countries using Actor1CountryCode/Actor2CountryCode. Use for US-Canada, China-US, Russia-Ukraine, etc.",
+            ),
+            StructuredTool.from_function(
+                coroutine=get_event_forecast_tool,
+                name="get_event_forecast",
+                description="Forecast future event intensity with the trained neural THP model. Use for predict/forecast/risk outlook/next 7 days questions. Supports country pairs, actor pairs, countries, event_type filters, and low/median/high prediction intervals.",
             ),
             StructuredTool.from_function(
                 coroutine=get_geo_heatmap_tool,
@@ -418,6 +732,15 @@ class GDELTAgent:
         lc_messages.append(HumanMessage(content=message))
         
         self.tracker.add("user_message", message)
+
+        fast_result = await self._try_fast_answer(message)
+        if fast_result:
+            return {
+                "reply": fast_result["reply"],
+                "session_id": session_id,
+                "thinking_steps": fast_result["thinking_steps"],
+                "tools_used": fast_result["tools_used"],
+            }
         
         # Run agent
         tools_used = []

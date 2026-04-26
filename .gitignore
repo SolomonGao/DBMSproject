@@ -33,6 +33,22 @@ env/
 # Data files (GDELT CSV files)
 data/*
 
+# Model checkpoints, cached training arrays, and local evaluation logs
+models/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.npz
+
+# Local database files and Docker database dumps
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+*.sql.gz
+*.dump
+
 # Environment variables (API keys, passwords)
 .env
 .env.*

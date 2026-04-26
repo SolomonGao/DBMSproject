@@ -35,7 +35,7 @@ services:
       # 代码热重载：本地修改立即生效
       - .:/app
       # 大数据目录运行时挂载（不进入镜像）
-      - ./chroma_db:/app/chroma_db:ro
+      - ./chroma_db:/app/chroma_db
       - ./data:/app/data:ro
       - ./logs:/app/logs
     # 加载环境变量文件

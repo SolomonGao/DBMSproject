@@ -24,6 +24,42 @@ export interface GeoPoint {
   sample_location?: string;
 }
 
+export interface ForecastPoint {
+  date: string;
+  low: number;
+  median: number;
+  high: number;
+}
+
+export interface ThpForecastPoint {
+  date: string;
+  expected_events: number;
+  low_events: number;
+  median_events: number;
+  high_events: number;
+  risk_score?: number;
+  risk_level?: string;
+  hawkes_excitation?: number;
+}
+
+export interface ThpForecastResult {
+  model: string;
+  ok: boolean;
+  error?: string;
+  target?: Record<string, any>;
+  summary?: Record<string, any>;
+  forecast?: ThpForecastPoint[];
+  checkpoint?: Record<string, any>;
+  recent_history?: Array<{
+    date: string;
+    event_count: number;
+    avg_goldstein?: number;
+    avg_tone?: number;
+  }>;
+  attention_context?: Array<Record<string, any>>;
+  _meta?: Record<string, any>;
+}
+
 export interface EventItem {
   GlobalEventID: number;
   SQLDATE: string;
@@ -40,6 +76,24 @@ export interface EventItem {
   fingerprint?: string;
   headline?: string;
   summary?: string;
+  SOURCEURL?: string;
+  EventRootCode?: string;
+  NumSources?: number;
+}
+
+export interface CompareSeries {
+  label: string;
+  rows: TimeSeriesPoint[];
+  total_events: number;
+  avg_goldstein: number;
+}
+
+export interface CompareResult {
+  left: CompareSeries;
+  right: CompareSeries;
+  event_type: string;
+  start_date: string;
+  end_date: string;
 }
 
 export interface ChatMessage {
@@ -47,6 +101,7 @@ export interface ChatMessage {
   content: string;
   thinking_steps?: ThinkingStep[];
   tools_used?: string[];
+  sources?: string[];
 }
 
 export interface ThinkingStep {

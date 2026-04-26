@@ -27,6 +27,7 @@ async def chat(
     - Search events by keywords, time, location
     - Retrieve dashboard statistics
     - Analyze time series trends
+    - Forecast future event intensity with the trained THP model
     - Explore geographic heatmaps
     
     Conversation memory is maintained via session_id.
@@ -85,6 +86,7 @@ async def list_helps(
                 "Ask natural language questions — the agent will select tools automatically.",
                 "For comparisons, mention both subjects explicitly (e.g., 'Washington vs New York').",
                 "Use date ranges like 'January 2024' or 'last week' — the agent parses time hints.",
+                "Ask forecast questions like 'Forecast US-Canada conflict after 2024-02-01'.",
                 "After search_events, you can ask for event details using the fingerprint ID.",
             ],
         )

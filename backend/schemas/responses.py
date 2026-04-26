@@ -99,6 +99,12 @@ class TimeSeriesResponse(BaseResponse):
     end_date: str
 
 
+class ForecastResponse(BaseResponse):
+    data: Dict[str, Any]
+    start_date: str
+    end_date: str
+
+
 # ============================================================================
 # Geo Heatmap Data
 # ============================================================================

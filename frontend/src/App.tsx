@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { LayoutDashboard, MessageSquare, Activity } from 'lucide-react';
-import Dashboard from './components/Dashboard';
-import ChatPanel from './components/ChatPanel';
+import { lazy, Suspense, useState } from 'react';
+import { LayoutDashboard, MessageSquare, Activity, TrendingUp } from 'lucide-react';
 
-type Tab = 'dashboard' | 'chat';
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const ChatPanel = lazy(() => import('./components/ChatPanel'));
+const ForecastWorkspace = lazy(() => import('./components/ForecastWorkspace'));
+
+type Tab = 'dashboard' | 'forecast' | 'chat';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
@@ -25,6 +27,13 @@ export default function App() {
             Dashboard
           </button>
           <button
+            className={`nav-tab ${activeTab === 'forecast' ? 'active' : ''}`}
+            onClick={() => setActiveTab('forecast')}
+          >
+            <TrendingUp size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Forecast
+          </button>
+          <button
             className={`nav-tab ${activeTab === 'chat' ? 'active' : ''}`}
             onClick={() => setActiveTab('chat')}
           >
@@ -35,8 +44,11 @@ export default function App() {
       </header>
 
       <main className="app-body">
-        {activeTab === 'dashboard' && <Dashboard />}
-        {activeTab === 'chat' && <ChatPanel />}
+        <Suspense fallback={<div className="page-loader">Loading workspace...</div>}>
+          {activeTab === 'dashboard' && <Dashboard />}
+          {activeTab === 'forecast' && <ForecastWorkspace />}
+          {activeTab === 'chat' && <ChatPanel />}
+        </Suspense>
       </main>
     </div>
   );

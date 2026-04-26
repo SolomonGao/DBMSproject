@@ -6,12 +6,23 @@ import type { GeoPoint } from '../types';
 interface Props {
   data: GeoPoint[];
   title?: string;
+  onPointSelect?: (point: GeoPoint) => void;
 }
 
-export default function MapPanel({ data, title = 'Event Density Map' }: Props) {
+function locationLabel(value: unknown) {
+  const text = String(value || '').trim();
+  return text && text.toLowerCase() !== 'unknown' ? text : 'Location not coded';
+}
+
+export default function MapPanel({ data, title = 'Event Density Map', onPointSelect }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroup = useRef<L.LayerGroup | null>(null);
+  const onPointSelectRef = useRef<Props['onPointSelect']>(onPointSelect);
+
+  useEffect(() => {
+    onPointSelectRef.current = onPointSelect;
+  }, [onPointSelect]);
 
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
@@ -38,7 +49,7 @@ export default function MapPanel({ data, title = 'Event Density Map' }: Props) {
     layerGroup.current.clearLayers();
     if (data.length === 0) return;
 
-    const bounds: L.LatLngExpression[] = [];
+    const bounds: L.LatLngTuple[] = [];
 
     data.forEach((point) => {
       bounds.push([point.lat, point.lng]);
@@ -62,17 +73,19 @@ export default function MapPanel({ data, title = 'Event Density Map' }: Props) {
 
       circle.bindPopup(`
         <div style="font-size:12px">
-          <strong>${point.sample_location || 'Unknown'}</strong><br/>
+          <strong>${locationLabel(point.sample_location)}</strong><br/>
           Intensity: ${point.intensity}<br/>
-          Avg Conflict: ${point.avg_conflict?.toFixed(2) ?? 'N/A'}
+          Avg Conflict: ${point.avg_conflict?.toFixed(2) ?? 'N/A'}<br/>
+          <em>Click marker to inspect this hotspot.</em>
         </div>
       `);
+      circle.on('click', () => onPointSelectRef.current?.(point));
 
       circle.addTo(layerGroup.current!);
     });
 
     if (bounds.length > 0) {
-      mapInstance.current.fitBounds(bounds as L.LatLngExpression[], { padding: [40, 40] });
+      mapInstance.current.fitBounds(bounds, { padding: [40, 40] });
     }
   }, [data]);
 

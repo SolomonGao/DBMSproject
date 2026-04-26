@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Wrench } from 'lucide-react';
+import { Database, Send, Bot, User, Wrench, Sparkles } from 'lucide-react';
 import { api } from '../api/client';
 import type { ChatMessage, ThinkingStep } from '../types';
 
@@ -9,6 +9,11 @@ export default function ChatPanel() {
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const examplePrompts = [
+    'Compare cooperation versus conflict trends between the United States and Canada in 2024.',
+    'Find high impact protest events in Canada during January 2024.',
+    'Summarize the top actors and locations for the selected GDELT period.',
+  ];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,11 +43,17 @@ export default function ChatPanel() {
       const res = await api.chat(userMsg.content, history, sessionId);
 
       if (res.ok) {
+        const sources = [
+          ...(res.tools_used?.length ? ['GDELT tool data'] : []),
+          ...(res.thinking_steps?.length ? ['Agent reasoning trace'] : []),
+          'FastAPI chat endpoint',
+        ];
         const assistantMsg: ChatMessage = {
           role: 'assistant',
           content: res.reply,
           thinking_steps: res.thinking_steps,
           tools_used: res.tools_used,
+          sources,
         };
         setMessages((prev) => [...prev, assistantMsg]);
         if (res.session_id) setSessionId(res.session_id);
@@ -81,6 +92,14 @@ export default function ChatPanel() {
             <p style={{ fontSize: 13 }}>
               Ask about events, trends, or regional analysis.
             </p>
+            <div className="example-prompts">
+              {examplePrompts.map((prompt) => (
+                <button key={prompt} onClick={() => setInput(prompt)}>
+                  <Sparkles size={12} />
+                  {prompt}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -117,9 +136,20 @@ export default function ChatPanel() {
               </div>
             )}
 
+            {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+              <div className="source-row">
+                {msg.sources.map((source) => (
+                  <span key={source}>
+                    <Database size={10} />
+                    {source}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {msg.role === 'assistant' && msg.thinking_steps && msg.thinking_steps.length > 0 && (
               <details className="thinking-box" style={{ marginLeft: 8 }}>
-                <summary>Thinking process ({msg.thinking_steps.length} steps)</summary>
+                <summary>Data trace and thinking process ({msg.thinking_steps.length} steps)</summary>
                 <div style={{ marginTop: 8 }}>
                   {msg.thinking_steps.map((step: ThinkingStep, j: number) => (
                     <div key={j} className="thinking-step">
