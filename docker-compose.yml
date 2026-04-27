@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # MySQL 資料庫服務
+  # MySQL 数据库服务
   db:
     image: mysql:8.0
     container_name: gdelt_mysql
@@ -12,28 +12,66 @@ services:
     ports:
       - "3307:3306"
     volumes:
-      # 自動將初始化腳本掛載到資料庫，MySQL 容器啟動時會自動執行建表
+      # 自动挂载初始化脚本，MySQL 启动时自动建表
       - ./db_scripts/gdelt_db_v1.sql:/docker-entrypoint-initdb.d/init.sql
-      # (可選) 持久化資料庫資料
+      # 持久化数据库数据
       - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  # Python MCP 應用程式服務
-  app:
+  # FastAPI 后端服务
+  backend:
     build: .
-    container_name: gdelt_app
+    container_name: gdelt_backend
     depends_on:
-      - db
-    # 支援互動模式 (相當於 docker run -it) 和 Web UI 訪問
-    stdin_open: true
-    tty: true
+      db:
+        condition: service_healthy
     ports:
-      - "8080:8080"
+      - "8000:8000"
     volumes:
-      # 將本地代碼掛載到容器，方便本地修改代碼後即時生效
+      # 代码热重载：本地修改立即生效
       - .:/app
-    # 載入環境變數檔案
+      # 大数据目录运行时挂载（不进入镜像）
+      - ./chroma_db:/app/chroma_db:ro
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+    # 加载环境变量文件
     env_file:
       - .env
+    environment:
+      # 容器内 MySQL host 是服务名 "db"
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: rootpassword
+      DB_NAME: gdelt
+    command: >
+      sh -c "python run_backend.py --host 0.0.0.0 --port 8000"
+    # 开发模式使用 reload；生产模式去掉 --reload
+    # command: >
+    #   sh -c "python run_backend.py --host 0.0.0.0 --port 8000 --reload"
+
+  # 前端 React 服务（开发模式）
+  frontend:
+    image: node:20-slim
+    container_name: gdelt_frontend
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: >
+      sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      # 前端 API 指向后端容器
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+    depends_on:
+      - backend
 
 volumes:
   db_data:
+  frontend_node_modules:

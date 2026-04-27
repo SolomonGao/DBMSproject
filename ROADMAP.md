@@ -91,7 +91,7 @@ search_news_context("Washington protest demands")
 | **临时指纹** (📝) | 实时生成 | ⭐⭐⭐ 基础 | 后备兼容 |
 
 ### Phase 4: 前端可视化 (MVP 已完成)
-- [x] **ChatGPT-style Web UI**: `web_app/` 纯前端实现，支持多会话、本地历史
+- [x] **React Dashboard + Chat UI**: `frontend/` React + Vite + TypeScript，支持仪表盘可视化、多会话聊天
 - [x] **Thinking Process 展示**: Router 决策、工具调用、耗时明细可折叠查看
 - [x] **Stop 按钮**: 发送中可随时中断请求（AbortController）
 - [x] **120 秒前端超时**: 兼容长耗时数据库查询

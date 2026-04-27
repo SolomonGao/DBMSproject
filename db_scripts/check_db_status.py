@@ -6,9 +6,9 @@ used formonitorindexusecaseandquerysexcan
 
 import sys
 import os
-sys.path.insert(0, 'mcp_server')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.database.pool import DatabasePool
+from backend.database.pool import DatabasePool
 import asyncio
 
 async def check_status():
@@ -32,10 +32,14 @@ async def check_status():
         WHERE table_schema = 'gdelt' 
           AND table_name = 'events_table'
     """)
-    print(f"   totalrow count: {result['table_rows']:,}")
-    print(f"   datasize: {result['data_gb']} GB")
-    print(f"   indexsize: {result['index_gb']} GB")
-    print(f"   total: {result['total_gb']} GB")
+    if result:
+        rows = result.get('table_rows')
+        print(f"   totalrow count: {rows:,}" if rows is not None else "   totalrow count: N/A")
+        print(f"   datasize: {result.get('data_gb', 'N/A')} GB")
+        print(f"   indexsize: {result.get('index_gb', 'N/A')} GB")
+        print(f"   total: {result.get('total_gb', 'N/A')} GB")
+    else:
+        print("   unablefetchtableinfo")
     
     # 2. indexcolumntable
     print("\n2️⃣  indexcolumntable:")
@@ -104,15 +108,6 @@ async def check_status():
             print("   pausenoimportrecordlog")
     except:
         print("   importrecordlogtablenotsavein")
-    
-    # 6. querycachestatusstate
-    print("\n6️⃣  querycachestatusstate:")
-    from app.cache import query_cache
-    stats = query_cache.get_stats()
-    print(f"   cacheitemproject: {stats['size']} / {stats['maxsize']}")
-    print(f"   commandintimenumber: {stats['hits']:,}")
-    print(f"   notcommandin: {stats['misses']:,}")
-    print(f"   commandinrate: {stats['hit_rate']}")
     
     print("\n" + "=" * 70)
     print("checkcompleted！")
