@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, LayoutDashboard } from 'lucide-react';
 import { api } from '../api/client';
 import type { DashboardData, TimeSeriesPoint, GeoPoint, EventItem, GeoEventPoint, FilterState } from '../types';
 import type { GeoEventPoint as GeoEventPointType } from '../types';
@@ -125,7 +125,17 @@ export default function Dashboard() {
   const showEventPoints = hasSearched && geoEvents.length > 0;
 
   return (
-    <div>
+    <div style={{ padding: 16 }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <LayoutDashboard size={22} color="#2563eb" />
+          Dashboard
+        </h2>
+        <p style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+          Explore GDELT event data through interactive charts, maps, and statistics.
+        </p>
+      </div>
+
       {/* Filter Bar */}
       <FilterBar
         filters={filters}
