@@ -8,11 +8,11 @@
 
 | 优化技术 | 适用场景 | 预期提升 | 代码位置 |
 |---------|---------|---------|---------|
-| **并行查询** | 多个独立统计 | 3-5x | `gdelt_optimized.py` |
+| **并行查询** | 多个独立统计 | 3-5x | `core_queries.py` |
 | **查询缓存** | 重复查询 | 10-100x | `cache.py` |
 | **流式查询** | 大数据量读取 | 内存 ↓ 90% | `streaming.py` |
-| **数据库聚合** | GROUP BY 统计 | 5-10x | `gdelt_optimized.py` |
-| **预编译批量** | 批量 ID 查询 | 10x | `gdelt_optimized.py` |
+| **数据库聚合** | GROUP BY 统计 | 5-10x | `core_queries.py` |
+| **预编译批量** | 批量 ID 查询 | 10x | `core_queries.py` |
 
 ---
 
@@ -27,15 +27,12 @@ pip install orjson  # 可选，但强烈推荐（比 json 快 10x）
 ### 2. 替换服务层
 
 ```python
-# 原来
-from app.services.gdelt import GDELTService
-service = GDELTService()
+# 数据服务层直接调用共享查询
+from mcp_server.app.queries import core_queries
+from mcp_server.app.database.pool import DatabasePool
 
-# 优化后
-from app.services.gdelt_optimized import GDELTServiceOptimized
-service = await GDELTServiceOptimized.create()
-
-# 自动启用缓存和连接池
+pool = await DatabasePool.initialize()
+dashboard = await core_queries.get_dashboard_data("2024-01-01", "2024-01-31", pool)
 ```
 
 ### 3. 使用并行查询
@@ -197,8 +194,8 @@ rows = await pool.fetchall(
 运行对比测试：
 
 ```bash
-cd /Volumes/Mac Driver/capstone/DBMSproject
-python benchmark_performance.py
+python run_backend.py
+# API 文档: http://localhost:8000/docs
 ```
 
 预期输出：
@@ -300,12 +297,14 @@ DEFAULT_CONFIG = {
 ### 启动时预热
 
 ```python
-# run_v1.py 启动时
-from app.services.gdelt_optimized import GDELTServiceOptimized
+# backend/main.py 启动时
+from backend.services.data_service import DataService
 
-@app.on_event("startup")
-async def startup():
-    await GDELTServiceOptimized.warmup_connections(5)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await data_service.initialize()  # 预热连接池
+    yield
+    await data_service.close()
 ```
 
 ---

@@ -3,11 +3,11 @@
 
 -- 1. 检查当前的 SRID 设置
 SELECT 
-    SRID(ActionGeo_Point) as srid,
+    ST_SRID(ActionGeo_Point) as srid,
     COUNT(*) as count
 FROM events_table
 WHERE ActionGeo_Point IS NOT NULL
-GROUP BY SRID(ActionGeo_Point);
+GROUP BY ST_SRID(ActionGeo_Point);
 
 -- 2. 修复 SRID 为 0 的数据（设置为 4326）
 UPDATE events_table
@@ -16,15 +16,15 @@ SET ActionGeo_Point = ST_GeomFromText(
     4326
 )
 WHERE ActionGeo_Point IS NOT NULL
-  AND SRID(ActionGeo_Point) = 0;
+  AND ST_SRID(ActionGeo_Point) = 0;
 
 -- 3. 验证修复结果
 SELECT 
-    SRID(ActionGeo_Point) as srid,
+    ST_SRID(ActionGeo_Point) as srid,
     COUNT(*) as count
 FROM events_table
 WHERE ActionGeo_Point IS NOT NULL
-GROUP BY SRID(ActionGeo_Point);
+GROUP BY ST_SRID(ActionGeo_Point);
 
 -- 4. 测试查询（应该不再报错）
 SELECT 
