@@ -203,6 +203,26 @@ class NewsSearchResponse(BaseResponse):
 
 
 # ============================================================================
+# Forecast Data
+# ============================================================================
+
+class ForecastPoint(BaseModel):
+    date: str
+    expected_events: float
+    low: Optional[float] = None
+    median: Optional[float] = None
+    high: Optional[float] = None
+    risk_score: Optional[float] = None
+    risk_level: Optional[str] = None
+
+
+class ForecastResponse(BaseResponse):
+    data: Dict[str, Any]
+    start_date: str
+    end_date: str
+
+
+# ============================================================================
 # Health
 # ============================================================================
 

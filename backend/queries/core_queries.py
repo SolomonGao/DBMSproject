@@ -1212,3 +1212,65 @@ async def query_search_news_context(
             "error": "Search failed",
             "message": str(e)
         }
+
+
+# ============================================================================
+# Event Sequence for THP Forecasting
+# ============================================================================
+
+async def query_event_sequence(
+    pool,
+    start_date: str,
+    end_date: str,
+    region: Optional[str] = None,
+    actor: Optional[str] = None,
+    event_type: str = "all",
+) -> List[Dict[str, Any]]:
+    """Return daily event sequence rows for THP-style forecasting."""
+    event_type = (event_type or "all").lower()
+
+    conditions = ["SQLDATE BETWEEN %s AND %s"]
+    params: List[Any] = [start_date, end_date]
+
+    if region:
+        region_clean = region.strip().upper()
+        if len(region_clean) <= 3 and region_clean.isalpha():
+            conditions.append("ActionGeo_CountryCode = %s")
+            params.append(region_clean)
+        else:
+            conditions.append("(ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)")
+            params.extend([region_clean, f"%{region}%"])
+
+    if actor:
+        actor_term = f"%{actor}%"
+        conditions.append("(Actor1Name LIKE %s OR Actor2Name LIKE %s)")
+        params.extend([actor_term, actor_term])
+
+    type_condition = ""
+    if event_type == "conflict":
+        type_condition = "AND GoldsteinScale < 0"
+    elif event_type == "cooperation":
+        type_condition = "AND GoldsteinScale > 0"
+    elif event_type == "protest":
+        type_condition = "AND EventRootCode IN ('14', '15', '16')"
+
+    where_clause = " AND ".join(conditions)
+
+    rows = await pool.fetchall(
+        f"""
+        SELECT
+            CAST(SQLDATE AS CHAR) as date,
+            COUNT(*) as event_count,
+            SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) as conflict_events,
+            SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) as cooperation_events,
+            AVG(GoldsteinScale) as avg_goldstein,
+            AVG(AvgTone) as avg_tone,
+            SUM(NumArticles) as total_articles
+        FROM events_table
+        WHERE {where_clause} {type_condition}
+        GROUP BY SQLDATE
+        ORDER BY SQLDATE
+        """,
+        tuple(params),
+    )
+    return rows

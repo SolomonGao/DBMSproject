@@ -18,6 +18,7 @@ from backend.schemas.responses import (
     GeoEventsResponse,
     EventSearchResponse,
     SuggestionsResponse,
+    ForecastResponse,
     HealthResponse,
     EventItem,
     TimeSeriesPoint,
@@ -202,6 +203,31 @@ async def suggest_locations(
         return SuggestionsResponse(items=items, query=q)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Suggestion failed: {e}")
+
+
+@router.get("/forecast", response_model=ForecastResponse)
+async def get_forecast(
+    start: str = Query(..., description="Historical input start date (YYYY-MM-DD)"),
+    end: str = Query(..., description="Historical input end date (YYYY-MM-DD)"),
+    region: Optional[str] = Query(None, description="Optional country, region, or country pair"),
+    actor: Optional[str] = Query(None, description="Optional actor keyword"),
+    event_type: str = Query("all", description="all | conflict | cooperation | protest"),
+    forecast_days: int = Query(7, ge=1, le=60),
+    service: DataService = Depends(get_data_service),
+):
+    """Forecast event intensity with the Transformer Hawkes service."""
+    try:
+        data = await service.forecast_event_risk(
+            start_date=start,
+            end_date=end,
+            region=region,
+            actor=actor,
+            event_type=event_type,
+            forecast_days=forecast_days,
+        )
+        return ForecastResponse(data=data, start_date=start, end_date=end)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Forecast query failed: {e}")
 
 
 @router.get("/health", response_model=HealthResponse)

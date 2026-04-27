@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users, Brain, Terminal } from 'lucide-react';
+import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users, Brain, Terminal, Sparkles } from 'lucide-react';
 import { api } from '../api/client';
 import type { AnalyzeResponse, ReportResult, EventItem } from '../types';
 import EventDetailCard from './EventDetailCard';
@@ -186,7 +186,17 @@ export default function ExplorePanel() {
   };
 
   return (
-    <div>
+    <div style={{ padding: 16 }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Sparkles size={22} color="#2563eb" />
+          AI Explore
+        </h2>
+        <p style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+          Ask natural language questions about events, actors, and trends.
+        </p>
+      </div>
+
       {/* Search Input */}
       <div className="search-box">
         <Search size={20} color="#888" style={{ flexShrink: 0 }} />

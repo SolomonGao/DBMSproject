@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { LayoutDashboard, Sparkles, Activity } from 'lucide-react';
+import { LayoutDashboard, Sparkles, Activity, TrendingUp } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import ExplorePanel from './components/ExplorePanel';
+import ForecastWorkspace from './components/ForecastWorkspace';
 
-type Tab = 'dashboard' | 'explore';
+type Tab = 'dashboard' | 'explore' | 'forecast';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('explore');
@@ -25,6 +26,13 @@ export default function App() {
             AI Explore
           </button>
           <button
+            className={`nav-tab ${activeTab === 'forecast' ? 'active' : ''}`}
+            onClick={() => setActiveTab('forecast')}
+          >
+            <TrendingUp size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Forecast
+          </button>
+          <button
             className={`nav-tab ${activeTab === 'dashboard' ? 'active' : ''}`}
             onClick={() => setActiveTab('dashboard')}
           >
@@ -37,6 +45,9 @@ export default function App() {
       <main className="app-body">
         <div style={{ display: activeTab === 'explore' ? 'block' : 'none' }}>
           <ExplorePanel />
+        </div>
+        <div style={{ display: activeTab === 'forecast' ? 'block' : 'none' }}>
+          <ForecastWorkspace />
         </div>
         <div style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}>
           <Dashboard />
