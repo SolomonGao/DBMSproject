@@ -27,7 +27,7 @@ services:
     stdin_open: true
     tty: true
     ports:
-      - "8080:8080"
+      - "8001:8000"
     volumes:
       # 將本地代碼掛載到容器，方便本地修改代碼後即時生效
       - .:/app
