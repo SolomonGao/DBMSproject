@@ -78,6 +78,43 @@ export interface FilterState {
   keyword: string;
 }
 
+// Forecast types
+export interface ForecastPoint {
+  date: string;
+  low: number;
+  median: number;
+  high: number;
+}
+
+export interface ThpForecastPoint {
+  date: string;
+  expected_events: number;
+  low_events: number;
+  median_events: number;
+  high_events: number;
+  risk_score?: number;
+  risk_level?: string;
+  hawkes_excitation?: number;
+}
+
+export interface ThpForecastResult {
+  model: string;
+  ok: boolean;
+  error?: string;
+  target?: Record<string, any>;
+  summary?: Record<string, any>;
+  forecast?: ThpForecastPoint[];
+  checkpoint?: Record<string, any>;
+  recent_history?: Array<{
+    date: string;
+    event_count: number;
+    avg_goldstein?: number;
+    avg_tone?: number;
+  }>;
+  attention_context?: Array<Record<string, any>>;
+  _meta?: Record<string, any>;
+}
+
 // AI Analyze types
 export interface LLMConfig {
   provider: string;

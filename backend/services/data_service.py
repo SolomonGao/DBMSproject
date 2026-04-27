@@ -28,7 +28,9 @@ from backend.queries.core_queries import (
     query_daily_brief,
     query_stream_events,
     query_search_news_context,
+    query_event_sequence,
 )
+from backend.services.thp_service import TransformerHawkesForecaster
 
 
 class DataService:
@@ -37,6 +39,7 @@ class DataService:
     def __init__(self):
         self._pool: Optional[DatabasePool] = None
         self._initialized = False
+        self._thp = TransformerHawkesForecaster()
 
     async def initialize(self):
         if not self._initialized:
@@ -133,6 +136,34 @@ class DataService:
     async def get_daily_brief(self, query_date: Optional[str] = None) -> Optional[Dict[str, Any]]:
         return await query_daily_brief(self._pool, query_date)
 
+    async def forecast_event_risk(
+        self,
+        start_date: str,
+        end_date: str,
+        region: Optional[str] = None,
+        actor: Optional[str] = None,
+        event_type: str = "all",
+        forecast_days: int = 7,
+    ) -> Dict[str, Any]:
+        """Forecast event intensity with the Transformer Hawkes service."""
+        rows = await query_event_sequence(
+            self._pool,
+            start_date=start_date,
+            end_date=end_date,
+            region=region,
+            actor=actor,
+            event_type=event_type,
+        )
+        return self._thp.forecast(
+            rows=rows,
+            start_date=start_date,
+            end_date=end_date,
+            forecast_days=forecast_days,
+            region=region,
+            actor=actor,
+            event_type=event_type,
+        )
+
     async def stream_events(
         self,
         actor_name: str,
@@ -157,7 +188,14 @@ class DataService:
         return await query_search_news_context(query, n_results)
 
     def get_cache_stats(self) -> Dict[str, Any]:
-        return {"mode": "shared_queries", "note": "Queries handled by core_queries"}
+        checkpoint = getattr(self._thp, "neural_checkpoint", None)
+        return {
+            "mode": "shared_queries",
+            "note": "Queries handled by core_queries",
+            "thp_model": self._thp._model_name(),
+            "thp_checkpoint_available": bool(getattr(checkpoint, "available", False)),
+            "thp_checkpoint_error": getattr(checkpoint, "error", None),
+        }
 
     async def health_check(self) -> Dict[str, Any]:
         try:

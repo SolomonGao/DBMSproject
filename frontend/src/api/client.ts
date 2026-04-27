@@ -58,6 +58,23 @@ export const api = {
 
   health: () => fetchJson<any>('/api/v1/data/health'),
 
+  // Forecast (THP)
+  getForecast: (
+    start: string,
+    end: string,
+    params: { region?: string; actor?: string; event_type?: string; forecast_days?: number } = {}
+  ) => {
+    const qs = new URLSearchParams({
+      start,
+      end,
+      event_type: params.event_type || 'all',
+      forecast_days: String(params.forecast_days || 7),
+    });
+    if (params.region) qs.set('region', params.region);
+    if (params.actor) qs.set('actor', params.actor);
+    return fetchJson<any>(`/api/v1/data/forecast?${qs.toString()}`);
+  },
+
   // AI Analyze (Planner + Executor)
   analyze: (query: string, llmConfig?: any) =>
     fetchJson<any>('/api/v1/analyze', {
