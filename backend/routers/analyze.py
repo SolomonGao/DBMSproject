@@ -109,4 +109,7 @@ async def generate_report(request: ReportRequest):
         )
     except Exception as e:
         print(f"[Analyze/Report] FAILED: {e}", flush=True)
-        raise HTTPException(status_code=500, detail=f"Report generation failed: {e}")
+        return ReportOutput(
+            summary=f"Report generation failed: {e}",
+            key_findings=[],
+        )

@@ -323,53 +323,99 @@ Guidelines:
 - Cite specific numbers, dates, actor names
 - Highlight patterns and significance
 - If data is sparse, say so
-- Output ONLY raw JSON matching schema: {"summary": "...", "key_findings": ["...", "..."]}"""
+- Output MUST be valid JSON matching this exact schema:
+{"summary": "Executive summary text here...", "key_findings": ["Finding 1", "Finding 2"]}"""
+
+REPORT_SYSTEM_PROMPT_RAW = """You are GDELT Report Generator. Write a concise executive summary based on structured event data.
+
+Guidelines:
+- 2-3 paragraphs max
+- Cite specific numbers, dates, actor names
+- Highlight patterns and significance
+- If data is sparse, say so
+- Output ONLY raw JSON. Do NOT use markdown code blocks.
+Schema: {"summary": "...", "key_findings": ["...", "..."]}"""
 
 
 class ReportGenerator:
-    """Generates natural language reports from structured JSON data."""
+    """Generates natural language reports from structured JSON data.
+
+    Uses a three-layer strategy for maximum robustness:
+    1. Native structured output (JSON mode / function calling) — most reliable
+    2. Raw LLM + regex JSON extraction — fallback for older models
+    3. Plain text extraction — ultimate fallback so user always gets something
+    """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.llm = build_llm(config)
 
     async def generate(self, data: Dict[str, Any], prompt: Optional[str] = None) -> ReportResult:
         """Generate a report from query results."""
-        # Truncate large data
+        # Truncate large data to avoid token limits
         data_str = json.dumps(data, default=str, ensure_ascii=False)
         if len(data_str) > 6000:
             data_str = data_str[:6000] + "\n... [truncated]"
 
         user_prompt = prompt or "Summarize the key insights from this GDELT data."
-        messages = [
-            SystemMessage(content=REPORT_SYSTEM_PROMPT),
-            HumanMessage(content=f"{user_prompt}\n\nData:\n{data_str}\n\nRespond with ONLY raw JSON:"),
-        ]
-        
+
+        # ------------------------------------------------------------------
+        # Layer 1: Native structured output (best reliability)
+        # ------------------------------------------------------------------
         try:
-            response = await self.llm.ainvoke(messages)
+            structured_llm = self.llm.with_structured_output(
+                ReportResult,
+                method="json_mode",
+                include_raw=False,
+            )
+            messages = [
+                SystemMessage(content=REPORT_SYSTEM_PROMPT),
+                HumanMessage(content=f"{user_prompt}\n\nData:\n{data_str}"),
+            ]
+            result = await asyncio.wait_for(structured_llm.ainvoke(messages), timeout=30.0)
+            if result and (result.summary or result.key_findings):
+                print("[ReportGenerator] Layer 1 (structured output) succeeded", flush=True)
+                return result
+        except Exception as e:
+            print(f"[ReportGenerator] Layer 1 failed: {e}", flush=True)
+
+        # ------------------------------------------------------------------
+        # Layer 2: Raw LLM + regex JSON extraction
+        # ------------------------------------------------------------------
+        try:
+            messages = [
+                SystemMessage(content=REPORT_SYSTEM_PROMPT_RAW),
+                HumanMessage(content=f"{user_prompt}\n\nData:\n{data_str}\n\nRespond with ONLY raw JSON:"),
+            ]
+            response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=30.0)
             content = response.content if hasattr(response, "content") else str(response)
 
             raw = _extract_json(content)
-            if raw is None:
-                print("[ReportGenerator] warning: could not extract JSON from report response, falling back to raw text", flush=True)
-                summary_text = content.strip()
-                if len(summary_text) > 4000:
-                    summary_text = summary_text[:4000] + "... [truncated]"
+            if raw is not None:
+                print("[ReportGenerator] Layer 2 (regex extraction) succeeded", flush=True)
                 return ReportResult(
-                    summary=summary_text,
-                    key_findings=[],
+                    summary=raw.get("summary", ""),
+                    key_findings=raw.get("key_findings", []),
                 )
 
+            # If regex fails, try to use the raw text as summary
+            print("[ReportGenerator] Layer 2: JSON not found, using raw text fallback", flush=True)
+            summary_text = content.strip()
+            # Clean up common markdown wrappers if present
+            summary_text = re.sub(r'^```.*?\n', '', summary_text, flags=re.DOTALL)
+            summary_text = re.sub(r'\n```$', '', summary_text)
+            if len(summary_text) > 4000:
+                summary_text = summary_text[:4000] + "... [truncated]"
             return ReportResult(
-                summary=raw.get("summary", ""),
-                key_findings=raw.get("key_findings", []),
-            )
-        except ValueError as e:
-            print(f"[ReportGenerator] fallback on ValueError: {e}", flush=True)
-            return ReportResult(
-                summary=str(e),
+                summary=summary_text or "Report returned empty content.",
                 key_findings=[],
             )
         except Exception as e:
-            print(f"[ReportGenerator] failed: {e}", flush=True)
-            raise
+            print(f"[ReportGenerator] Layer 2 failed: {e}", flush=True)
+
+        # ------------------------------------------------------------------
+        # Layer 3: Ultimate fallback — never crash the endpoint
+        # ------------------------------------------------------------------
+        return ReportResult(
+            summary="Unable to generate AI report at this time. The analysis data is still available above.",
+            key_findings=[],
+        )
