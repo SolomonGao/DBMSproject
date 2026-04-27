@@ -253,7 +253,7 @@ def fetch_top_event_roots_raw(cur, limit: int) -> List[str]:
         cur,
         """
         SELECT EventRootCode AS value, COUNT(*) AS event_count
-        FROM events_table FORCE INDEX (idx_date_eventroot)
+        FROM events_table
         WHERE EventRootCode IS NOT NULL
           AND EventRootCode <> ''
         GROUP BY EventRootCode
@@ -285,7 +285,7 @@ def fetch_top_event_codes(cur, limit: int) -> List[str]:
         cur,
         """
         SELECT EventCode AS value, COUNT(*) AS event_count
-        FROM events_table FORCE INDEX (idx_thp_event_code_training)
+        FROM events_table
         WHERE EventCode IS NOT NULL
           AND EventCode <> ''
         GROUP BY EventCode
@@ -652,7 +652,7 @@ def fetch_event_root_rows_raw(cur, event_roots: Sequence[str]) -> List[Dict]:
             CONCAT('event_root:', EventRootCode) AS series_id,
             SQLDATE AS event_date,
             {metrics_sql()}
-        FROM events_table FORCE INDEX (idx_date_eventroot)
+        FROM events_table
         WHERE EventRootCode IN ({placeholders(event_roots)})
         GROUP BY EventRootCode, SQLDATE
         """,
@@ -690,7 +690,7 @@ def fetch_event_code_rows(cur, event_codes: Sequence[str]) -> List[Dict]:
             CONCAT('event_code:', EventCode) AS series_id,
             SQLDATE AS event_date,
             {metrics_sql()}
-        FROM events_table FORCE INDEX (idx_thp_event_code_training)
+        FROM events_table
         WHERE EventCode IN ({placeholders(event_codes)})
         GROUP BY EventCode, SQLDATE
         """,
