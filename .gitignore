@@ -51,3 +51,5 @@ chroma_db/
 
 # 忽略本地同步进度文件
 db_scripts/sync_progress.txt
+
+node_modules/
