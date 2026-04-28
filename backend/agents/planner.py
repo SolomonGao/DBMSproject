@@ -473,14 +473,31 @@ class ReportGenerator:
     """Generates natural language reports from structured JSON data."""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        # Report doesn't need huge max_tokens — keep it moderate for speed
         self.llm = build_llm(config)
+
+    def _get_response_text(self, response) -> str:
+        """Extract text from LLM response, handling kimi k2 reasoning_content."""
+        text = ""
+        if hasattr(response, "content") and response.content:
+            text = response.content.strip()
+        # Kimi k2 puts reasoning in additional_kwargs / response_metadata
+        if not text and hasattr(response, "additional_kwargs"):
+            text = response.additional_kwargs.get("reasoning_content", "") or ""
+            if text:
+                text = text.strip()
+        if not text and hasattr(response, "response_metadata"):
+            text = response.response_metadata.get("reasoning_content", "") or ""
+            if text:
+                text = text.strip()
+        return text
 
     async def generate(self, data: Dict[str, Any], prompt: Optional[str] = None) -> ReportResult:
         """Generate a report from query results."""
         # Truncate large data to avoid token limits
         data_str = json.dumps(data, default=str, ensure_ascii=False)
-        if len(data_str) > 8000:
-            data_str = data_str[:8000] + "\n... [truncated]"
+        if len(data_str) > 6000:
+            data_str = data_str[:6000] + "\n... [truncated]"
 
         user_prompt = prompt or "Summarize the key insights from this GDELT data."
 
@@ -490,18 +507,12 @@ class ReportGenerator:
         ]
 
         try:
-            response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=60.0)
-            content = response.content if hasattr(response, "content") else str(response)
-            text = content.strip() if content else ""
+            response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=120.0)
+            text = self._get_response_text(response)
 
             # Clean up markdown code blocks if any
             text = re.sub(r'^```.*?\n', '', text, flags=re.DOTALL)
             text = re.sub(r'\n```$', '', text)
-
-            if not text:
-                # Fallback: try reasoning_content if content is empty (kimi k2 behavior)
-                text = getattr(response, 'reasoning_content', '') or ""
-                text = text.strip()
 
             if not text:
                 return ReportResult(
@@ -531,6 +542,12 @@ class ReportGenerator:
             print(f"[ReportGenerator] Generated report: {len(summary)} chars summary, {len(findings)} findings", flush=True)
             return ReportResult(summary=summary, key_findings=findings)
 
+        except asyncio.TimeoutError:
+            print("[ReportGenerator] LLM timeout after 120s", flush=True)
+            return ReportResult(
+                summary="AI report generation timed out. The event data is still available above.",
+                key_findings=[],
+            )
         except Exception as e:
             print(f"[ReportGenerator] Failed: {e}", flush=True)
             return ReportResult(
