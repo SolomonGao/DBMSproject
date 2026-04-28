@@ -312,6 +312,8 @@ class QueryPlanOutput(BaseModel):
     time_range: Optional[Dict[str, str]] = None
     steps: List[QueryStepOutput]
     visualizations: List[str]
+    report_prompt: Optional[str] = None
+    notice: Optional[str] = None
 
 
 class ReportOutput(BaseModel):

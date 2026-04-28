@@ -134,6 +134,8 @@ export interface QueryPlan {
   time_range?: { start: string; end: string };
   steps: QueryStep[];
   visualizations: string[];
+  report_prompt?: string;
+  notice?: string;
 }
 
 export interface ReportResult {

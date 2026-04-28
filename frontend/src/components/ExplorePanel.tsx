@@ -111,10 +111,6 @@ export default function ExplorePanel() {
         setError(res.error || 'Analysis failed');
       } else {
         setResult(res);
-        // Delayed report load
-        if (res.plan.visualizations.includes('report') && res.plan.report_prompt) {
-          loadReport(res.data, res.plan.report_prompt);
-        }
       }
     } catch (err: any) {
       setError(err.message || 'Network error');
@@ -177,9 +173,6 @@ export default function ExplorePanel() {
         if (res.ok !== false) {
           setResult(res);
           setReport(null);
-          if (res.plan.visualizations.includes('report') && res.plan.report_prompt) {
-            loadReport(res.data, res.plan.report_prompt);
-          }
         }
       }).catch(console.error);
     }, 0);
@@ -293,7 +286,30 @@ export default function ExplorePanel() {
           {/* Data content — fades in after thinking completes */}
           {showData && (
             <>
-              {/* AI Report */}
+              {/* AI Report — manual trigger */}
+              {vizes.includes('report') && result?.plan?.report_prompt && !report && !reportLoading && (
+                <div style={{ marginBottom: 16 }}>
+                  <button
+                    onClick={() => loadReport(result.data, result.plan.report_prompt!)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 6,
+                      border: '1px solid #2563eb',
+                      background: '#fff',
+                      color: '#2563eb',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <FileText size={14} />
+                    Generate AI Report
+                  </button>
+                </div>
+              )}
               {reportLoading && (
                 <div className="panel" style={{ background: '#fafafa', animation: 'fadeIn 0.5s ease' }}>
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -9,6 +9,14 @@ import unicodedata
 from datetime import datetime, timedelta
 from typing import Optional, List
 
+# ---------------------------------------------------------------------------
+# Data year defaults — all GDELT data is 2024 only
+# ---------------------------------------------------------------------------
+DEFAULT_DATA_YEAR = "2024"
+DEFAULT_DATA_START = "2024-01-01"
+DEFAULT_DATA_END = "2024-12-31"
+DEFAULT_DATA_REFERENCE = "2024-01-31"
+
 
 def sanitize_text(text) -> str:
     """Clean illegal characters for safe JSON/markdown output."""
@@ -25,20 +33,25 @@ def sanitize_text(text) -> str:
 
 
 def parse_time_hint(time_hint: Optional[str]) -> tuple[str, str]:
-    """Parse time hint into (start_date, end_date) strings."""
-    end = datetime.now().date()
+    """Parse time hint into (start_date, end_date) strings.
+    All relative dates are anchored to DEFAULT_DATA_REFERENCE (2024)."""
+    ref = datetime.strptime(DEFAULT_DATA_REFERENCE, '%Y-%m-%d').date()
 
     if not time_hint:
-        start = end - timedelta(days=7)
+        start = ref - timedelta(days=7)
+        end = ref
     elif time_hint == 'today':
-        start = end
+        start = ref
+        end = ref
     elif time_hint == 'yesterday':
-        start = end - timedelta(days=1)
+        start = ref - timedelta(days=1)
         end = start
     elif time_hint == 'this_week':
-        start = end - timedelta(days=7)
+        start = ref - timedelta(days=7)
+        end = ref
     elif time_hint == 'this_month':
-        start = end - timedelta(days=30)
+        start = ref - timedelta(days=30)
+        end = ref
     elif len(time_hint) == 4 and time_hint.isdigit():
         start = datetime.strptime(time_hint + "-01-01", '%Y-%m-%d').date()
         end = datetime.strptime(time_hint + "-12-31", '%Y-%m-%d').date()
@@ -50,7 +63,8 @@ def parse_time_hint(time_hint: Optional[str]) -> tuple[str, str]:
             start = datetime.strptime(time_hint, '%Y-%m-%d').date()
             end = start
         except Exception:
-            start = end - timedelta(days=7)
+            start = ref - timedelta(days=7)
+            end = ref
 
     return start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
 

@@ -236,8 +236,8 @@ def _build_optimized_search_sql(
     
     inner_where += type_sql
     
-    # Use subquery pattern for exact matches (much faster), regular query for fuzzy
-    if actor_exact or location_exact:
+    # Use subquery pattern whenever we have filters (much faster), regular query for truly broad searches
+    if actor_exact or location_exact or location_hint or actor:
         sql = f"""
         SELECT
             e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
@@ -257,7 +257,7 @@ def _build_optimized_search_sql(
         """
         params = inner_params + [max_results]
     else:
-        # Fallback: regular query for fuzzy search (slower but flexible)
+        # Fallback: regular query for truly broad searches with no filters at all
         sql = f"""
         SELECT
             e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
@@ -272,19 +272,10 @@ def _build_optimized_search_sql(
         """
         params = [start_date, end_date]
         
-        if location_hint:
-            loc_sql, loc_p = _build_smart_location_condition(location_hint, None)
-            sql += loc_sql.replace("ActionGeo", "e.ActionGeo")
-            params.extend(loc_p)
-        
         sql += type_sql.replace("GoldsteinScale", "e.GoldsteinScale").replace("EventRootCode", "e.EventRootCode")
         
-        if actor:
-            sql += " AND (e.Actor1Name LIKE %s OR e.Actor2Name LIKE %s)"
-            params.extend([f"%{actor}%", f"%{actor}%"])
-        
         sql += """
-        ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+        ORDER BY e.NumArticles DESC
         LIMIT %s
         """
         params.append(max_results)
@@ -942,16 +933,20 @@ async def query_top_events(
 
     where_clause = " AND ".join(conditions)
 
+    # Use subquery for fast index usage + avoid filesort on full table
     sql = f"""
         SELECT
-            GlobalEventID, SQLDATE, Actor1Name, Actor2Name,
-            ActionGeo_FullName, ActionGeo_CountryCode,
-            EventRootCode, GoldsteinScale, NumArticles,
-            NumSources, AvgTone, SOURCEURL
-        FROM {DEFAULT_TABLE}
-        WHERE {where_clause}
-        ORDER BY NumArticles DESC, ABS(GoldsteinScale) DESC
-        LIMIT %s
+            e.GlobalEventID, e.SQLDATE, e.Actor1Name, e.Actor2Name,
+            e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            e.EventRootCode, e.GoldsteinScale, e.NumArticles,
+            e.NumSources, e.AvgTone, e.SOURCEURL
+        FROM (
+            SELECT GlobalEventID FROM {DEFAULT_TABLE}
+            WHERE {where_clause}
+            ORDER BY NumArticles DESC
+            LIMIT %s
+        ) ids
+        JOIN {DEFAULT_TABLE} e ON e.GlobalEventID = ids.GlobalEventID
     """
     params.append(top_n)
     return await pool.fetchall(sql, tuple(params))
