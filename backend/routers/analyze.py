@@ -76,6 +76,7 @@ async def analyze(request: AnalyzeRequest):
                 time_range=plan.time_range,
                 steps=[{"type": s.type, "params": s.params} for s in plan.steps],
                 visualizations=plan.visualizations,
+                report_prompt=plan.report_prompt,
                 notice=plan.notice,
             ),
             data=results,

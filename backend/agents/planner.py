@@ -255,6 +255,12 @@ class Planner:
         'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
         'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
     }
+    # Parse full dates: 2024-10-15, 2024/10/15, 10/15/2024, 20241015
+    _FULL_DATE_PATTERN = re.compile(
+        r'\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b|'
+        r'\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b|'
+        r'\b(\d{4})(\d{2})(\d{2})\b',
+    )
 
     def _rule_based_plan(self, query: str) -> Optional[QueryPlan]:
         """Fast rule-based planner for common patterns.
@@ -316,20 +322,31 @@ class Planner:
 
         # Extract time range
         start_date, end_date = None, None
-        my_match = self._MONTH_YEAR_PATTERN.search(query)
-        if my_match:
-            month_abbr = my_match.group(1).lower()[:3]
-            year = my_match.group(2)
-            month_num = self._MONTH_MAP.get(month_abbr, '01')
-            start_date = f"{year}-{month_num}-01"
-            # Compute month end
-            from datetime import datetime, timedelta
-            next_month = datetime.strptime(start_date, '%Y-%m-%d') + timedelta(days=32)
-            end_date = (next_month.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
-        elif self._TIME_MENTIONED.search(query):
-            # Has some time mention but not month+year — use full year as default
-            start_date = DEFAULT_DATA_START
-            end_date = DEFAULT_DATA_END
+        # Try full date first (e.g. 2024-10-15)
+        date_match = self._FULL_DATE_PATTERN.search(query)
+        if date_match:
+            if date_match.group(1):  # YYYY-MM-DD or YYYY/MM/DD
+                y, m, d = date_match.group(1), date_match.group(2).zfill(2), date_match.group(3).zfill(2)
+            elif date_match.group(4):  # MM/DD/YYYY
+                m, d, y = date_match.group(4).zfill(2), date_match.group(5).zfill(2), date_match.group(6)
+            else:  # YYYYMMDD
+                y, m, d = date_match.group(7), date_match.group(8), date_match.group(9)
+            start_date = end_date = f"{y}-{m}-{d}"
+        else:
+            my_match = self._MONTH_YEAR_PATTERN.search(query)
+            if my_match:
+                month_abbr = my_match.group(1).lower()[:3]
+                year = my_match.group(2)
+                month_num = self._MONTH_MAP.get(month_abbr, '01')
+                start_date = f"{year}-{month_num}-01"
+                # Compute month end
+                from datetime import datetime, timedelta
+                next_month = datetime.strptime(start_date, '%Y-%m-%d') + timedelta(days=32)
+                end_date = (next_month.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
+            elif self._TIME_MENTIONED.search(query):
+                # Has some time mention but not month+year — use full year as default
+                start_date = DEFAULT_DATA_START
+                end_date = DEFAULT_DATA_END
 
         # If we have (time+location) or (time+event_type) or (location+event_type), use events directly
         has_time = start_date is not None
