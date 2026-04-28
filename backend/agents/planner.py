@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
-
+from backend.queries.query_utils import DEFAULT_DATA_START, DEFAULT_DATA_END
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +40,7 @@ class QueryPlan(BaseModel):
     steps: List[QueryStep] = Field(..., description="Ordered list of queries to execute")
     visualizations: List[str] = Field(..., description="Recommended visualizations: stats_cards, timeline, map, heatmap, event_table, report")
     report_prompt: Optional[str] = Field(None, description="Optional prompt for AI report generation")
+    notice: Optional[str] = Field(None, description="User-facing notice about query optimization")
 
 
 class ReportResult(BaseModel):
@@ -99,7 +100,7 @@ def build_llm(config: Optional[Dict[str, Any]] = None) -> ChatOpenAI:
         base_url=provider_cfg["base_url"],
         model=provider_cfg["model"],
         temperature=0.1,
-        max_tokens=2048,
+        max_tokens=4096,
         http_async_client=http_async_client,
     )
 
@@ -108,50 +109,45 @@ def build_llm(config: Optional[Dict[str, Any]] = None) -> ChatOpenAI:
 # Planner
 # ---------------------------------------------------------------------------
 
-PLANNER_SYSTEM_PROMPT = """You are GDELT AI Analyst. Your job is to understand the user's request, decide which data tools to use, and explain your reasoning.
-
-Output ONLY raw JSON. Do NOT use markdown, do NOT wrap in code blocks.
+PLANNER_SYSTEM_PROMPT = """You are GDELT AI Analyst. Pick the best data tools for the user's request. Output ONLY raw JSON.
 
 JSON schema:
 {
-  "thinking": "Your reasoning: what the user wants, why you chose these tools, what you expect to find",
-  "intent": "short description of user intent",
+  "thinking": "1-sentence reasoning",
+  "intent": "short description",
   "time_range": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} or null,
-  "steps": [
-    {"type": "QUERY_TYPE", "params": {...}}
-  ],
+  "steps": [{"type": "QUERY_TYPE", "params": {...}}],
   "visualizations": ["event_table", "report"],
-  "report_prompt": "prompt for AI analysis of the results"
+  "report_prompt": "prompt for AI analysis"
 }
 
-Available tools:
-- events: {query, start_date, end_date, location_hint, event_type, actor, limit} — broad keyword/actor/region search
-- event_detail: {fingerprint} — specific event by fingerprint or EVT-ID
-- similar_events: {seed_event_id} — find similar events (pair with event_detail)
-- hot_events: {query_date, top_n} — hottest events on a single day (pre-computed or real-time)
-- top_events: {start_date, end_date, region_filter, event_type, top_n} — top events across a date range
-- daily_brief: {query_date} — daily summary statistics
+Tools:
+- events: {query, start_date, end_date, location_hint, event_type, actor, limit} — broad search
+- event_detail: {fingerprint} — specific event by EVT-ID
+- similar_events: {seed_event_id} — similar to an event (pair with event_detail)
+- hot_events: {query_date, top_n} — hottest single-day events
+- top_events: {start_date, end_date, region_filter, event_type, top_n} — top events across range
+- daily_brief: {query_date} — daily summary stats
+- dashboard: {start_date, end_date} — multi-dimensional overview (stats, trends, actors, regions)
+- timeseries: {start_date, end_date, granularity} — time series aggregation (day/week/month)
+- geo: {start_date, end_date, precision} — geographic heatmap data
+- regional_overview: {start_date, end_date, region} — region-specific situation summary
 
 Date rules:
 - "last month" = previous calendar month
 - "this week" = current Mon-Sun
 - "recently" or no time = last 30 days
 - "Feb 2024" = 2024-02-01 to 2024-02-29
-- "2024年1月15日" = 2024-01-15
-- "2024年1月" = 2024-01-01 to 2024-01-31
+- "Q3 2024" = 2024-07-01 to 2024-09-30
+- All data is 2024 only.
 
-Off-topic detection:
-- If the user says "hello", "hi", "thanks", or anything completely unrelated to geopolitical events, return:
-  {"thinking": "User is greeting or off-topic", "intent": "off_topic", "time_range": null, "steps": [], "visualizations": [], "report_prompt": null}
+Off-topic → {"intent": "off_topic", "steps": [], "visualizations": []}
 
 Rules:
-- Always include "thinking" — explain your tool selection clearly.
-- Max 2 steps. Chain event_detail → similar_events when user asks about a specific event.
-- For single-day hot event queries, use "hot_events" tool.
-- For date-range top event queries, use "top_events" tool.
-- For broad searches, use "events" tool.
-- Always include "report" in visualizations.
-- report_prompt should ask the AI to analyze and summarize the events found."""
+- thinking: 1 sentence max.
+- Max 2 steps.
+- dashboard for overview/stats requests; timeseries for trend over time; geo for map/location requests.
+- Always include "report" in visualizations."""
 
 
 def _extract_json(text: str) -> Optional[Dict]:
@@ -191,6 +187,7 @@ def _normalize_plan(raw: Dict) -> QueryPlan:
         steps=steps,
         visualizations=raw.get("visualizations", ["event_table", "report"]),
         report_prompt=raw.get("report_prompt"),
+        notice=raw.get("notice"),
     )
 
 
@@ -205,10 +202,63 @@ class Planner:
         r'^(hi+|hello|hey|thanks?|thank you|ok+|bye|goodbye|see you|[?]+)\s*$',
         re.IGNORECASE
     )
+    # Detect if user explicitly mentions a time range (month, year, date, "this week", etc.)
+    _TIME_MENTIONED = re.compile(
+        r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|'
+        r'\b\d{4}\b|'
+        r'\b(this|last|past)\s+(week|month|year|day)\b|'
+        r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|'
+        r'\byesterday\b|\btoday\b',
+        re.IGNORECASE,
+    )
+    # Extract location from "... in/at <place>" — months also act as terminators
+    _LOCATION_PATTERN = re.compile(
+        r'\b(?:in|at|near|around)\s+([A-Z][A-Za-z\s,]+?)(?=\s+(?:in\s+\d{4}|this\s+|last\s+|'
+        r'(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|\?|$)|$)',
+        re.IGNORECASE,
+    )
+    # Detect event type keywords
+    _EVENT_TYPE_KEYWORDS = {
+        'protest': re.compile(r'\bprotest', re.IGNORECASE),
+        'conflict': re.compile(r'\bconflict|attack|war|fight', re.IGNORECASE),
+        'cooperation': re.compile(r'\bcooperat|agreement|treaty|aid|help', re.IGNORECASE),
+    }
+
+    # Detect specific event ID patterns (EVT-... or raw numeric ID)
+    _EVENT_ID_PATTERN = re.compile(
+        r'^(EVT-\d{4}-\d{2}-\d{2}-\d+)\b|'
+        r'^\d{9,12}\b',
+        re.IGNORECASE,
+    )
+    # Known locations for direct word-boundary matching (no "in" prefix needed)
+    _KNOWN_LOCATIONS = re.compile(
+        r'\b(California|Texas|Florida|New York|Washington DC|Washington|Illinois|Pennsylvania|Ohio|'
+        r'Georgia|North Carolina|Virginia|Michigan|Massachusetts|Arizona|Colorado|Minnesota|Wisconsin|'
+        r'Maryland|Missouri|Tennessee|Indiana|Nevada|Oregon|Utah|Louisiana|Alabama|Kentucky|'
+        r'Connecticut|Oklahoma|Iowa|Arkansas|Mississippi|Kansas|New Mexico|Nebraska|'
+        r'West Virginia|Idaho|Hawaii|New Hampshire|Maine|Montana|Rhode Island|Delaware|'
+        r'South Dakota|North Dakota|Alaska|Vermont|Wyoming|DC|'
+        r'Los Angeles|Chicago|Houston|San Francisco|Seattle|Boston|Miami|Dallas|Philadelphia|'
+        r'Atlanta|Denver|Phoenix|Detroit|Nashville|Portland|San Diego|Austin|New Orleans|'
+        r'Las Vegas|Memphis|Louisville|Buffalo|Baltimore|Milwaukee|Tampa|Orlando|'
+        r'Sacramento|Long Beach|Oakland|Canada|Mexico|United States|USA|US|'
+        r'Ukraine|Gaza|Israel|China|Russia|UK|France|Germany|Japan|India|Australia|Brazil|'
+        r'Europe|Asia|Africa|Middle East)\b',
+        re.IGNORECASE,
+    )
+    # Parse month+year like "march 2024" or "feb 2024"
+    _MONTH_YEAR_PATTERN = re.compile(
+        r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})\b',
+        re.IGNORECASE,
+    )
+    _MONTH_MAP = {
+        'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
+        'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
+    }
 
     def _rule_based_plan(self, query: str) -> Optional[QueryPlan]:
-        """Minimal rule-based guard: only handle obvious off-topic greetings.
-        Everything else goes to LLM for intelligent tool selection."""
+        """Fast rule-based planner for common patterns.
+        Only sends to LLM for genuinely complex/ambiguous queries."""
         q = query.lower().strip()
         if len(q) < 3 or self._GREETING_PATTERNS.match(q):
             return QueryPlan(
@@ -218,7 +268,90 @@ class Planner:
                 visualizations=[],
                 report_prompt=None,
             )
-        # Let LLM handle all real queries
+
+        # Fast path: specific event ID lookup (no LLM needed — direct DB hit)
+        evt_match = self._EVENT_ID_PATTERN.search(query.strip())
+        if evt_match:
+            fingerprint = evt_match.group(1) or evt_match.group(0)
+            if fingerprint.upper().startswith('EVT-'):
+                try:
+                    seed_id = int(fingerprint.split('-')[-1])
+                except ValueError:
+                    seed_id = None
+            else:
+                seed_id = int(fingerprint)
+            steps = [QueryStep(type="event_detail", params={"fingerprint": fingerprint})]
+            if seed_id:
+                steps.append(QueryStep(type="similar_events", params={"seed_event_id": seed_id, "limit": 10}))
+            return QueryPlan(
+                intent="event_detail_lookup",
+                thinking="User provided a specific event ID — retrieving event details + similar events.",
+                steps=steps,
+                visualizations=["event_table", "report"],
+                report_prompt=f"Summarize this specific GDELT event ({fingerprint}) and highlight related events.",
+            )
+
+        # Extract location (with or without "in" prefix)
+        location_hint = None
+        loc_match = self._LOCATION_PATTERN.search(query)
+        if loc_match:
+            location_hint = loc_match.group(1).strip()
+        else:
+            # Fallback: direct word-boundary match for known places
+            loc_fallback = self._KNOWN_LOCATIONS.search(query)
+            if loc_fallback:
+                location_hint = loc_fallback.group(1)
+        # Strip trailing prepositions that may have been captured
+        if location_hint:
+            location_hint = re.sub(r'\s+(in|at|near|around|on|during|for|from|to|of|with)$', '', location_hint, flags=re.IGNORECASE).strip()
+        if location_hint and location_hint.lower() in ('dc', 'washington dc', 'washington, dc'):
+            location_hint = 'Washington DC'
+
+        # Extract event type
+        event_type = None
+        for etype, pat in self._EVENT_TYPE_KEYWORDS.items():
+            if pat.search(query):
+                event_type = etype
+                break
+
+        # Extract time range
+        start_date, end_date = None, None
+        my_match = self._MONTH_YEAR_PATTERN.search(query)
+        if my_match:
+            month_abbr = my_match.group(1).lower()[:3]
+            year = my_match.group(2)
+            month_num = self._MONTH_MAP.get(month_abbr, '01')
+            start_date = f"{year}-{month_num}-01"
+            # Compute month end
+            from datetime import datetime, timedelta
+            next_month = datetime.strptime(start_date, '%Y-%m-%d') + timedelta(days=32)
+            end_date = (next_month.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
+        elif self._TIME_MENTIONED.search(query):
+            # Has some time mention but not month+year — use full year as default
+            start_date = DEFAULT_DATA_START
+            end_date = DEFAULT_DATA_END
+
+        # If we have (time+location) or (time+event_type) or (location+event_type), use events directly
+        has_time = start_date is not None
+        if (has_time and location_hint) or (has_time and event_type) or (location_hint and event_type):
+            params: Dict[str, Any] = {
+                "limit": 50,
+                "start_date": start_date or DEFAULT_DATA_START,
+                "end_date": end_date or DEFAULT_DATA_END,
+            }
+            if location_hint:
+                params["location_hint"] = location_hint
+            if event_type:
+                params["event_type"] = event_type
+            return QueryPlan(
+                intent=f"events_{event_type or 'all'}_{location_hint or 'global'}",
+                thinking="Direct events search based on extracted location/time/event type.",
+                steps=[QueryStep(type="events", params=params)],
+                visualizations=["event_table", "report"],
+                report_prompt=f"Summarize {event_type or 'events'} {f'in {location_hint}' if location_hint else ''} from {params['start_date']} to {params['end_date']}.",
+            )
+
+        # Ambiguous — let LLM handle
         return None
 
     async def plan(self, user_query: str) -> QueryPlan:
@@ -239,13 +372,39 @@ class Planner:
             print(f"[Planner] Rule-based plan: {fast_plan.intent} with {len(fast_plan.steps)} steps", flush=True)
             return fast_plan
 
+        # Extract context for LLM (location, time, event type)
+        has_time = bool(self._TIME_MENTIONED.search(stripped))
+        loc_match = self._LOCATION_PATTERN.search(stripped)
+        location_hint = loc_match.group(1).strip() if loc_match else None
+        if location_hint and location_hint.lower() in ('dc', 'washington dc', 'washington, dc'):
+            location_hint = 'Washington DC'
+        event_type = None
+        for etype, pat in self._EVENT_TYPE_KEYWORDS.items():
+            if pat.search(stripped):
+                event_type = etype
+                break
+        
+        context_parts = []
+        if has_time:
+            context_parts.append("User mentioned a time range.")
+        if location_hint:
+            context_parts.append(f"Detected location: {location_hint}.")
+        if event_type:
+            context_parts.append(f"Detected event type: {event_type}.")
+        context_str = "\n".join(context_parts) if context_parts else ""
+        
+        user_msg = f'User request: "{user_query}"'
+        if context_str:
+            user_msg += f"\n\nExtracted context:\n{context_str}"
+        user_msg += "\n\nRespond with ONLY raw JSON:"
+        
         messages = [
             SystemMessage(content=PLANNER_SYSTEM_PROMPT),
-            HumanMessage(content=f'User request: "{user_query}"\n\nRespond with ONLY raw JSON:'),
+            HumanMessage(content=user_msg),
         ]
         
         try:
-            response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=35.0)
+            response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=120.0)
             content = response.content if hasattr(response, "content") else str(response)
             print(f"[Planner] raw response length: {len(content)}", flush=True)
             
@@ -258,22 +417,24 @@ class Planner:
             return plan
             
         except asyncio.TimeoutError:
-            print(f"[Planner] LLM timeout after 35s, using fallback plan", flush=True)
+            print(f"[Planner] LLM timeout after 120s, using fallback plan", flush=True)
             return QueryPlan(
                 intent="fallback_search",
-                thinking="LLM planner timed out. Falling back to broad keyword search.",
-                steps=[QueryStep(type="events", params={"query": user_query, "limit": 20})],
+                thinking="LLM planner timed out. Falling back to top events search.",
+                steps=[QueryStep(type="top_events", params={"top_n": 20, "start_date": DEFAULT_DATA_START, "end_date": DEFAULT_DATA_END})],
                 visualizations=["event_table", "report"],
-                report_prompt=f"Search results for: {user_query}",
+                report_prompt=f"Top events for: {user_query}",
+                notice="Planner timed out. Showing top-ranked events across the full dataset (fast mode). Add a month or date for more precise results.",
             )
         except Exception as e:
             print(f"[Planner] failed: {e}, using fallback plan", flush=True)
             return QueryPlan(
                 intent="fallback_search",
-                thinking=f"Planner error: {str(e)[:100]}. Falling back to broad keyword search.",
-                steps=[QueryStep(type="events", params={"query": user_query, "limit": 20})],
+                thinking=f"Planner error: {str(e)[:100]}. Falling back to top events search.",
+                steps=[QueryStep(type="top_events", params={"top_n": 20, "start_date": DEFAULT_DATA_START, "end_date": DEFAULT_DATA_END})],
                 visualizations=["event_table", "report"],
-                report_prompt=f"Search results for: {user_query}",
+                report_prompt=f"Top events for: {user_query}",
+                notice="Planner error. Showing top-ranked events across the full dataset (fast mode). Add a month or date for more precise results.",
             )
 
 
@@ -281,35 +442,18 @@ class Planner:
 # Report Generator
 # ---------------------------------------------------------------------------
 
-REPORT_SYSTEM_PROMPT = """You are GDELT Report Generator. Write a concise executive summary based on structured event data.
+REPORT_SYSTEM_PROMPT = """You are a GDELT data analyst. Write a concise report based on the event data provided.
 
-Guidelines:
-- 2-3 paragraphs max
-- Cite specific numbers, dates, actor names
-- Highlight patterns and significance
-- If data is sparse, say so
-- Output MUST be valid JSON matching this exact schema:
-{"summary": "Executive summary text here...", "key_findings": ["Finding 1", "Finding 2"]}"""
-
-REPORT_SYSTEM_PROMPT_RAW = """You are GDELT Report Generator. Write a concise executive summary based on structured event data.
-
-Guidelines:
-- 2-3 paragraphs max
-- Cite specific numbers, dates, actor names
-- Highlight patterns and significance
-- If data is sparse, say so
-- Output ONLY raw JSON. Do NOT use markdown code blocks.
-Schema: {"summary": "...", "key_findings": ["...", "..."]}"""
+Rules:
+- Output plain text / markdown. Do NOT use JSON.
+- 2-4 short paragraphs max.
+- Cite specific numbers, dates, locations, and actor names from the data.
+- If the data is empty or sparse, say so directly.
+- No long preamble or meta-commentary. Start with the analysis immediately."""
 
 
 class ReportGenerator:
-    """Generates natural language reports from structured JSON data.
-
-    Uses a three-layer strategy for maximum robustness:
-    1. Native structured output (JSON mode / function calling) — most reliable
-    2. Raw LLM + regex JSON extraction — fallback for older models
-    3. Plain text extraction — ultimate fallback so user always gets something
-    """
+    """Generates natural language reports from structured JSON data."""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.llm = build_llm(config)
@@ -318,69 +462,61 @@ class ReportGenerator:
         """Generate a report from query results."""
         # Truncate large data to avoid token limits
         data_str = json.dumps(data, default=str, ensure_ascii=False)
-        if len(data_str) > 6000:
-            data_str = data_str[:6000] + "\n... [truncated]"
+        if len(data_str) > 8000:
+            data_str = data_str[:8000] + "\n... [truncated]"
 
         user_prompt = prompt or "Summarize the key insights from this GDELT data."
 
-        # ------------------------------------------------------------------
-        # Layer 1: Native structured output (best reliability)
-        # ------------------------------------------------------------------
-        try:
-            structured_llm = self.llm.with_structured_output(
-                ReportResult,
-                method="json_mode",
-                include_raw=False,
-            )
-            messages = [
-                SystemMessage(content=REPORT_SYSTEM_PROMPT),
-                HumanMessage(content=f"{user_prompt}\n\nData:\n{data_str}"),
-            ]
-            result = await asyncio.wait_for(structured_llm.ainvoke(messages), timeout=30.0)
-            if result and (result.summary or result.key_findings):
-                print("[ReportGenerator] Layer 1 (structured output) succeeded", flush=True)
-                return result
-        except Exception as e:
-            print(f"[ReportGenerator] Layer 1 failed: {e}", flush=True)
+        messages = [
+            SystemMessage(content=REPORT_SYSTEM_PROMPT),
+            HumanMessage(content=f"{user_prompt}\n\nData:\n{data_str}\n\nWrite a concise report:"),
+        ]
 
-        # ------------------------------------------------------------------
-        # Layer 2: Raw LLM + regex JSON extraction
-        # ------------------------------------------------------------------
         try:
-            messages = [
-                SystemMessage(content=REPORT_SYSTEM_PROMPT_RAW),
-                HumanMessage(content=f"{user_prompt}\n\nData:\n{data_str}\n\nRespond with ONLY raw JSON:"),
-            ]
-            response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=30.0)
+            response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=60.0)
             content = response.content if hasattr(response, "content") else str(response)
+            text = content.strip() if content else ""
 
-            raw = _extract_json(content)
-            if raw is not None:
-                print("[ReportGenerator] Layer 2 (regex extraction) succeeded", flush=True)
+            # Clean up markdown code blocks if any
+            text = re.sub(r'^```.*?\n', '', text, flags=re.DOTALL)
+            text = re.sub(r'\n```$', '', text)
+
+            if not text:
+                # Fallback: try reasoning_content if content is empty (kimi k2 behavior)
+                text = getattr(response, 'reasoning_content', '') or ""
+                text = text.strip()
+
+            if not text:
                 return ReportResult(
-                    summary=raw.get("summary", ""),
-                    key_findings=raw.get("key_findings", []),
+                    summary="No report content was generated.",
+                    key_findings=[],
                 )
 
-            # If regex fails, try to use the raw text as summary
-            print("[ReportGenerator] Layer 2: JSON not found, using raw text fallback", flush=True)
-            summary_text = content.strip()
-            # Clean up common markdown wrappers if present
-            summary_text = re.sub(r'^```.*?\n', '', summary_text, flags=re.DOTALL)
-            summary_text = re.sub(r'\n```$', '', summary_text)
-            if len(summary_text) > 4000:
-                summary_text = summary_text[:4000] + "... [truncated]"
+            # Split into summary + bullet findings
+            lines = [l.strip() for l in text.split('\n') if l.strip()]
+            summary_lines = []
+            findings = []
+            in_findings = False
+            for line in lines:
+                if line.lower().startswith(('key finding', 'findings', 'highlights', '- ')):
+                    in_findings = True
+                if in_findings and (line.startswith('- ') or line.startswith('* ')):
+                    findings.append(line[2:].strip())
+                elif in_findings:
+                    findings.append(line)
+                else:
+                    summary_lines.append(line)
+
+            summary = '\n'.join(summary_lines) if summary_lines else text
+            if len(summary) > 4000:
+                summary = summary[:4000] + "..."
+
+            print(f"[ReportGenerator] Generated report: {len(summary)} chars summary, {len(findings)} findings", flush=True)
+            return ReportResult(summary=summary, key_findings=findings)
+
+        except Exception as e:
+            print(f"[ReportGenerator] Failed: {e}", flush=True)
             return ReportResult(
-                summary=summary_text or "Report returned empty content.",
+                summary="Unable to generate AI report at this time. The analysis data is still available above.",
                 key_findings=[],
             )
-        except Exception as e:
-            print(f"[ReportGenerator] Layer 2 failed: {e}", flush=True)
-
-        # ------------------------------------------------------------------
-        # Layer 3: Ultimate fallback — never crash the endpoint
-        # ------------------------------------------------------------------
-        return ReportResult(
-            summary="Unable to generate AI report at this time. The analysis data is still available above.",
-            key_findings=[],
-        )

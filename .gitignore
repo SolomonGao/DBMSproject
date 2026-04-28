@@ -53,3 +53,5 @@ chroma_db/
 db_scripts/sync_progress.txt
 
 node_modules/
+
+models/

@@ -1,22 +1,27 @@
-# GDELT Analysis Platform v2.0
+# GDELT Analysis Platform
 
-> **Dashboard + AI Chat** for GDELT 2.0 North American event analysis.
+> AI-driven event exploration, dashboard visualization, and forecasting for GDELT 2.0 North America.
 
-## What's New in v2.0
+## What’s New
 
-- **Dashboard**: Direct data visualization (time series, maps, stats) — no waiting for LLM
-- **AI Analyst Chat**: LangGraph-powered ReAct agent with tool-calling and memory
-- **FastAPI Backend**: Modern async API with auto-generated docs (`/docs`)
-- **React Frontend**: Vite + TypeScript + ECharts + Leaflet
-- **Dual-path architecture**: Data APIs bypass LLM entirely for <200ms response times
+- **Tabbed React frontend** with `AI Explore`, `Forecast`, and `Dashboard` views
+- **FastAPI backend** serving both fast data APIs and LLM-assisted analysis
+- **Dual-path design**:
+  - `/api/v1/data/*` for direct structured dashboard data
+  - `/api/v1/analyze` for AI query planning + execution
+- **Two-stage report generation**:
+  - `POST /api/v1/analyze` returns plan + data quickly
+  - `POST /api/v1/analyze/report` generates natural language report lazily
+- **Forecast service** based on Transformer-Hawkes event risk estimation
+- **Shared SQL layer** in `backend/queries/core_queries.py`
 
 ## Architecture
 
-```
-Frontend (React)  →  FastAPI  →  Data Service (DB)   ← Dashboard
-                           ↓
-                     LangGraph Agent  →  MCP Server  ← Chat
-```
+The current architecture separates fast analytics from AI-driven reasoning.
+
+- `Dashboard` uses direct DB queries and structured JSON for charts.
+- `AI Explore` uses an LLM-based planner and executor to map natural language to data queries.
+- Report generation is deferred until after analysis, so UI remains responsive.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 
@@ -30,33 +35,32 @@ pip install -r requirements.txt
 
 ### 2. Configure Environment
 
-Copy `.env` and set your LLM API key:
+Create a `.env` file in the project root and set database and optional LLM values:
 
 ```bash
-# Required for Chat Agent
-LLM_PROVIDER=kimi              # or moonshot, claude, openai
-KIMI_CODE_API_KEY=sk-xxx       # or MOONSHOT_API_KEY, ANTHROPIC_API_KEY, etc.
-
-# Database (same as before)
-DB_HOST=db
+DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=rootpassword
 DB_NAME=gdelt_db
+
+LLM_PROVIDER=kimi
+KIMI_CODE_API_KEY=sk-xxx
+# or MOONSHOT_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY
 ```
 
-### 3. Start the Backend
+### 3. Start Backend
 
 ```bash
 python run_backend.py
 ```
 
-Server will be available at:
-- **API**: http://localhost:8000
-- **Docs**: http://localhost:8000/docs
-- **Health**: http://localhost:8000/health
+Available endpoints:
+- API: `http://localhost:8000`
+- Docs: `http://localhost:8000/docs`
+- Health: `http://localhost:8000/health`
 
-### 4. Start the Frontend (optional)
+### 4. Start Frontend
 
 ```bash
 cd frontend
@@ -64,80 +68,92 @@ npm install
 npm run dev
 ```
 
-Frontend will be at http://localhost:5173 with proxy to backend.
+Frontend will be available at `http://localhost:5173`.
 
 ## API Endpoints
 
-### Data Routes (`/api/v1/data/*`) — Dashboard
+### Data Routes (`/api/v1/data/*`)
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /dashboard?start=&end=` | 5-dimension stats + trends |
-| `GET /timeseries?start=&end=&granularity=` | Time series data |
-| `GET /geo?start=&end=&precision=` | Geo heatmap grid |
-| `GET /events?query=&limit=` | Event search |
-| `GET /health` | DB + cache health |
+| `GET /api/v1/data/dashboard?start=&end=` | Dashboard metrics, top actors, and trends |
+| `GET /api/v1/data/timeseries?start=&end=&granularity=` | Event time series aggregation |
+| `GET /api/v1/data/geo?start=&end=&precision=` | Geo heatmap grid points |
+| `GET /api/v1/data/events?query=&limit=` | Structured event search |
+| `GET /api/v1/data/geo/events?start=&end=&limit=` | Event point data for maps |
+| `GET /api/v1/data/suggestions/actors?q=&limit=` | Actor autocomplete suggestions |
+| `GET /api/v1/data/suggestions/locations?q=&limit=` | Location autocomplete suggestions |
+| `GET /api/v1/data/forecast?start=&end=&region=&actor=&event_type=&forecast_days=` | Event risk forecast |
+| `GET /api/v1/data/health` | Service health status |
 
-### Agent Routes (`/api/v1/agent/*`) — Chat
+### Analyze Routes (`/api/v1/analyze`)
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /chat` | Natural language chat with tools |
-| `GET /tools` | List available agent tools |
+| `POST /api/v1/analyze` | Natural language analysis plan + query execution |
+| `POST /api/v1/analyze/report` | Generate AI report from analysis results |
 
 ## Project Structure
 
 ```
 DBMSproject/
-├── backend/              # FastAPI application
-│   ├── main.py           # Entry point
-│   ├── routers/
-│   │   ├── data.py       # Dashboard endpoints
-│   │   └── agent.py      # Chat endpoints
-│   ├── services/
-│   │   └── data_service.py
-│   ├── agents/
-│   │   └── gdelt_agent.py   # LangGraph ReAct agent
-│   └── schemas/
-│       └── responses.py
+├── backend/                    # FastAPI application
+│   ├── main.py                 # App factory, lifespan, CORS
+│   ├── dependencies.py         # DI helpers
+│   ├── queries/                # Shared SQL/query layer
+│   │   └── core_queries.py
+│   ├── routers/                # API endpoint definitions
+│   │   ├── analyze.py
+│   │   └── data.py
+│   ├── schemas/                # Pydantic models
+│   │   └── responses.py
+│   ├── services/               # Business logic and DB wrappers
+│   │   ├── data_service.py
+│   │   ├── executor.py
+│   │   └── thp_service.py
+│   └── agents/                 # Planner + report generator
+│       └── planner.py
 │
-├── frontend/             # React Dashboard
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── components/
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── ChatPanel.tsx
-│   │   │   ├── TimeSeriesChart.tsx
-│   │   │   └── MapPanel.tsx
-│   │   └── api/client.ts
-│   └── package.json
+├── frontend/                   # React frontend
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tsconfig.json
+│   ├── index.html
+│   └── src/
+│       ├── App.tsx
+│       ├── api/client.ts
+│       ├── components/
+│       │   ├── ExplorePanel.tsx
+│       │   ├── Dashboard.tsx
+│       │   ├── ForecastWorkspace.tsx
+│       │   └── ReportPanel.tsx
+│       └── types/index.ts
 │
-├── mcp_server/           # Preserved MCP server
-│   └── app/tools/core_tools_v2.py
-│
-├── run_backend.py        # Launch script
-├── ARCHITECTURE.md       # Design docs
-└── requirements.txt
+├── mcp_server/                 # Optional legacy MCP tool server
+│   └── app/
+│       ├── queries/core_queries.py
+│       └── tools/core_tools_v2.py
+├── run_backend.py              # Launch FastAPI server
+├── requirements.txt            # Python dependencies
+├── pyproject.toml              # Project metadata
+├── ARCHITECTURE.md             # Architecture documentation
+└── README.md                   # This file
 ```
 
-## Legacy Components
-
-- `mcp_server/` — MCP server unchanged; can run independently
-- `frontend/` — React Dashboard + Chat UI (Vite + TypeScript)
-
-## Tech Stack
+## Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
-| API Server | FastAPI + Uvicorn |
-| Agent | LangGraph + LangChain OpenAI |
-| Database | MySQL + aiomysql pool |
-| Cache | Custom LRU+TTL |
-| Frontend | React 18 + Vite + TypeScript |
-| Charts | Apache ECharts |
-| Maps | Leaflet + react-leaflet |
-| Vector DB | ChromaDB + sentence-transformers |
+| Backend | Python 3.13, FastAPI, aiomysql |
+| Query Layer | MySQL, shared SQL layer in `backend/queries/core_queries.py` |
+| AI Planner | LLM-based planner + report generator |
+| Forecast | Transformer-Hawkes forecasting service |
+| Frontend | React 18, Vite, TypeScript |
+| Visualization | ECharts, Leaflet |
 
-## License
+## Notes
 
-Virginia Tech DBMS Project
+- `AI Explore` is the primary natural language discovery experience.
+- `Dashboard` is built for fast chart rendering with structured JSON.
+- `Forecast` provides risk estimation from historical event sequences.
+- `mcp_server/` is preserved for optional use but is not required for the core FastAPI backend.
