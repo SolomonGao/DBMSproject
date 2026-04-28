@@ -1,7 +1,7 @@
 """
 GDELT Planner + Report Generator
 
-Planner: Understands user intent and generates a structured query plan.
+Planner: Hybrid routing with local Ollama router (qwen2.5:3b) + rule-based fast path + remote LLM tool execution.
 Report Generator: Summarizes JSON data into natural language insights.
 
 Both use LangChain ChatOpenAI for LLM integration.
@@ -11,6 +11,7 @@ import os
 import json
 import re
 import asyncio
+from datetime import datetime, timedelta
 
 from typing import List, Dict, Any, Optional
 
@@ -106,6 +107,143 @@ def build_llm(config: Optional[Dict[str, Any]] = None) -> ChatOpenAI:
 
 
 # ---------------------------------------------------------------------------
+# JSON Extraction Helper
+# ---------------------------------------------------------------------------
+
+def _extract_json(text: str) -> Optional[Dict]:
+    """Extract JSON from LLM response, handling markdown code blocks."""
+    text = text.strip()
+    
+    # Try to find JSON in markdown code block
+    match = re.search(r'```(?:json)?\s*(\{.*?)\s*```', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+    
+    # Try to find raw JSON object
+    match = re.search(r'(\{.*\})', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+    
+    return None
+
+
+def _normalize_plan(raw: Dict) -> QueryPlan:
+    """Normalize raw dict to QueryPlan, handling alias variations."""
+    steps = []
+    for s in raw.get("steps", []):
+        step_type = s.get("type") or s.get("query_type") or "events"
+        steps.append(QueryStep(type=step_type, params=s.get("params", {})))
+    
+    return QueryPlan(
+        intent=raw.get("intent", "unknown"),
+        thinking=raw.get("thinking"),
+        time_range=raw.get("time_range"),
+        steps=steps,
+        visualizations=raw.get("visualizations", ["event_table", "report"]),
+        report_prompt=raw.get("report_prompt"),
+        notice=raw.get("notice"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Local Ollama Router (qwen2.5:3b)
+# ---------------------------------------------------------------------------
+
+class OllamaRouter:
+    """Fast local intent router using qwen2.5:3b via Ollama.
+    
+    Routes queries to one of three categories:
+    - rule_base: Simple lookups with explicit filters (time, location, event type, ID)
+    - llm_tools: Complex queries requiring reasoning/comparison/synthesis
+    - off_topic: Greetings, small talk, unrelated questions
+    """
+
+    OLLAMA_URL = "http://localhost:11434/api/generate"
+    MODEL = "qwen2.5:3b"
+
+    SYSTEM_PROMPT = """You are a query classifier for a GDELT event analysis system. Your job is to route user queries to the correct handler.
+
+Classify into exactly one category:
+- rule_base: Simple, direct data lookups with explicit filters (time, location, event type, event ID). The answer can be fetched directly from database without reasoning.
+  Examples: "protest events in DC in January 2024", "hottest event in New York on 2024-01-15", "daily brief for March 1 2024", "event EVT-2024-01-15-12345", "dashboard for last week", "conflicts in Texas", "map of events in California", "situation in Ukraine"
+- llm_tools: Complex queries requiring reasoning, comparison, synthesis, or explanation. These need a large language model to analyze.
+  Examples: "what trends do you see in the data", "compare US-China relations over time", "why did events spike in March", "analyze the geopolitical situation", "what is the relationship between protests and cooperation", "what do these events tell us about the future"
+- off_topic: Greetings, thanks, small talk, or completely unrelated to GDELT events.
+  Examples: "hello", "thank you", "what's your name", "tell me a joke", "how's the weather"
+
+Respond with ONLY a JSON object in this exact format:
+{"category":"rule_base|llm_tools|off_topic","confidence":"high|medium|low"}
+
+No other text. Just the JSON."""
+
+    def __init__(self):
+        self._client: Optional[httpx.AsyncClient] = None
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=2.0))
+        return self._client
+
+    async def classify(self, query: str) -> tuple[str, str]:
+        """Classify query. Returns (category, confidence).
+        Falls back to ('llm_tools', 'low') on any error.
+        """
+        prompt = f"{self.SYSTEM_PROMPT}\n\nUser: \"{query}\"\nCategory:"
+        try:
+            resp = await self.client.post(
+                self.OLLAMA_URL,
+                json={
+                    "model": self.MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.0, "num_predict": 80},
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = data.get("response", "").strip()
+            
+            # Extract JSON
+            raw = _extract_json(text)
+            if raw is None:
+                # Fallback: scan for category name in raw text
+                text_lower = text.lower()
+                if "rule_base" in text_lower:
+                    return "rule_base", "medium"
+                elif "off_topic" in text_lower:
+                    return "off_topic", "medium"
+                else:
+                    return "llm_tools", "medium"
+            
+            category = raw.get("category", "llm_tools")
+            confidence = raw.get("confidence", "medium")
+            
+            # Validate
+            if category not in ("rule_base", "llm_tools", "off_topic"):
+                category = "llm_tools"
+            if confidence not in ("high", "medium", "low"):
+                confidence = "medium"
+            
+            return category, confidence
+            
+        except Exception as e:
+            print(f"[OllamaRouter] Failed: {e}, falling back to llm_tools", flush=True)
+            return "llm_tools", "low"
+
+    async def close(self):
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+
+# ---------------------------------------------------------------------------
 # Planner
 # ---------------------------------------------------------------------------
 
@@ -150,59 +288,20 @@ Rules:
 - Always include "report" in visualizations."""
 
 
-def _extract_json(text: str) -> Optional[Dict]:
-    """Extract JSON from LLM response, handling markdown code blocks."""
-    text = text.strip()
-    
-    # Try to find JSON in markdown code block
-    match = re.search(r'```(?:json)?\s*(\{.*?)\s*```', text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            pass
-    
-    # Try to find raw JSON object
-    match = re.search(r'(\{.*\})', text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            pass
-    
-    return None
-
-
-def _normalize_plan(raw: Dict) -> QueryPlan:
-    """Normalize raw dict to QueryPlan, handling alias variations."""
-    steps = []
-    for s in raw.get("steps", []):
-        step_type = s.get("type") or s.get("query_type") or "events"
-        steps.append(QueryStep(type=step_type, params=s.get("params", {})))
-    
-    return QueryPlan(
-        intent=raw.get("intent", "unknown"),
-        thinking=raw.get("thinking"),
-        time_range=raw.get("time_range"),
-        steps=steps,
-        visualizations=raw.get("visualizations", ["event_table", "report"]),
-        report_prompt=raw.get("report_prompt"),
-        notice=raw.get("notice"),
-    )
-
-
 class Planner:
-    """Generates structured query plans from natural language input."""
+    """Hybrid planner: local Ollama router → rule-based fast path OR remote LLM tool execution."""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.llm = build_llm(config)
+        self.router = OllamaRouter()
 
     # Quick off-topic / greeting detection without LLM
     _GREETING_PATTERNS = re.compile(
         r'^(hi+|hello|hey|thanks?|thank you|ok+|bye|goodbye|see you|[?]+)\s*$',
         re.IGNORECASE
     )
-    # Detect if user explicitly mentions a time range (month, year, date, "this week", etc.)
+
+    # Detect if user explicitly mentions a time range
     _TIME_MENTIONED = re.compile(
         r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|'
         r'\b\d{4}\b|'
@@ -211,25 +310,15 @@ class Planner:
         r'\byesterday\b|\btoday\b',
         re.IGNORECASE,
     )
-    # Extract location from "... in/at <place>" — months also act as terminators
-    _LOCATION_PATTERN = re.compile(
-        r'\b(?:in|at|near|around)\s+([A-Z][A-Za-z\s,]+?)(?=\s+(?:in\s+\d{4}|this\s+|last\s+|'
-        r'(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|\?|$)|$)',
-        re.IGNORECASE,
-    )
-    # Detect event type keywords
-    _EVENT_TYPE_KEYWORDS = {
-        'protest': re.compile(r'\bprotest', re.IGNORECASE),
-        'conflict': re.compile(r'\bconflict|attack|war|fight', re.IGNORECASE),
-        'cooperation': re.compile(r'\bcooperat|agreement|treaty|aid|help', re.IGNORECASE),
-    }
 
-    # Detect specific event ID patterns (EVT-... or raw numeric ID)
-    _EVENT_ID_PATTERN = re.compile(
-        r'^(EVT-\d{4}-\d{2}-\d{2}-\d+)\b|'
-        r'^\d{9,12}\b',
+    # Extract location from "... in/at/near/around/on <place>"
+    # Terminates at next preposition, time word, or end of string
+    _LOCATION_PATTERN = re.compile(
+        r'\b(?:in|at|near|around|on)\s+([A-Z][A-Za-z\s,]+?)(?=\s+(?:in|at|near|around|on|during|for|from|to|of|with|this|last|'
+        r'\d{4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|\?|$)|$)',
         re.IGNORECASE,
     )
+
     # Known locations for direct word-boundary matching (no "in" prefix needed)
     _KNOWN_LOCATIONS = re.compile(
         r'\b(California|Texas|Florida|New York|Washington DC|Washington|Illinois|Pennsylvania|Ohio|'
@@ -246,6 +335,60 @@ class Planner:
         r'Europe|Asia|Africa|Middle East)\b',
         re.IGNORECASE,
     )
+
+    # Expanded event type keywords with synonyms
+    _EVENT_TYPE_KEYWORDS = {
+        'protest': re.compile(r'\bprotest|demonstration|rally|march\s+(?:on|in|at)|sit-in', re.IGNORECASE),
+        'conflict': re.compile(r'\bconflict|attack|war|fight|battle|bomb|shoot|kill|violence|clash|raid', re.IGNORECASE),
+        'cooperation': re.compile(r'\bcooperat|agreement|treaty|aid|help|support|partnership|alliance|dialogue', re.IGNORECASE),
+    }
+
+    # Hot / top events keywords
+    _HOT_KEYWORDS = re.compile(
+        r'\b(hottest|hot|top(?:\s+\d+)?(?:\s+(?:events?|news?|stories?))?|most\s+(?:popular|reported|mentioned|important)|trending)\b',
+        re.IGNORECASE,
+    )
+
+    # Dashboard keywords
+    _DASHBOARD_KEYWORDS = re.compile(r'\b(dashboard|overview|statistics|stats|summary)\b', re.IGNORECASE)
+
+    # Regional overview keywords
+    _OVERVIEW_KEYWORDS = re.compile(
+        r'\b(situation\s+in|what\'?s?\s+happening\s+(?:in|at)|overview\s+of|current\s+(?:situation|events)\s+(?:in|at))\b',
+        re.IGNORECASE,
+    )
+
+    # Daily brief keywords
+    _BRIEF_KEYWORDS = re.compile(
+        r'\b(daily\s+brief|briefing|daily\s+summary)\b',
+        re.IGNORECASE,
+    )
+
+    # "What happened on" pattern
+    _WHAT_HAPPENED_PATTERN = re.compile(
+        r'\bwhat\s+happened\s+(?:on|in)\b',
+        re.IGNORECASE,
+    )
+
+    # Time series keywords
+    _TIMESERIES_KEYWORDS = re.compile(
+        r'\b(trend|over\s+time|time\s+series|change\s+over|evolution)\b',
+        re.IGNORECASE,
+    )
+
+    # Geo / map keywords
+    _GEO_KEYWORDS = re.compile(
+        r'\b(map|heatmap|where|geographic(?:al)?\s+distribution)\b',
+        re.IGNORECASE,
+    )
+
+    # Detect specific event ID patterns (EVT-... or raw numeric ID)
+    _EVENT_ID_PATTERN = re.compile(
+        r'^(EVT-\d{4}-\d{2}-\d{2}-\d+)\b|'
+        r'^\d{9,12}\b',
+        re.IGNORECASE,
+    )
+
     # Parse month+year like "march 2024" or "feb 2024"
     _MONTH_YEAR_PATTERN = re.compile(
         r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})\b',
@@ -255,6 +398,7 @@ class Planner:
         'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
         'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
     }
+
     # Parse full dates: 2024-10-15, 2024/10/15, 10/15/2024, 20241015
     _FULL_DATE_PATTERN = re.compile(
         r'\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b|'
@@ -262,9 +406,72 @@ class Planner:
         r'\b(\d{4})(\d{2})(\d{2})\b',
     )
 
+    # -----------------------------------------------------------------------
+    # Entity Extraction Helpers
+    # -----------------------------------------------------------------------
+
+    def _extract_location(self, query: str) -> Optional[str]:
+        """Extract location from query with preposition cleanup."""
+        loc_match = self._LOCATION_PATTERN.search(query)
+        if loc_match:
+            location_hint = loc_match.group(1).strip()
+        else:
+            loc_fallback = self._KNOWN_LOCATIONS.search(query)
+            location_hint = loc_fallback.group(1) if loc_fallback else None
+
+        if location_hint:
+            location_hint = re.sub(
+                r'\s+(in|at|near|around|on|during|for|from|to|of|with)$',
+                '', location_hint, flags=re.IGNORECASE
+            ).strip()
+            if location_hint.lower() in ('dc', 'washington dc', 'washington, dc'):
+                location_hint = 'Washington DC'
+        return location_hint
+
+    def _extract_event_type(self, query: str) -> Optional[str]:
+        """Extract event type from query."""
+        for etype, pat in self._EVENT_TYPE_KEYWORDS.items():
+            if pat.search(query):
+                return etype
+        return None
+
+    def _extract_date_range(self, query: str) -> tuple[Optional[str], Optional[str]]:
+        """Extract date range from query. Returns (start_date, end_date)."""
+        start_date, end_date = None, None
+
+        # Try full date first (e.g. 2024-10-15)
+        date_match = self._FULL_DATE_PATTERN.search(query)
+        if date_match:
+            if date_match.group(1):  # YYYY-MM-DD or YYYY/MM/DD
+                y, m, d = date_match.group(1), date_match.group(2).zfill(2), date_match.group(3).zfill(2)
+            elif date_match.group(4):  # MM/DD/YYYY
+                m, d, y = date_match.group(4).zfill(2), date_match.group(5).zfill(2), date_match.group(6)
+            else:  # YYYYMMDD
+                y, m, d = date_match.group(7), date_match.group(8), date_match.group(9)
+            start_date = end_date = f"{y}-{m}-{d}"
+        else:
+            my_match = self._MONTH_YEAR_PATTERN.search(query)
+            if my_match:
+                month_abbr = my_match.group(1).lower()[:3]
+                year = my_match.group(2)
+                month_num = self._MONTH_MAP.get(month_abbr, '01')
+                start_date = f"{year}-{month_num}-01"
+                next_month = datetime.strptime(start_date, '%Y-%m-%d') + timedelta(days=32)
+                end_date = (next_month.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
+            elif self._TIME_MENTIONED.search(query):
+                # Has some time mention but not month+year — use full year as default
+                start_date = DEFAULT_DATA_START
+                end_date = DEFAULT_DATA_END
+
+        return start_date, end_date
+
+    # -----------------------------------------------------------------------
+    # Rule-Based Planner (high-confidence patterns only)
+    # -----------------------------------------------------------------------
+
     def _rule_based_plan(self, query: str) -> Optional[QueryPlan]:
-        """Fast rule-based planner for common patterns.
-        Only sends to LLM for genuinely complex/ambiguous queries."""
+        """Fast rule-based planner for common, unambiguous patterns.
+        Returns None if query doesn't match any high-confidence pattern."""
         q = query.lower().strip()
         if len(q) < 3 or self._GREETING_PATTERNS.match(q):
             return QueryPlan(
@@ -297,59 +504,138 @@ class Planner:
                 report_prompt=f"Summarize this specific GDELT event ({fingerprint}) and highlight related events.",
             )
 
-        # Extract location (with or without "in" prefix)
-        location_hint = None
-        loc_match = self._LOCATION_PATTERN.search(query)
-        if loc_match:
-            location_hint = loc_match.group(1).strip()
-        else:
-            # Fallback: direct word-boundary match for known places
-            loc_fallback = self._KNOWN_LOCATIONS.search(query)
-            if loc_fallback:
-                location_hint = loc_fallback.group(1)
-        # Strip trailing prepositions that may have been captured
-        if location_hint:
-            location_hint = re.sub(r'\s+(in|at|near|around|on|during|for|from|to|of|with)$', '', location_hint, flags=re.IGNORECASE).strip()
-        if location_hint and location_hint.lower() in ('dc', 'washington dc', 'washington, dc'):
-            location_hint = 'Washington DC'
-
-        # Extract event type
-        event_type = None
-        for etype, pat in self._EVENT_TYPE_KEYWORDS.items():
-            if pat.search(query):
-                event_type = etype
-                break
-
-        # Extract time range
-        start_date, end_date = None, None
-        # Try full date first (e.g. 2024-10-15)
-        date_match = self._FULL_DATE_PATTERN.search(query)
-        if date_match:
-            if date_match.group(1):  # YYYY-MM-DD or YYYY/MM/DD
-                y, m, d = date_match.group(1), date_match.group(2).zfill(2), date_match.group(3).zfill(2)
-            elif date_match.group(4):  # MM/DD/YYYY
-                m, d, y = date_match.group(4).zfill(2), date_match.group(5).zfill(2), date_match.group(6)
-            else:  # YYYYMMDD
-                y, m, d = date_match.group(7), date_match.group(8), date_match.group(9)
-            start_date = end_date = f"{y}-{m}-{d}"
-        else:
-            my_match = self._MONTH_YEAR_PATTERN.search(query)
-            if my_match:
-                month_abbr = my_match.group(1).lower()[:3]
-                year = my_match.group(2)
-                month_num = self._MONTH_MAP.get(month_abbr, '01')
-                start_date = f"{year}-{month_num}-01"
-                # Compute month end
-                from datetime import datetime, timedelta
-                next_month = datetime.strptime(start_date, '%Y-%m-%d') + timedelta(days=32)
-                end_date = (next_month.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
-            elif self._TIME_MENTIONED.search(query):
-                # Has some time mention but not month+year — use full year as default
-                start_date = DEFAULT_DATA_START
-                end_date = DEFAULT_DATA_END
-
-        # If we have (time+location) or (time+event_type) or (location+event_type), use events directly
+        # Extract common entities
+        location_hint = self._extract_location(query)
+        event_type = self._extract_event_type(query)
+        start_date, end_date = self._extract_date_range(query)
         has_time = start_date is not None
+        has_specific_filter = bool(location_hint or event_type)
+
+        # 3. Daily brief / what happened on <date>
+        if self._BRIEF_KEYWORDS.search(query) or self._WHAT_HAPPENED_PATTERN.search(query):
+            if start_date and end_date and start_date == end_date:
+                return QueryPlan(
+                    intent="daily_brief",
+                    thinking=f"User requested daily brief for {start_date}.",
+                    steps=[QueryStep(type="daily_brief", params={"query_date": start_date})],
+                    visualizations=["stats_cards", "report"],
+                    report_prompt=f"Summarize the key events on {start_date}.",
+                )
+            # If no specific date but brief keywords present, use yesterday as default
+            if not has_time:
+                default_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                return QueryPlan(
+                    intent="daily_brief",
+                    thinking=f"User requested daily brief without specific date — using yesterday ({default_date}).",
+                    steps=[QueryStep(type="daily_brief", params={"query_date": default_date})],
+                    visualizations=["stats_cards", "report"],
+                    report_prompt="Summarize yesterday's key events.",
+                )
+
+        # 4. Hot / Top events
+        if self._HOT_KEYWORDS.search(query):
+            is_single_day = start_date is not None and end_date is not None and start_date == end_date
+            if is_single_day:
+                params = {"query_date": start_date, "top_n": 10}
+                if location_hint:
+                    params["region_filter"] = location_hint
+                return QueryPlan(
+                    intent=f"hot_events_{location_hint or 'global'}",
+                    thinking=f"User requested hot events for {start_date}."
+                        + (f" Filtering by region: {location_hint}." if location_hint else ""),
+                    steps=[QueryStep(type="hot_events", params=params)],
+                    visualizations=["event_table", "report"],
+                    report_prompt=f"Summarize the hottest events on {start_date}"
+                        + (f" in {location_hint}" if location_hint else "") + ".",
+                )
+            else:
+                # Time range or no time specified
+                params = {
+                    "start_date": start_date or DEFAULT_DATA_START,
+                    "end_date": end_date or DEFAULT_DATA_END,
+                    "top_n": 10,
+                }
+                if location_hint:
+                    params["region_filter"] = location_hint
+                if event_type:
+                    params["event_type"] = event_type
+                return QueryPlan(
+                    intent=f"top_events_{event_type or 'all'}_{location_hint or 'global'}",
+                    thinking=f"User requested top events"
+                        + (f" ({event_type})" if event_type else "")
+                        + (f" in {location_hint}" if location_hint else "")
+                        + f" from {params['start_date']} to {params['end_date']}.",
+                    steps=[QueryStep(type="top_events", params=params)],
+                    visualizations=["event_table", "report"],
+                    report_prompt=f"Summarize the top {event_type or ''} events"
+                        + (f" in {location_hint}" if location_hint else "")
+                        + f" from {params['start_date']} to {params['end_date']}.",
+                )
+
+        # 5. Regional overview (requires location)
+        if self._OVERVIEW_KEYWORDS.search(query) and location_hint:
+            params = {"region": location_hint}
+            if has_time:
+                params["start_date"] = start_date
+                params["end_date"] = end_date
+            else:
+                params["time_range"] = "week"
+            return QueryPlan(
+                intent=f"regional_overview_{location_hint}",
+                thinking=f"User requested regional overview for {location_hint}."
+                    + (f" Time range: {start_date} to {end_date}." if has_time else " Default: last week."),
+                steps=[QueryStep(type="regional_overview", params=params)],
+                visualizations=["stats_cards", "event_table", "report"],
+                report_prompt=f"Provide a situation overview for {location_hint}"
+                    + (f" from {start_date} to {end_date}" if has_time else " over the last week") + ".",
+            )
+
+        # 6. Dashboard (global stats only — no specific location/event_type filters)
+        if self._DASHBOARD_KEYWORDS.search(query) and has_time and not has_specific_filter:
+            return QueryPlan(
+                intent="dashboard",
+                thinking=f"User requested dashboard overview for {start_date} to {end_date}.",
+                steps=[QueryStep(type="dashboard", params={"start_date": start_date, "end_date": end_date})],
+                visualizations=["stats_cards", "timeline", "report"],
+                report_prompt=f"Summarize the overall event landscape from {start_date} to {end_date}.",
+            )
+
+        # 7. Time series (trends over time — no specific location/event_type filters)
+        if self._TIMESERIES_KEYWORDS.search(query) and has_time and not has_specific_filter:
+            # Detect granularity
+            granularity = "day"
+            if re.search(r'\bweek', q):
+                granularity = "week"
+            elif re.search(r'\bmonth', q):
+                granularity = "month"
+            return QueryPlan(
+                intent="timeseries",
+                thinking=f"User requested time series analysis from {start_date} to {end_date} ({granularity}).",
+                steps=[QueryStep(type="timeseries", params={"start_date": start_date, "end_date": end_date, "granularity": granularity})],
+                visualizations=["timeline", "report"],
+                report_prompt=f"Analyze the trends from {start_date} to {end_date} at {granularity} granularity.",
+            )
+
+        # 8. Geo / Map
+        if self._GEO_KEYWORDS.search(query):
+            params = {
+                "start_date": start_date or DEFAULT_DATA_START,
+                "end_date": end_date or DEFAULT_DATA_END,
+                "precision": 2,
+            }
+            if location_hint:
+                params["location_hint"] = location_hint
+            return QueryPlan(
+                intent="geo_heatmap",
+                thinking=f"User requested geographic heatmap from {params['start_date']} to {params['end_date']}."
+                    + (f" Focus: {location_hint}." if location_hint else ""),
+                steps=[QueryStep(type="geo", params=params)],
+                visualizations=["map", "heatmap"],
+                report_prompt=f"Describe the geographic distribution of events from {params['start_date']} to {params['end_date']}"
+                    + (f" focusing on {location_hint}" if location_hint else "") + ".",
+            )
+
+        # 9. General events search with filters (high-confidence fallback)
         if (has_time and location_hint) or (has_time and event_type) or (location_hint and event_type):
             params: Dict[str, Any] = {
                 "limit": 50,
@@ -371,9 +657,75 @@ class Planner:
         # Ambiguous — let LLM handle
         return None
 
+    # -----------------------------------------------------------------------
+    # LLM Tool Planner
+    # -----------------------------------------------------------------------
+
+    async def _llm_plan(self, query: str) -> QueryPlan:
+        """Use remote LLM for complex queries. Extracts context to help LLM."""
+        has_time = bool(self._TIME_MENTIONED.search(query))
+        location_hint = self._extract_location(query)
+        event_type = self._extract_event_type(query)
+
+        context_parts = []
+        if has_time:
+            context_parts.append("User mentioned a time range.")
+        if location_hint:
+            context_parts.append(f"Detected location: {location_hint}.")
+        if event_type:
+            context_parts.append(f"Detected event type: {event_type}.")
+        context_str = "\n".join(context_parts) if context_parts else ""
+
+        user_msg = f'User request: "{query}"'
+        if context_str:
+            user_msg += f"\n\nExtracted context:\n{context_str}"
+        user_msg += "\n\nRespond with ONLY raw JSON:"
+
+        messages = [
+            SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+            HumanMessage(content=user_msg),
+        ]
+
+        try:
+            response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=120.0)
+            content = response.content if hasattr(response, "content") else str(response)
+            print(f"[Planner] raw response length: {len(content)}", flush=True)
+
+            raw = _extract_json(content)
+            if raw is None:
+                raise ValueError(f"Could not extract JSON from response: {content[:200]}...")
+
+            plan = _normalize_plan(raw)
+            print(f"[Planner] generated plan: {plan.intent} with {len(plan.steps)} steps", flush=True)
+            return plan
+
+        except asyncio.TimeoutError:
+            print(f"[Planner] LLM timeout after 120s, using fallback plan", flush=True)
+            return self._fallback_plan(query)
+        except Exception as e:
+            print(f"[Planner] failed: {e}, using fallback plan", flush=True)
+            return self._fallback_plan(query)
+
+    def _fallback_plan(self, query: str) -> QueryPlan:
+        """Fallback when LLM or router fails."""
+        return QueryPlan(
+            intent="fallback_search",
+            thinking="Planner error. Falling back to top events search.",
+            steps=[QueryStep(type="top_events", params={"top_n": 20, "start_date": DEFAULT_DATA_START, "end_date": DEFAULT_DATA_END})],
+            visualizations=["event_table", "report"],
+            report_prompt=f"Top events for: {query}",
+            notice="Planner error. Showing top-ranked events across the full dataset (fast mode). Add a month or date for more precise results.",
+        )
+
+    # -----------------------------------------------------------------------
+    # Main Entry Point
+    # -----------------------------------------------------------------------
+
     async def plan(self, user_query: str) -> QueryPlan:
-        """Generate a query plan from user input."""
+        """Generate a query plan from user input via hybrid routing."""
         stripped = user_query.strip()
+
+        # Fast path: greetings (avoid even calling router)
         if self._GREETING_PATTERNS.match(stripped) or len(stripped) < 3:
             print(f"[Planner] Fast off-topic detected for: '{stripped}'", flush=True)
             return QueryPlan(
@@ -383,76 +735,30 @@ class Planner:
                 report_prompt=None,
             )
 
-        # Try rule-based planner first
-        fast_plan = self._rule_based_plan(stripped)
-        if fast_plan:
-            print(f"[Planner] Rule-based plan: {fast_plan.intent} with {len(fast_plan.steps)} steps", flush=True)
-            return fast_plan
+        # Call local Ollama router
+        category, confidence = await self.router.classify(stripped)
+        print(f"[Planner] Router: {category} (confidence={confidence})", flush=True)
 
-        # Extract context for LLM (location, time, event type)
-        has_time = bool(self._TIME_MENTIONED.search(stripped))
-        loc_match = self._LOCATION_PATTERN.search(stripped)
-        location_hint = loc_match.group(1).strip() if loc_match else None
-        if location_hint and location_hint.lower() in ('dc', 'washington dc', 'washington, dc'):
-            location_hint = 'Washington DC'
-        event_type = None
-        for etype, pat in self._EVENT_TYPE_KEYWORDS.items():
-            if pat.search(stripped):
-                event_type = etype
-                break
-        
-        context_parts = []
-        if has_time:
-            context_parts.append("User mentioned a time range.")
-        if location_hint:
-            context_parts.append(f"Detected location: {location_hint}.")
-        if event_type:
-            context_parts.append(f"Detected event type: {event_type}.")
-        context_str = "\n".join(context_parts) if context_parts else ""
-        
-        user_msg = f'User request: "{user_query}"'
-        if context_str:
-            user_msg += f"\n\nExtracted context:\n{context_str}"
-        user_msg += "\n\nRespond with ONLY raw JSON:"
-        
-        messages = [
-            SystemMessage(content=PLANNER_SYSTEM_PROMPT),
-            HumanMessage(content=user_msg),
-        ]
-        
-        try:
-            response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=120.0)
-            content = response.content if hasattr(response, "content") else str(response)
-            print(f"[Planner] raw response length: {len(content)}", flush=True)
-            
-            raw = _extract_json(content)
-            if raw is None:
-                raise ValueError(f"Could not extract JSON from response: {content[:200]}...")
-            
-            plan = _normalize_plan(raw)
-            print(f"[Planner] generated plan: {plan.intent} with {len(plan.steps)} steps", flush=True)
-            return plan
-            
-        except asyncio.TimeoutError:
-            print(f"[Planner] LLM timeout after 120s, using fallback plan", flush=True)
+        if category == "off_topic":
             return QueryPlan(
-                intent="fallback_search",
-                thinking="LLM planner timed out. Falling back to top events search.",
-                steps=[QueryStep(type="top_events", params={"top_n": 20, "start_date": DEFAULT_DATA_START, "end_date": DEFAULT_DATA_END})],
-                visualizations=["event_table", "report"],
-                report_prompt=f"Top events for: {user_query}",
-                notice="Planner timed out. Showing top-ranked events across the full dataset (fast mode). Add a month or date for more precise results.",
+                intent="off_topic",
+                steps=[],
+                visualizations=[],
+                report_prompt=None,
             )
-        except Exception as e:
-            print(f"[Planner] failed: {e}, using fallback plan", flush=True)
-            return QueryPlan(
-                intent="fallback_search",
-                thinking=f"Planner error: {str(e)[:100]}. Falling back to top events search.",
-                steps=[QueryStep(type="top_events", params={"top_n": 20, "start_date": DEFAULT_DATA_START, "end_date": DEFAULT_DATA_END})],
-                visualizations=["event_table", "report"],
-                report_prompt=f"Top events for: {user_query}",
-                notice="Planner error. Showing top-ranked events across the full dataset (fast mode). Add a month or date for more precise results.",
-            )
+
+        if category == "rule_base" or confidence == "high":
+            # Try rule-based planner first
+            fast_plan = self._rule_based_plan(stripped)
+            if fast_plan:
+                print(f"[Planner] Rule-based plan: {fast_plan.intent} with {len(fast_plan.steps)} steps", flush=True)
+                return fast_plan
+            # Router said rule_base but no rule matched — router was wrong, fall through to LLM
+            if category == "rule_base":
+                print(f"[Planner] Router said rule_base but no rule matched, falling back to LLM", flush=True)
+
+        # LLM tool path for complex queries
+        return await self._llm_plan(stripped)
 
 
 # ---------------------------------------------------------------------------
