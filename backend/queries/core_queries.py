@@ -442,7 +442,7 @@ async def query_geo_events(
             params.extend([f"%{actor}%", f"%{actor}%"])
         
         sql += """
-        ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+        ORDER BY e.NumArticles DESC
         LIMIT %s
         """
         params.append(min(max_results, 100))
@@ -823,7 +823,7 @@ async def query_regional_overview(
         FROM {DEFAULT_TABLE}
         WHERE SQLDATE BETWEEN %s AND %s
           AND (ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)
-        ORDER BY NumArticles DESC, ABS(GoldsteinScale) DESC
+        ORDER BY NumArticles DESC
         LIMIT 5
     """, (start, end, region.upper(), f'%{region}%'))
 
@@ -892,7 +892,7 @@ async def query_hot_events(
         FROM {DEFAULT_TABLE} e
         LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
         WHERE e.SQLDATE = %s {region_condition}
-        ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+        ORDER BY e.NumArticles DESC
         LIMIT %s
     """
     params.append(top_n)
