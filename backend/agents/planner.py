@@ -111,18 +111,38 @@ def build_llm(config: Optional[Dict[str, Any]] = None) -> ChatOpenAI:
 # ---------------------------------------------------------------------------
 
 def _extract_json(text: str) -> Optional[Dict]:
-    """Extract JSON from LLM response, handling markdown code blocks."""
+    """Extract JSON from LLM response, handling markdown code blocks and malformed output."""
     text = text.strip()
     
-    # Try to find JSON in markdown code block
-    match = re.search(r'```(?:json)?\s*(\{.*?)\s*```', text, re.DOTALL)
+    # Strategy 1: Extract from markdown code block
+    match = re.search(r'```(?:json)?\s*\n?(.*?)```', text, re.DOTALL)
     if match:
+        candidate = match.group(1).strip()
         try:
-            return json.loads(match.group(1))
+            return json.loads(candidate)
         except json.JSONDecodeError:
             pass
     
-    # Try to find raw JSON object
+    # Strategy 2: Find outermost JSON object by bracket counting (most reliable)
+    start = text.find('{')
+    if start != -1:
+        depth = 0
+        end = start
+        for i, ch in enumerate(text[start:], start):
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if depth == 0:
+            try:
+                return json.loads(text[start:end+1])
+            except json.JSONDecodeError:
+                pass
+    
+    # Strategy 3: Simple greedy regex as last resort
     match = re.search(r'(\{.*\})', text, re.DOTALL)
     if match:
         try:
@@ -162,10 +182,24 @@ class OllamaRouter:
     - rule_base: Simple lookups with explicit filters (time, location, event type, ID)
     - llm_tools: Complex queries requiring reasoning/comparison/synthesis
     - off_topic: Greetings, small talk, unrelated questions
+    
+    Tries multiple URLs in order (env var → host.docker.internal → localhost)
+    to support both Docker and native environments.
     """
 
-    OLLAMA_URL = "http://localhost:11434/api/generate"
     MODEL = "qwen2.5:3b"
+
+    def _get_urls(self) -> list[str]:
+        """Return candidate Ollama URLs to try."""
+        urls = []
+        env_url = os.getenv("OLLAMA_URL")
+        if env_url:
+            urls.append(env_url)
+        # Docker Desktop / host network
+        urls.append("http://host.docker.internal:11434/api/generate")
+        # Native / Linux Docker with host network
+        urls.append("http://localhost:11434/api/generate")
+        return urls
 
     SYSTEM_PROMPT = """You are a query classifier for a GDELT event analysis system. Your job is to route user queries to the correct handler.
 
@@ -193,49 +227,55 @@ No other text. Just the JSON."""
 
     async def classify(self, query: str) -> tuple[str, str]:
         """Classify query. Returns (category, confidence).
-        Falls back to ('llm_tools', 'low') on any error.
+        Tries each Ollama URL in order. Falls back to ('llm_tools', 'low') on total failure.
         """
         prompt = f"{self.SYSTEM_PROMPT}\n\nUser: \"{query}\"\nCategory:"
-        try:
-            resp = await self.client.post(
-                self.OLLAMA_URL,
-                json={
-                    "model": self.MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"temperature": 0.0, "num_predict": 80},
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            text = data.get("response", "").strip()
-            
-            # Extract JSON
-            raw = _extract_json(text)
-            if raw is None:
-                # Fallback: scan for category name in raw text
-                text_lower = text.lower()
-                if "rule_base" in text_lower:
-                    return "rule_base", "medium"
-                elif "off_topic" in text_lower:
-                    return "off_topic", "medium"
-                else:
-                    return "llm_tools", "medium"
-            
-            category = raw.get("category", "llm_tools")
-            confidence = raw.get("confidence", "medium")
-            
-            # Validate
-            if category not in ("rule_base", "llm_tools", "off_topic"):
-                category = "llm_tools"
-            if confidence not in ("high", "medium", "low"):
-                confidence = "medium"
-            
-            return category, confidence
-            
-        except Exception as e:
-            print(f"[OllamaRouter] Failed: {e}, falling back to llm_tools", flush=True)
-            return "llm_tools", "low"
+        last_error = None
+        
+        for url in self._get_urls():
+            try:
+                resp = await self.client.post(
+                    url,
+                    json={
+                        "model": self.MODEL,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {"temperature": 0.0, "num_predict": 80},
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                text = data.get("response", "").strip()
+                
+                # Extract JSON
+                raw = _extract_json(text)
+                if raw is None:
+                    # Fallback: scan for category name in raw text
+                    text_lower = text.lower()
+                    if "rule_base" in text_lower:
+                        return "rule_base", "medium"
+                    elif "off_topic" in text_lower:
+                        return "off_topic", "medium"
+                    else:
+                        return "llm_tools", "medium"
+                
+                category = raw.get("category", "llm_tools")
+                confidence = raw.get("confidence", "medium")
+                
+                # Validate
+                if category not in ("rule_base", "llm_tools", "off_topic"):
+                    category = "llm_tools"
+                if confidence not in ("high", "medium", "low"):
+                    confidence = "medium"
+                
+                return category, confidence
+                
+            except Exception as e:
+                last_error = e
+                continue
+        
+        print(f"[OllamaRouter] All URLs failed (last: {last_error}), falling back to llm_tools", flush=True)
+        return "llm_tools", "low"
 
     async def close(self):
         if self._client:
@@ -292,8 +332,15 @@ class Planner:
     """Hybrid planner: local Ollama router → rule-based fast path OR remote LLM tool execution."""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        self.llm = build_llm(config)
+        self._llm_config = config
+        self._llm: Optional[ChatOpenAI] = None
         self.router = OllamaRouter()
+
+    @property
+    def llm(self) -> ChatOpenAI:
+        if self._llm is None:
+            self._llm = build_llm(self._llm_config)
+        return self._llm
 
     # Quick off-topic / greeting detection without LLM
     _GREETING_PATTERNS = re.compile(
@@ -693,7 +740,10 @@ class Planner:
 
             raw = _extract_json(content)
             if raw is None:
-                raise ValueError(f"Could not extract JSON from response: {content[:200]}...")
+                # Print full response for debugging (truncated if very long)
+                debug_content = content if len(content) < 800 else content[:400] + "\n... [truncated]\n" + content[-200:]
+                print(f"[Planner] JSON extraction failed. Raw response:\n{debug_content}", flush=True)
+                raise ValueError("Could not extract valid JSON from LLM response")
 
             plan = _normalize_plan(raw)
             print(f"[Planner] generated plan: {plan.intent} with {len(plan.steps)} steps", flush=True)
@@ -721,8 +771,12 @@ class Planner:
     # Main Entry Point
     # -----------------------------------------------------------------------
 
-    async def plan(self, user_query: str) -> QueryPlan:
-        """Generate a query plan from user input via hybrid routing."""
+    async def plan(self, user_query: str) -> tuple[QueryPlan, List[Dict[str, Any]]]:
+        """Generate a query plan from user input via hybrid routing.
+        Returns (QueryPlan, phases) where phases is a list of step tracking dicts.
+        """
+        import time
+        phases: List[Dict[str, Any]] = []
         stripped = user_query.strip()
 
         # Fast path: greetings (avoid even calling router)
@@ -733,11 +787,19 @@ class Planner:
                 steps=[],
                 visualizations=[],
                 report_prompt=None,
-            )
+            ), [{"name": "Intent Check", "status": "completed", "detail": "Greeting or too-short input detected — skipping AI.", "elapsed_ms": 0}]
 
-        # Call local Ollama router
+        # Phase 1: Intent Routing (Ollama)
+        t0 = time.time()
         category, confidence = await self.router.classify(stripped)
-        print(f"[Planner] Router: {category} (confidence={confidence})", flush=True)
+        t_router = round((time.time() - t0) * 1000, 1)
+        print(f"[Planner] Router: {category} (confidence={confidence}) in {t_router}ms", flush=True)
+        phases.append({
+            "name": "Intent Routing",
+            "status": "completed",
+            "detail": f"Local Qwen2.5b classified as '{category}' (confidence: {confidence})",
+            "elapsed_ms": t_router,
+        })
 
         if category == "off_topic":
             return QueryPlan(
@@ -745,20 +807,31 @@ class Planner:
                 steps=[],
                 visualizations=[],
                 report_prompt=None,
-            )
+            ), phases
 
+        # Phase 2: Plan Generation
+        t0 = time.time()
         if category == "rule_base" or confidence == "high":
             # Try rule-based planner first
             fast_plan = self._rule_based_plan(stripped)
             if fast_plan:
-                print(f"[Planner] Rule-based plan: {fast_plan.intent} with {len(fast_plan.steps)} steps", flush=True)
-                return fast_plan
+                t_plan = round((time.time() - t0) * 1000, 1)
+                step_types = ' → '.join(s.type for s in fast_plan.steps)
+                detail = f"Matched '{fast_plan.intent}' pattern | Tools: {step_types}"
+                print(f"[Planner] Rule-based plan: {fast_plan.intent} with {len(fast_plan.steps)} steps in {t_plan}ms", flush=True)
+                phases.append({"name": "Rule-Based Planning", "status": "completed", "detail": detail, "elapsed_ms": t_plan})
+                return fast_plan, phases
             # Router said rule_base but no rule matched — router was wrong, fall through to LLM
             if category == "rule_base":
                 print(f"[Planner] Router said rule_base but no rule matched, falling back to LLM", flush=True)
 
         # LLM tool path for complex queries
-        return await self._llm_plan(stripped)
+        plan = await self._llm_plan(stripped)
+        t_plan = round((time.time() - t0) * 1000, 1)
+        step_types = ' → '.join(s.type for s in plan.steps)
+        detail = f"Remote LLM generated plan | Tools: {step_types}"
+        phases.append({"name": "AI Planning", "status": "completed", "detail": detail, "elapsed_ms": t_plan})
+        return plan, phases
 
 
 # ---------------------------------------------------------------------------

@@ -143,6 +143,13 @@ export interface ReportResult {
   key_findings: string[];
 }
 
+export interface Phase {
+  name: string;
+  status: "pending" | "running" | "completed";
+  detail?: string;
+  elapsed_ms?: number;
+}
+
 export interface AnalyzeResponse {
   ok: boolean;
   query: string;
@@ -150,6 +157,7 @@ export interface AnalyzeResponse {
   data: Record<string, { type: string; data: any; error?: string }>;
   report?: ReportResult;
   elapsed_ms?: number;
+  phases?: Phase[];
   error?: string;
 }
 

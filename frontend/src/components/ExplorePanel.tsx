@@ -73,9 +73,35 @@ export default function ExplorePanel() {
   const [thinkingDone, setThinkingDone] = useState(false);
   const [showData, setShowData] = useState(false);
 
+  // Loading phase animation
+  const [loadingPhaseIndex, setLoadingPhaseIndex] = useState(0);
+  const loadingPhases = [
+    "Analyzing your question...",
+    "Routing intent via local AI...",
+    "Generating query plan...",
+    "Executing database queries...",
+    "Processing results...",
+  ];
+
   // Report delayed load state
   const [report, setReport] = useState<ReportResult | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+
+  // Loading phase cycling
+  useEffect(() => {
+    if (!loading) {
+      setLoadingPhaseIndex(0);
+      return;
+    }
+    setLoadingPhaseIndex(0);
+    const interval = setInterval(() => {
+      setLoadingPhaseIndex(prev => {
+        if (prev >= loadingPhases.length - 1) return prev;
+        return prev + 1;
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [loading]);
 
   // Typing effect for AI thinking
   useEffect(() => {
@@ -156,26 +182,15 @@ export default function ExplorePanel() {
   const similarEvents = getDataByType('similar_events');
   const searchEvents = getDataByType('events') || getDataByType('top_events') || getDataByType('hot_events');
 
-  // When user clicks a search result or similar event, load its detail
+  // When user clicks a search result or similar event, populate the input box
+  // but do NOT auto-run — user must click Analyze.
   const handleEventClick = (evt: EventItem) => {
-    // Construct EVT query from GlobalEventID
     const gid = evt.GlobalEventID;
     if (!gid) return;
-    // Use a simple query that the planner will recognize as an event lookup
-    // Format: EVT-YYYY-MM-DD-ID
     const date = evt.SQLDATE || '2024-01-01';
     const formattedDate = date.includes('-') ? date : `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
     const evtQuery = `EVT-${formattedDate}-${gid}`;
     setQuery(evtQuery);
-    // Trigger search
-    setTimeout(() => {
-      api.analyze(evtQuery).then((res) => {
-        if (res.ok !== false) {
-          setResult(res);
-          setReport(null);
-        }
-      }).catch(console.error);
-    }, 0);
   };
 
   return (
@@ -213,9 +228,25 @@ export default function ExplorePanel() {
 
       {/* Loading State */}
       {loading && (
-        <div className="loading-plan">
-          <Loader2 size={20} className="spinning" />
-          <span>AI Planner is thinking...</span>
+        <div className="loading-plan" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Loader2 size={18} className="spinning" />
+            <span style={{ fontWeight: 600, fontSize: 14 }}>AI Pipeline</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 4 }}>
+            {loadingPhases.map((phase, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: i <= loadingPhaseIndex ? 1 : 0.4, transition: 'opacity 0.3s ease' }}>
+                {i < loadingPhaseIndex ? (
+                  <CheckCircle size={14} color="#10b981" />
+                ) : i === loadingPhaseIndex ? (
+                  <Loader2 size={14} className="spinning" color="#0284c7" />
+                ) : (
+                  <div style={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid #cbd5e1', flexShrink: 0 }} />
+                )}
+                <span style={{ fontSize: 13, color: i <= loadingPhaseIndex ? '#0f172a' : '#94a3b8', transition: 'color 0.3s ease' }}>{phase}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -238,7 +269,7 @@ export default function ExplorePanel() {
       {/* Results */}
       {result && !isOffTopic && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* AI Thinking */}
+          {/* AI Decision */}
           {result.plan.thinking && (
             <div
               style={{
@@ -248,7 +279,7 @@ export default function ExplorePanel() {
                 padding: '14px 18px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <Brain size={16} color="#0284c7" />
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#0369a1' }}>
                   AI Decision
@@ -257,10 +288,37 @@ export default function ExplorePanel() {
                   {result.elapsed_ms}ms
                 </span>
               </div>
-              <p style={{ fontSize: 14, color: '#0c4a6e', lineHeight: 1.6, margin: 0, minHeight: 22 }}>
+
+              {/* Phases */}
+              {result.phases && result.phases.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                  {result.phases.map((phase, i) => (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <CheckCircle size={14} color="#10b981" />
+                        <span style={{ fontSize: 13, color: '#0f172a', flex: 1, fontWeight: 500 }}>{phase.name}</span>
+                        {phase.elapsed_ms !== undefined && phase.elapsed_ms > 0 && (
+                          <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace' }}>
+                            {phase.elapsed_ms}ms
+                          </span>
+                        )}
+                      </div>
+                      {phase.detail && (
+                        <div style={{ paddingLeft: 22, fontSize: 12, color: '#64748b', lineHeight: 1.4 }}>
+                          {phase.detail}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Thinking text */}
+              <p style={{ fontSize: 13, color: '#0c4a6e', lineHeight: 1.6, margin: 0, minHeight: 20, opacity: 0.85 }}>
                 {thinkingText}
-                {!thinkingDone && <span style={{ display: 'inline-block', width: 2, height: 16, background: '#0284c7', marginLeft: 2, verticalAlign: 'middle', animation: 'blink 1s infinite' }} />}
+                {!thinkingDone && <span style={{ display: 'inline-block', width: 2, height: 14, background: '#0284c7', marginLeft: 2, verticalAlign: 'middle', animation: 'blink 1s infinite' }} />}
               </p>
+
               {/* Tool execution status */}
               {thinkingDone && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, paddingTop: 10, borderTop: '1px solid #bae6fd' }}>

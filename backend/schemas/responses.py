@@ -321,12 +321,20 @@ class ReportOutput(BaseModel):
     key_findings: List[str]
 
 
+class PhaseOutput(BaseModel):
+    name: str
+    status: str = "pending"  # pending | running | completed
+    detail: Optional[str] = None  # Human-readable description of what happened
+    elapsed_ms: Optional[float] = None
+
+
 class AnalyzeResponse(BaseResponse):
     query: str
     plan: QueryPlanOutput
     data: Dict[str, Any]
     report: Optional[ReportOutput] = None
     elapsed_ms: Optional[float] = None
+    phases: List[PhaseOutput] = Field(default_factory=list)
 
 
 class ReportRequest(BaseModel):

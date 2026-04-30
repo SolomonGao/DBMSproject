@@ -38,7 +38,7 @@ async def analyze(request: AnalyzeRequest):
         # Step 1: Planner
         t0 = time.time()
         planner = Planner(config=llm_config)
-        plan = await planner.plan(request.query)
+        plan, planner_phases = await planner.plan(request.query)
         t_plan = round((time.time() - t0) * 1000, 1)
         print(f"[Analyze] Planner: {t_plan}ms | Intent: {plan.intent} | Steps: {len(plan.steps)}", flush=True)
 
@@ -57,6 +57,10 @@ async def analyze(request: AnalyzeRequest):
                 data={},
                 report=None,
                 elapsed_ms=total_ms,
+                phases=[
+                    *planner_phases,
+                    {"name": "Response Ready", "status": "completed", "detail": "No database queries needed for off-topic input.", "elapsed_ms": 0},
+                ],
             )
 
         # Step 2: Executor
@@ -67,6 +71,10 @@ async def analyze(request: AnalyzeRequest):
 
         total_ms = round((time.time() - total_start) * 1000, 1)
         print(f"[Analyze] TOTAL: {total_ms}ms (plan={t_plan}ms, exec={t_exec}ms)", flush=True)
+
+        step_keys = list(results.keys())
+        step_count = len(step_keys)
+        step_names = ' → '.join(step_keys) if step_keys else 'none'
 
         return AnalyzeResponse(
             query=request.query,
@@ -82,6 +90,16 @@ async def analyze(request: AnalyzeRequest):
             data=results,
             report=None,  # Report is loaded separately
             elapsed_ms=total_ms,
+            phases=[
+                *planner_phases,
+                {
+                    "name": "Database Query",
+                    "status": "completed",
+                    "detail": f"Executed {step_count} query{'ies' if step_count != 1 else 'y'}: {step_names}",
+                    "elapsed_ms": t_exec,
+                },
+                {"name": "Response Ready", "status": "completed", "detail": f"Total pipeline: {total_ms}ms", "elapsed_ms": 0},
+            ],
         )
 
     except ValueError as e:
