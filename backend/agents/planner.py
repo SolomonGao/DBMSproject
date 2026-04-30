@@ -287,7 +287,7 @@ No other text. Just the JSON."""
 # Planner
 # ---------------------------------------------------------------------------
 
-PLANNER_SYSTEM_PROMPT = """You are GDELT AI Analyst. Pick the best data tools for the user's request. Output ONLY raw JSON.
+PLANNER_SYSTEM_PROMPT = """You are GDELT Event Search AI. Your job is to find specific events and incidents. Output ONLY raw JSON.
 
 JSON schema:
 {
@@ -299,17 +299,14 @@ JSON schema:
   "report_prompt": "prompt for AI analysis"
 }
 
-Tools:
-- events: {query, start_date, end_date, location_hint, event_type, actor, limit} — broad search
+Available tools (event search only):
+- events: {query, start_date, end_date, location_hint, event_type, actor, limit} — broad event search
 - event_detail: {fingerprint} — specific event by EVT-ID
-- similar_events: {seed_event_id} — similar to an event (pair with event_detail)
+- similar_events: {seed_event_id} — find events similar to a given event (pair with event_detail)
 - hot_events: {query_date, top_n} — hottest single-day events
-- top_events: {start_date, end_date, region_filter, event_type, top_n} — top events across range
-- daily_brief: {query_date} — daily summary stats
-- dashboard: {start_date, end_date} — multi-dimensional overview (stats, trends, actors, regions)
-- timeseries: {start_date, end_date, granularity} — time series aggregation (day/week/month)
-- geo: {start_date, end_date, precision} — geographic heatmap data
-- regional_overview: {start_date, end_date, region} — region-specific situation summary
+- top_events: {start_date, end_date, region_filter, event_type, top_n} — top events across a time range
+- daily_brief: {query_date} — daily summary of key events
+- regional_overview: {start_date, end_date, region} — situation summary for a specific region
 
 Date rules:
 - "last month" = previous calendar month
@@ -324,7 +321,7 @@ Off-topic → {"intent": "off_topic", "steps": [], "visualizations": []}
 Rules:
 - thinking: 1 sentence max.
 - Max 2 steps.
-- dashboard for overview/stats requests; timeseries for trend over time; geo for map/location requests.
+- You do NOT do data analysis, trends, dashboards, or maps — those are handled by the Dashboard tab.
 - Always include "report" in visualizations."""
 
 
@@ -637,52 +634,7 @@ class Planner:
                     + (f" from {start_date} to {end_date}" if has_time else " over the last week") + ".",
             )
 
-        # 6. Dashboard (global stats only — no specific location/event_type filters)
-        if self._DASHBOARD_KEYWORDS.search(query) and has_time and not has_specific_filter:
-            return QueryPlan(
-                intent="dashboard",
-                thinking=f"User requested dashboard overview for {start_date} to {end_date}.",
-                steps=[QueryStep(type="dashboard", params={"start_date": start_date, "end_date": end_date})],
-                visualizations=["stats_cards", "timeline", "report"],
-                report_prompt=f"Summarize the overall event landscape from {start_date} to {end_date}.",
-            )
-
-        # 7. Time series (trends over time — no specific location/event_type filters)
-        if self._TIMESERIES_KEYWORDS.search(query) and has_time and not has_specific_filter:
-            # Detect granularity
-            granularity = "day"
-            if re.search(r'\bweek', q):
-                granularity = "week"
-            elif re.search(r'\bmonth', q):
-                granularity = "month"
-            return QueryPlan(
-                intent="timeseries",
-                thinking=f"User requested time series analysis from {start_date} to {end_date} ({granularity}).",
-                steps=[QueryStep(type="timeseries", params={"start_date": start_date, "end_date": end_date, "granularity": granularity})],
-                visualizations=["timeline", "report"],
-                report_prompt=f"Analyze the trends from {start_date} to {end_date} at {granularity} granularity.",
-            )
-
-        # 8. Geo / Map
-        if self._GEO_KEYWORDS.search(query):
-            params = {
-                "start_date": start_date or DEFAULT_DATA_START,
-                "end_date": end_date or DEFAULT_DATA_END,
-                "precision": 2,
-            }
-            if location_hint:
-                params["location_hint"] = location_hint
-            return QueryPlan(
-                intent="geo_heatmap",
-                thinking=f"User requested geographic heatmap from {params['start_date']} to {params['end_date']}."
-                    + (f" Focus: {location_hint}." if location_hint else ""),
-                steps=[QueryStep(type="geo", params=params)],
-                visualizations=["map", "heatmap"],
-                report_prompt=f"Describe the geographic distribution of events from {params['start_date']} to {params['end_date']}"
-                    + (f" focusing on {location_hint}" if location_hint else "") + ".",
-            )
-
-        # 9. General events search with filters (high-confidence fallback)
+        # 6. General events search with filters (high-confidence fallback)
         if (has_time and location_hint) or (has_time and event_type) or (location_hint and event_type):
             params: Dict[str, Any] = {
                 "limit": 50,
@@ -838,21 +790,24 @@ class Planner:
 # Report Generator
 # ---------------------------------------------------------------------------
 
-REPORT_SYSTEM_PROMPT = """You are a GDELT data analyst. Write a concise report based on the event data provided.
+REPORT_SYSTEM_PROMPT = """You are a GDELT event narrative analyst. Weave event data into a coherent story with a clear narrative arc.
 
 Rules:
 - Output plain text / markdown. Do NOT use JSON.
 - 2-4 short paragraphs max.
-- Cite specific numbers, dates, locations, and actor names from the data.
-- If the data is empty or sparse, say so directly.
-- No long preamble or meta-commentary. Start with the analysis immediately."""
+- Tell a story: context → key events → implications or connections.
+- Cite specific dates, locations, actors, and article counts from the data.
+- If data is empty or sparse, say so directly.
+- No preamble like "Here is the analysis". Start immediately with the story."""
 
 
 class ReportGenerator:
-    """Generates natural language reports from structured JSON data."""
+    """Generates narrative reports from structured event data.
+    
+    Pre-processes raw step results into a clean narrative format before sending to LLM.
+    """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        # Report doesn't need huge max_tokens — keep it moderate for speed
         self.llm = build_llm(config)
 
     def _get_response_text(self, response) -> str:
@@ -860,7 +815,6 @@ class ReportGenerator:
         text = ""
         if hasattr(response, "content") and response.content:
             text = response.content.strip()
-        # Kimi k2 puts reasoning in additional_kwargs / response_metadata
         if not text and hasattr(response, "additional_kwargs"):
             text = response.additional_kwargs.get("reasoning_content", "") or ""
             if text:
@@ -871,18 +825,143 @@ class ReportGenerator:
                 text = text.strip()
         return text
 
-    async def generate(self, data: Dict[str, Any], prompt: Optional[str] = None) -> ReportResult:
-        """Generate a report from query results."""
-        # Truncate large data to avoid token limits
-        data_str = json.dumps(data, default=str, ensure_ascii=False)
-        if len(data_str) > 6000:
-            data_str = data_str[:6000] + "\n... [truncated]"
+    @staticmethod
+    def _format_event(evt: Dict[str, Any], is_primary: bool = False) -> str:
+        """Format a single event into a concise narrative string."""
+        parts = []
+        prefix = "PRIMARY: " if is_primary else "- "
+        
+        # Date
+        date = evt.get("SQLDATE") or evt.get("date", "unknown date")
+        parts.append(f"Date: {date}")
+        
+        # Location
+        loc = evt.get("ActionGeo_FullName") or evt.get("location_name") or evt.get("ActionGeo_CountryCode", "unknown")
+        parts.append(f"Location: {loc}")
+        
+        # Actors
+        actor1 = evt.get("Actor1Name") or evt.get("actor1_name", "")
+        actor2 = evt.get("Actor2Name") or evt.get("actor2_name", "")
+        if actor1 or actor2:
+            actors = f"{actor1 or '?'} vs {actor2 or '?'}"
+            parts.append(f"Actors: {actors}")
+        
+        # Headline / title
+        headline = evt.get("headline")
+        if not headline and (actor1 or actor2):
+            headline = f"{actor1 or 'Unknown'} vs {actor2 or 'Unknown'}"
+        if headline:
+            parts.append(f"Title: {headline}")
+        
+        # Summary
+        summary = evt.get("summary", "")
+        if summary:
+            summary = summary[:250] + "..." if len(summary) > 250 else summary
+            parts.append(f"Summary: {summary}")
+        
+        # Articles (signal of importance)
+        articles = evt.get("NumArticles") or evt.get("num_articles")
+        if articles:
+            parts.append(f"Articles: {articles}")
+        
+        # Goldstein scale (conflict/cooperation)
+        goldstein = evt.get("GoldsteinScale") or evt.get("goldstein_scale")
+        if goldstein is not None:
+            tone = "conflict" if goldstein < -5 else "cooperation" if goldstein > 5 else "neutral"
+            parts.append(f"Tone: {tone} ({goldstein})")
+        
+        # Event type label
+        evt_type = evt.get("event_type_label") or evt.get("event_type")
+        if evt_type:
+            parts.append(f"Type: {evt_type}")
+        
+        return prefix + " | ".join(parts)
 
-        user_prompt = prompt or "Summarize the key insights from this GDELT data."
+    def _format_data_for_report(self, data: Dict[str, Any]) -> str:
+        """Pre-process raw step results into a clean narrative input."""
+        sections = []
+        total_events = 0
+        
+        for key, item in data.items():
+            step_type = item.get("type", "unknown")
+            step_data = item.get("data")
+            
+            if step_type == "event_detail" and step_data:
+                sections.append("=== PRIMARY EVENT ===")
+                if isinstance(step_data, dict):
+                    sections.append(self._format_event(step_data, is_primary=True))
+                    # Include raw event_data if available
+                    raw = step_data.get("event_data")
+                    if raw and isinstance(raw, dict):
+                        sections.append(self._format_event(raw, is_primary=True))
+                else:
+                    sections.append(str(step_data))
+                    
+            elif step_type == "similar_events" and step_data:
+                events = step_data if isinstance(step_data, list) else []
+                sections.append(f"=== {len(events)} RELATED EVENTS ===")
+                for evt in events[:8]:  # Cap at 8
+                    sections.append(self._format_event(evt))
+                    total_events += 1
+                    
+            elif step_type in ("events", "top_events", "hot_events") and step_data:
+                events = step_data if isinstance(step_data, list) else []
+                sections.append(f"=== {len(events)} EVENTS FOUND ===")
+                for evt in events[:10]:  # Cap at 10
+                    sections.append(self._format_event(evt))
+                    total_events += 1
+                    
+            elif step_type == "regional_overview" and step_data:
+                sections.append("=== REGIONAL SITUATION ===")
+                if isinstance(step_data, dict):
+                    summary = step_data.get("summary", {})
+                    if summary:
+                        sections.append(f"Summary: {json.dumps(summary, default=str)}")
+                    hot = step_data.get("hot_events", [])
+                    if hot:
+                        sections.append(f"Hot events ({len(hot)}):")
+                        for evt in hot[:5]:
+                            sections.append(self._format_event(evt))
+                else:
+                    sections.append(str(step_data))
+                    
+            elif step_type == "daily_brief" and step_data:
+                sections.append("=== DAILY BRIEF ===")
+                if isinstance(step_data, dict):
+                    total = step_data.get("total_events")
+                    if total:
+                        sections.append(f"Total events: {total}")
+                    conflict = step_data.get("conflict_events")
+                    if conflict is not None:
+                        sections.append(f"Conflict events: {conflict}")
+                    avg_tone = step_data.get("avg_tone")
+                    if avg_tone is not None:
+                        sections.append(f"Avg tone: {avg_tone}")
+                else:
+                    sections.append(str(step_data))
+        
+        result = "\n\n".join(sections)
+        # Hard cap at ~5000 chars to stay within token budget
+        if len(result) > 5000:
+            result = result[:4800] + "\n\n... [additional events omitted]"
+        return result
+
+    async def generate(self, data: Dict[str, Any], prompt: Optional[str] = None) -> ReportResult:
+        """Generate a narrative report from query results."""
+        # Pre-process data into narrative format
+        narrative_data = self._format_data_for_report(data)
+        
+        if not narrative_data.strip() or narrative_data.strip() == "=== 0 EVENTS FOUND ===":
+            return ReportResult(
+                summary="No events were found for this query. Try broadening your search (e.g., removing location filters or expanding the date range).",
+                key_findings=[],
+            )
+
+        user_prompt = prompt or "Tell the story of these events. Connect them with context and implications."
 
         messages = [
             SystemMessage(content=REPORT_SYSTEM_PROMPT),
-            HumanMessage(content=f"{user_prompt}\n\nData:\n{data_str}\n\nWrite a concise report:"),
+            HumanMessage(content=f"{user_prompt}\n\nEvent Data:\n{narrative_data}\n\nWrite the story:"),
         ]
 
         try:

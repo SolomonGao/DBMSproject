@@ -201,7 +201,7 @@ export default function ExplorePanel() {
           AI Explore
         </h2>
         <p style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
-          Ask natural language questions about events, actors, and trends.
+          Search for specific events and incidents. Use the Dashboard tab for trends, stats, and maps.
         </p>
       </div>
 
@@ -213,7 +213,7 @@ export default function ExplorePanel() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Search an event by keyword, fingerprint, or ask about a specific incident..."
+          placeholder="Search events by location, type, date, or event ID. For data analysis &amp; trends, use the Dashboard tab."
           className="search-input"
         />
         <button
