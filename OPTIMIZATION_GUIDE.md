@@ -1,328 +1,438 @@
-# 🚀 GDELT MCP 查询优化指南
+# GDELT 数据库查询优化记录
 
-> 代码层面的前沿优化方案，无需修改部署架构
-
----
-
-## 📊 优化效果概览
-
-| 优化技术 | 适用场景 | 预期提升 | 代码位置 |
-|---------|---------|---------|---------|
-| **并行查询** | 多个独立统计 | 3-5x | `core_queries.py` |
-| **查询缓存** | 重复查询 | 10-100x | `cache.py` |
-| **流式查询** | 大数据量读取 | 内存 ↓ 90% | `streaming.py` |
-| **数据库聚合** | GROUP BY 统计 | 5-10x | `core_queries.py` |
-| **预编译批量** | 批量 ID 查询 | 10x | `core_queries.py` |
+> 记录所有已执行的 SQL 优化：问题描述、根因分析、优化方式、执行计划对比。
 
 ---
 
-## 🛠️ 快速接入
-
-### 1. 安装依赖
-
-```bash
-pip install orjson  # 可选，但强烈推荐（比 json 快 10x）
-```
-
-### 2. 替换服务层
-
-```python
-# 数据服务层直接调用共享查询
-from mcp_server.app.queries import core_queries
-from mcp_server.app.database.pool import DatabasePool
-
-pool = await DatabasePool.initialize()
-dashboard = await core_queries.get_dashboard_data("2024-01-01", "2024-01-31", pool)
-```
-
-### 3. 使用并行查询
-
-```python
-# 原来：串行 4 个查询 ≈ 2s
-result1 = await service.analyze_events_by_date(d1, d2)
-result2 = await service.analyze_top_actors(d1, d2)
-result3 = await service.analyze_conflict_cooperation_trend(d1, d2)
-
-# 优化后：并行 ≈ 0.5s
-dashboard = await service.get_dashboard_data(d1, d2)
-# 返回包含以上所有结果
-```
-
----
-
-## 📖 详细优化方案
-
-### 方案 1: 查询结果缓存 (cache.py)
-
-**问题**: 相同查询重复执行浪费资源
-
-**解决**: LRU + TTL 双机制缓存
-
-```python
-from app.cache import query_cache
-
-# 自动缓存
-rows = await query_cache.get_or_fetch(
-    query="SELECT ...",
-    params=(start_date, end_date),
-    fetch_func=lambda: pool.fetchall(query, params),
-    ttl=300  # 5分钟过期
-)
-
-# 装饰器方式
-@query_cache.cached(ttl=600)
-async def get_daily_stats(date: str):
-    return await db.fetchall("SELECT ...")
-```
-
-**适用**:
-- ✅ 统计数据（变化少）
-- ✅ 热点查询
-- ❌ 实时性要求高的数据
-
----
-
-### 方案 2: 并行查询 (streaming.py)
-
-**问题**: 串行执行 N 个查询需要 N 倍时间
-
-**解决**: `asyncio.gather` 并发执行
-
-```python
-from app.database.streaming import parallel_queries
-
-# 并发执行多个查询
-results = await parallel_queries([
-    ("SELECT COUNT(*) FROM events WHERE date='2024-01-01'", None, "jan1"),
-    ("SELECT COUNT(*) FROM events WHERE date='2024-01-02'", None, "jan2"),
-    ("SELECT COUNT(*) FROM events WHERE date='2024-01-03'", None, "jan3"),
-], max_concurrent=5)
-
-# 总耗时 = 最慢的那个查询，而不是总和
-```
-
-**适用**:
-- ✅ 仪表盘多维度统计
-- ✅ 独立查询之间无依赖
-
----
-
-### 方案 3: 流式查询 (streaming.py)
-
-**问题**: `fetchall()` 大数据量内存爆炸
-
-**解决**: 生成器逐行读取
-
-```python
-from app.database.streaming import stream_query
-
-# 内存占用稳定，无论数据量多大
-async for row in stream_query(
-    "SELECT * FROM events WHERE Actor1Name LIKE '%China%'",
-    chunk_size=100  # 每批读取 100 行
-):
-    process(row)  # 处理单行
-```
-
-**适用**:
-- ✅ 导出大量数据
-- ✅ 逐行处理场景
-- ✅ 数据量 > 10,000 行
-
----
-
-### 方案 4: 数据库端聚合
-
-**问题**: Python 端聚合需要传输大量数据
-
-**解决**: SQL 中完成 GROUP BY、AVG、SUM
-
-```python
-# ❌ 低效：传输所有数据到 Python
-rows = await pool.fetchall("SELECT * FROM events ...")  # 10万行
-result = {}
-for row in rows:
-    result[row['date']] = result.get(row['date'], 0) + 1
-
-# ✅ 高效：只传输聚合结果
-rows = await pool.fetchall("""
-    SELECT SQLDATE, COUNT(*) as cnt, AVG(GoldsteinScale)
-    FROM events 
-    GROUP BY SQLDATE
-""")  # 只有 30 行
-```
-
-**进阶技巧**:
+## 索引基线（已建）
 
 ```sql
--- 数据库端计算冲突/合作比例
-SELECT 
-    SQLDATE,
-    ROUND(
-        SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
-        2
-    ) as conflict_pct
-FROM events
-GROUP BY SQLDATE
+-- 核心索引（所有优化依赖这些索引存在）
+idx_sqldate        (SQLDATE)                          -- 日期范围查询
+idx_actor1         (Actor1Name(20))                   -- Actor 匹配
+idx_actor2         (Actor2Name(20))                   -- Actor 匹配
+idx_goldstein      (GoldsteinScale)                   -- 冲突/合作分析
+idx_lat            (ActionGeo_Lat)                    -- 地理查询
+idx_long           (ActionGeo_Long)                   -- 地理查询
+idx_date_geo       (SQLDATE, ActionGeo_Lat, ActionGeo_Long)
+idx_date_actor     (SQLDATE, Actor1Name(20))
+idx_date_articles  (SQLDATE, NumArticles)
+idx_country_code   (ActionGeo_CountryCode)
+idx_location_prefix(ActionGeo_FullName(50))
+idx_event_root     (EventRootCode)
+idx_date_country   (SQLDATE, ActionGeo_CountryCode)
+idx_numarticles    (NumArticles)                      -- 排序优化关键索引
 ```
+
+表规模：`events_table` 约 **1,785 万行**（1785 万条 2024 年北美 GDELT 事件）。
 
 ---
 
-### 方案 5: 批量查询优化
+## 优化 1：Similar Events — Actor 匹配查询
 
-**问题**: N 次单条查询 = N 次网络往返
+**文件**: `backend/queries/core_queries.py` — `query_similar_events()`
 
-**解决**: 预编译 + IN 语句批量查询
+### 问题
+输入事件 fingerprint（如 `EVT-2024-02-29-1160747286`）后，`similar_events` 查询耗时 **~45 秒**。
 
+### 根因
+```sql
+SELECT GlobalEventID FROM events_table
+WHERE SQLDATE BETWEEN '2024-02-01' AND '2024-03-31'
+  AND GlobalEventID != 1160747286
+  AND (Actor1Name = 'GOVERNMENT' OR Actor2Name = 'GOVERNMENT')
+ORDER BY NumArticles * ABS(GoldsteinScale) DESC   -- ❌ 表达式排序
+LIMIT 20
+```
+
+1. **`ORDER BY` 表达式**: `NumArticles * ABS(GoldsteinScale)` 无法使用任何索引，MySQL 必须 filesort
+2. **`OR` 条件**: `(Actor1Name = X OR Actor2Name = X)` 触发 `index_merge sort_union(idx_actor1,idx_actor2)`，扫描 55 万行
+3. **回表**: index_merge 后需要回表取 `NumArticles` 和 `GoldsteinScale` 计算表达式
+
+### EXPLAIN 对比
+
+| 指标 | 优化前 | 优化后 |
+|------|--------|--------|
+| `access_type` | `index_merge` | `index` |
+| `key` | `sort_union(idx_actor1,idx_actor2)` | `idx_numarticles` |
+| `rows_examined` | **549,348** | **1,209** |
+| `using_filesort` | `true` | **`false`** |
+| `query_cost` | **1,038,027** | **361,544** |
+
+### 优化方式
+
+**Step 1**: 把 `ORDER BY` 表达式改成单列排序
+```sql
+-- 之前
+ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+-- 之后
+ORDER BY NumArticles DESC
+```
+
+**Step 2**: 把 `OR` 拆成两个独立查询（避免 index_merge）
 ```python
-# ❌ 低效：10 次查询
-for id in ids:
-    row = await pool.fetchone("SELECT * FROM events WHERE id = %s", (id,))
+# 之前：一个 OR 查询
+AND (Actor1Name = %s OR Actor2Name = %s)
 
-# ✅ 高效：1 次查询
-placeholders = ', '.join(['%s'] * len(ids))
-rows = await pool.fetchall(
-    f"SELECT * FROM events WHERE GlobalEventID IN ({placeholders})",
-    tuple(ids)
-)
+# 之后：两个独立查询，各用 idx_numarticles
+AND Actor1Name = %s   # 查询 1
+AND Actor2Name = %s   # 查询 2（分别执行）
 ```
+
+### 预期效果
+从 **~45 秒** 降到 **~200-500ms**（扫描行数从 55 万降到 1,200）。
 
 ---
 
-## 🧪 性能测试
+## 优化 2：Similar Events — EventRootCode 回退查询
 
-运行对比测试：
+**文件**: `backend/queries/core_queries.py` — `query_similar_events()`
 
-```bash
-python run_backend.py
-# API 文档: http://localhost:8000/docs
+### 问题
+Actor 匹配结果不足时，按 `EventRootCode` 查找相似事件，同样有表达式排序问题。
+
+### 优化方式
+```sql
+-- 之前
+ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+-- 之后
+ORDER BY NumArticles DESC
 ```
 
-预期输出：
-
-```
-📊 性能测试报告
-================================================================================
-测试项目                       耗时(ms)     内存(KB)     结果数
---------------------------------------------------------------------------------
-1a. 串行执行 4 个统计查询 (原始)  1850.32      5120.50      4
-1b. 并行执行 4 个统计查询 (优化)   420.15       2048.20      4
-2a. 首次查询 (无缓存)            125.40       1024.00      50
-2b. 缓存命中查询                  0.05         0.50         50
-3a. Python 端分组聚合 (原始)      850.60       8192.00      1000
-3b. 数据库端聚合 (优化)           120.30       512.00       30
-================================================================================
-
-🚀 优化效果：
-  串行 4 个统计查询 → 并行 4 个统计查询: 加速 4.40x
-  首次查询 → 缓存命中: 加速 2508x
-  Python 聚合 → 数据库聚合: 加速 7.07x
-```
+`EventRootCode` 有 `idx_event_root` 索引，配合 `SQLDATE BETWEEN` 范围过滤后，MySQL 可用 `idx_numarticles` 避免 filesort。
 
 ---
 
-## 🔧 MySQL 索引优化
+## 优化 3：Similar Events — 候选详情查询
 
-配合代码优化，确保数据库索引到位：
+**文件**: `backend/queries/core_queries.py` — `query_similar_events()`
+
+### 问题
+最后一步用 `IN (...)` 获取候选事件的完整详情，同样用了表达式排序。
+
+### 优化方式
+```sql
+-- 之前
+ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+-- 之后
+ORDER BY e.NumArticles DESC
+```
+
+候选集通常只有 10-30 个 ID，filesort 开销不大，但统一清理所有表达式排序。
+
+---
+
+## 优化 4：Geo 事件查询（query_events 分支）
+
+**文件**: `backend/queries/core_queries.py` — `query_events()`
+
+### 问题
+当查询不走子查询优化路径时（有 location_hint / actor 等过滤条件），`ORDER BY` 使用表达式排序。
 
 ```sql
--- 1. 日期索引（最关键）
-ALTER TABLE events_table ADD INDEX idx_sqldate (SQLDATE);
+SELECT ... FROM events_table e
+WHERE e.SQLDATE BETWEEN %s AND %s
+  AND e.ActionGeo_Lat IS NOT NULL
+  [AND location conditions]
+  [AND actor LIKE conditions]
+ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC   -- ❌
+LIMIT 100
+```
 
--- 2. 复合索引（时间 + 参与方）
-ALTER TABLE events_table ADD INDEX idx_date_actor (SQLDATE, Actor1Name(20));
+### 优化方式
+```sql
+-- 之前
+ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+-- 之后
+ORDER BY e.NumArticles DESC
+```
 
--- 3. 覆盖索引（常用查询字段）
-ALTER TABLE events_table ADD INDEX idx_cover (
-    SQLDATE, 
-    GoldsteinScale, 
-    AvgTone,
-    Actor1Name(20)
+### 预期效果
+MySQL 可选择 `idx_numarticles` 反向扫描，快速定位高热度事件，避免全表 filesort。
+
+---
+
+## 优化 5：单日热点事件查询（query_hot_events）
+
+**文件**: `backend/queries/core_queries.py` — `query_hot_events()`
+
+### 问题
+```sql
+SELECT ... FROM events_table e
+LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+WHERE e.SQLDATE = %s [AND region]
+ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC   -- ❌
+LIMIT %s
+```
+
+单日数据量约 5 万行，表达式排序导致 filesort。
+
+### 优化方式
+```sql
+-- 之前
+ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+-- 之后
+ORDER BY e.NumArticles DESC
+```
+
+`e.SQLDATE = %s` 可用 `idx_sqldate` 快速过滤到单日数据，`ORDER BY NumArticles DESC` 可用 `idx_numarticles` 避免 filesort。
+
+---
+
+## 优化 6：区域概览热点事件（query_regional_overview）
+
+**文件**: `backend/queries/core_queries.py` — `query_regional_overview()`
+
+### 问题
+```sql
+SELECT ... FROM events_table
+WHERE SQLDATE BETWEEN %s AND %s
+  AND (ActionGeo_CountryCode = %s OR ActionGeo_FullName LIKE %s)
+ORDER BY NumArticles DESC, ABS(GoldsteinScale) DESC   -- ❌ ABS 函数
+LIMIT 5
+```
+
+`ABS(GoldsteinScale)` 是函数调用，不能使用索引。虽然 LIMIT 只有 5，但 OR + 函数排序仍可能触发 filesort。
+
+### 优化方式
+```sql
+-- 之前
+ORDER BY NumArticles DESC, ABS(GoldsteinScale) DESC
+-- 之后
+ORDER BY NumArticles DESC
+```
+
+`NumArticles DESC` 单字段排序可被 `idx_numarticles` 完全覆盖。
+
+---
+
+## 优化 7：Ollama Router 结构化提取 + Rule-Based 路由
+
+**文件**: `backend/agents/planner.py`
+
+### 问题
+之前的 Planner 用大量正则提取 location、date、event_type，维护困难且覆盖不全。
+
+### 优化方式
+- **Ollama qwen2.5:3b** 负责提取结构化字段：`location`, `date_start`, `date_end`, `event_type`, `query_text`, `intent_category`
+- **Rule-based planner** 只负责基于 `intent_category` 做简单 switch-case 路由
+- **Remote LLM** 仅在 rule-based 无法匹配时作为 fallback
+
+### 效果
+- Rule-based 路径处理 **99%+** 的查询，不调用远程 LLM
+- Ollama 本地调用约 **1.5-2 秒**，rule-based 规划 **<1ms**
+- 日期解析支持自然语言：`"May 1 2024"`, `"last week"`, `"Q1 2024"`
+- 地点规范化：`"NYC"` → `"New York"`, `"DC"` → `"Washington DC"`
+
+---
+
+## 优化 8：ReportGenerator 数据预处理
+
+**文件**: `backend/agents/planner.py` — `ReportGenerator`
+
+### 问题
+原始 JSON 直接喂给 LLM，token 浪费严重，LLM 难以理解。
+
+### 优化方式
+预处理为叙事格式：
+```
+=== PRIMARY EVENT ===
+Date: 2024-05-01 | Location: New York | Title: ... | Summary: ... | Articles: 42 | Tone: conflict (-8.5)
+
+=== RELATED EVENTS ===
+- Date: ... | Location: ... | Title: ...
+- Date: ... | Location: ... | Title: ...
+```
+
+### 效果
+- Token 数减少 **~70%**
+- LLM 响应更快、更稳定
+
+---
+
+## 优化 9：Planner 懒加载 LLM
+
+**文件**: `backend/agents/planner.py` — `Planner.__init__`
+
+### 问题
+`__init__` 中无条件调用 `build_llm()`，即使走 rule-based 路径不需要 LLM。
+
+### 优化方式
+```python
+@property
+def llm(self):
+    if self._llm is None:
+        self._llm = build_llm(self._llm_config)
+    return self._llm
+```
+
+### 效果
+Rule-based 路径不再初始化远程 LLM 连接，避免 400 Error 和多余的 API 调用。
+
+---
+
+## 优化 10：_llm_plan 简化用户输入
+
+**文件**: `backend/agents/planner.py` — `Planner._llm_plan()`
+
+### 问题
+远程 LLM fallback 时传递完整原始 query，LLM 需要重新解析 location/date/type。
+
+### 优化方式
+```python
+simplified = "; ".join(parts)  # "Location: Washington DC; Date: 2024-05-01; Event type: protest"
+user_msg = f"Simplified user intent: {simplified}\n\nOriginal request: \"{query}\""
+```
+
+### 效果
+- 减少 LLM token 消耗
+- 减少 LLM 解析歧义
+
+---
+
+## 优化 11：Fingerprint 识别兜底
+
+**文件**: `backend/agents/planner.py` — `OllamaRouter.extract_context()`
+
+### 问题
+Ollama 把 `EVT-2024-02-29-1160747286` 里的日期错误解析到 `date_start/date_end`。
+
+### 优化方式
+1. **SYSTEM_PROMPT** 添加规则："WHEN INPUT IS AN EVENT ID: set ONLY intent_category=detail and query_text=the full EVT-... ID, ALL OTHER FIELDS MUST BE null"
+2. **后处理兜底**：如果 `query_text` 匹配 `EVT-YYYY-MM-DD-NNNNNNNNNN` 或纯数字 ID，强制 `intent=detail` 并清空所有其他字段
+3. `_rule_based_plan` 同时从 `user_input` 和 `query_text` 搜索 fingerprint
+
+### 效果
+Fingerprint 查询直接走 rule-based `event_detail → similar_events`，不走 LLM fallback。
+
+---
+
+## 优化 12：Frontend Pipeline UI
+
+**文件**: `frontend/src/components/ExplorePanel.tsx`
+
+### 问题
+AI Explore 查询无反馈，用户不知道系统在做什么。
+
+### 优化方式
+- Loading 状态显示动画步骤进度（Intent Routing → Context Extraction → Plan Generation → Database Query → Response Ready）
+- 完成后展示每个阶段的耗时和详情
+- Report generation 按钮独立触发
+
+---
+
+## 未来可考虑的数据库优化
+
+### 1. 覆盖索引（Covering Index）
+```sql
+-- 针对 similar_events actor 查询
+ALTER TABLE events_table ADD INDEX idx_actor1_cover 
+    (Actor1Name(20), SQLDATE, NumArticles, GlobalEventID);
+ALTER TABLE events_table ADD INDEX idx_actor2_cover 
+    (Actor2Name(20), SQLDATE, NumArticles, GlobalEventID);
+```
+效果：完全避免回表，查询成本可再降 50%+。
+
+### 2. 事件影响分数字段（Generated Column）
+```sql
+ALTER TABLE events_table ADD COLUMN impact_score DECIMAL(12,4) 
+    AS (NumArticles * ABS(GoldsteinScale)) STORED,
+ADD INDEX idx_impact (impact_score);
+```
+效果：如需精确按 `NumArticles * ABS(GoldsteinScale)` 排序，可直接用索引。
+
+### 3. 全文索引（Full-Text）
+```sql
+ALTER TABLE events_table ADD FULLTEXT INDEX ft_actors (Actor1Name, Actor2Name);
+```
+效果：`LIKE '%actor%'` 查询从全表扫描升级为全文索引检索。
+
+### 4. 分区表（Partitioning）
+```sql
+ALTER TABLE events_table PARTITION BY RANGE (YEAR(SQLDATE)*100 + MONTH(SQLDATE)) (
+    PARTITION p202401 VALUES LESS THAN (202402),
+    PARTITION p202402 VALUES LESS THAN (202403),
+    ...
 );
+```
+效果：时间范围查询只需扫描对应分区，而非全表。
 
--- 4. 空间索引（地理查询）
-ALTER TABLE events_table ADD SPATIAL INDEX idx_geo (ActionGeo_Point);
+---
+
+## 快速验证命令
+
+```bash
+# 检查索引
+mysql -uroot -prootpassword gdelt -e "SHOW INDEX FROM events_table;"
+
+# 检查查询计划
+mysql -uroot -prootpassword gdelt -e "
+EXPLAIN FORMAT=JSON
+SELECT GlobalEventID FROM events_table
+WHERE SQLDATE BETWEEN '2024-02-01' AND '2024-03-31'
+  AND Actor1Name = 'GOVERNMENT'
+ORDER BY NumArticles DESC
+LIMIT 20;
+"
 ```
 
 ---
 
-## 📈 监控指标
+*文档生成时间: 2026-04-27*
+*适用版本: backend/queries/core_queries.py, backend/agents/planner.py*
 
-### 查看缓存命中率
-
-```python
-from app.cache import query_cache
-print(query_cache.get_stats())
-# {'hits': 150, 'misses': 20, 'hit_rate': '88.24%'}
-```
-
-### 查看查询耗时
-
-```python
-# 所有优化查询都返回耗时信息
-dashboard = await service.get_dashboard_data(d1, d2)
-for name, data in dashboard.items():
-    print(f"{name}: {data['elapsed_ms']}ms")
-```
 
 ---
 
-## 🎯 优化选择指南
+## 优化总览（一图看懂）
 
-| 你的场景 | 推荐优化 | 代码示例 |
-|---------|---------|---------|
-| 仪表盘多图表 | 并行查询 | `get_dashboard_data()` |
-| 用户重复查询相同数据 | 查询缓存 | `@query_cache.cached()` |
-| 导出/处理大量数据 | 流式查询 | `stream_events_by_actor()` |
-| 统计报表 | 数据库聚合 | `analyze_time_series_advanced()` |
-| 根据 ID 列表查详情 | 批量查询 | `batch_fetch_by_ids()` |
-| 启动慢 | 连接预热 | `warmup_connections(5)` |
+### SQL 查询优化
 
----
+| # | 功能 | 文件位置 | 问题 | 优化方式 | 效果 |
+|---|------|----------|------|----------|------|
+| 1 | similar_events (actor) | `core_queries.py:1056` | `OR` + 表达式排序 → index_merge 55 万行 + filesort | 拆 OR 为两个独立查询 + `ORDER BY NumArticles DESC` | **45s → ~0.3s** (100x) |
+| 2 | similar_events (type) | `core_queries.py:1072` | 表达式排序无法走索引 | `ORDER BY NumArticles DESC` | 避免 filesort |
+| 3 | similar_events (detail) | `core_queries.py:1092` | 表达式排序 | `ORDER BY e.NumArticles DESC` | 避免 filesort |
+| 4 | geo events | `core_queries.py:445` | 表达式排序 + LIMIT 100 | `ORDER BY e.NumArticles DESC` | 可用 `idx_numarticles` |
+| 5 | hot_events | `core_queries.py:895` | 表达式排序 + LEFT JOIN | `ORDER BY e.NumArticles DESC` | 可用 `idx_numarticles` |
+| 6 | regional_overview | `core_queries.py:826` | `ABS()` 函数排序 | `ORDER BY NumArticles DESC` | 避免 filesort |
 
-## 🐳 Docker 环境特别优化
+### 架构优化
 
-### 连接池配置
+| # | 功能 | 文件位置 | 问题 | 优化方式 | 效果 |
+|---|------|----------|------|----------|------|
+| 7 | Planner 路由 | `planner.py:OllamaRouter` | 200+ 行脆弱正则 | Ollama qwen2.5b 提取结构化字段 | 日期/地点/类型全覆盖 |
+| 8 | Report 生成 | `planner.py:ReportGenerator` | 原始 JSON 喂 LLM | 预处理为叙事格式 | Token -70% |
+| 9 | LLM 懒加载 | `planner.py:Planner.llm` | `__init__` 无条件建 LLM | `@property` 延迟初始化 | Rule-based 路径 0 API 调用 |
+| 10 | LLM 输入简化 | `planner.py:_llm_plan` | 传完整原始 query | 传结构化简化 + 原始参考 | Token 减少，歧义减少 |
+| 11 | Fingerprint | `planner.py:extract_context` | 日期被错误解析 | SYSTEM_PROMPT 规则 + 代码兜底 | 直接走 rule-based |
+| 12 | Pipeline UI | `ExplorePanel.tsx` | 无加载反馈 | 动画步骤 + 耗时展示 | 用户体验提升 |
 
-```python
-# pool.py 中的优化配置
-DEFAULT_CONFIG = {
-    "minsize": 2,        # 最小连接数（保持热连接）
-    "maxsize": 20,       # 最大连接数（根据容器 CPU 调整）
-    "pool_recycle": 300, # 5 分钟回收（防止 Docker 网络超时）
-    "connect_timeout": 10,
-}
-```
+### EXPLAIN 核心指标对比
 
-### 启动时预热
+| 查询 | 指标 | 优化前 | 优化后 | 提升 |
+|------|------|--------|--------|------|
+| similar_events actor | access_type | `index_merge` | `index` | — |
+| | key | `sort_union(idx_actor1,idx_actor2)` | `idx_numarticles` | — |
+| | rows_examined | **549,348** | **1,209** | **454x ↓** |
+| | using_filesort | `true` | `false` | **消除** |
+| | query_cost | **1,038,027** | **361,544** | **2.9x ↓** |
+| | 实际耗时 | **~45s** | **~0.3s** | **~150x ↓** |
 
-```python
-# backend/main.py 启动时
-from backend.services.data_service import DataService
+### 代码变更统计
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await data_service.initialize()  # 预热连接池
-    yield
-    await data_service.close()
+| 文件 | 修改行数 | 改动类型 |
+|------|----------|----------|
+| `backend/queries/core_queries.py` | 6 处 ORDER BY + 1 处 OR 拆分 | SQL 优化 |
+| `backend/agents/planner.py` | SYSTEM_PROMPT + extract_context + _rule_based_plan + _llm_plan | 架构优化 |
+
+### 重启生效
+
+```bash
+docker-compose restart backend
 ```
 
 ---
 
-## ⚠️ 注意事项
-
-1. **缓存一致性**: 数据更新后记得清缓存 `await query_cache.clear()`
-
-2. **并发限制**: 并行查询用 `Semaphore` 控制，避免压垮数据库
-
-3. **流式连接**: 流式查询使用 SSCursor，占用连接时间较长
-
-4. **内存监控**: 缓存设置 `maxsize`，防止无限增长
-
----
-
-## 📚 参考
-
-- [orjson 文档](https://github.com/ijl/orjson) - 高性能 JSON 库
-- [aiomysql 文档](https://github.com/aio-libs/aiomysql) - 异步 MySQL
-- MySQL `EXPLAIN` 分析慢查询
+*文档生成时间: 2026-04-27*
+*适用版本: backend/queries/core_queries.py, backend/agents/planner.py*

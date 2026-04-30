@@ -106,6 +106,51 @@ class Executor:
                 top_n=p.get("top_n", 10),
             )
 
+        if step_type == "dashboard":
+            return await self.ds.get_dashboard(
+                start_date=p.get("start_date"),
+                end_date=p.get("end_date"),
+            )
+
+        if step_type == "timeseries":
+            return await self.ds.get_time_series(
+                start_date=p.get("start_date"),
+                end_date=p.get("end_date"),
+                granularity=p.get("granularity", "day"),
+            )
+
+        if step_type == "geo":
+            # Use geo_events if filters are present, otherwise geo_heatmap
+            if p.get("location_hint") or p.get("location_exact") or p.get("event_type") or p.get("actor") or p.get("actor_exact"):
+                return await self.ds.get_geo_events(
+                    start_date=p.get("start_date"),
+                    end_date=p.get("end_date"),
+                    location_hint=p.get("location_hint"),
+                    location_exact=p.get("location_exact"),
+                    event_type=p.get("event_type"),
+                    actor=p.get("actor"),
+                    actor_exact=p.get("actor_exact"),
+                    max_results=p.get("limit", 100),
+                )
+            return await self.ds.get_geo_heatmap(
+                start_date=p.get("start_date"),
+                end_date=p.get("end_date"),
+                precision=p.get("precision", 2),
+            )
+
+        if step_type == "regional_overview":
+            return await self.ds.get_regional_overview(
+                region=p.get("region"),
+                time_range=p.get("time_range", "week"),
+                start_date=p.get("start_date"),
+                end_date=p.get("end_date"),
+            )
+
+        if step_type == "daily_brief":
+            return await self.ds.get_daily_brief(
+                query_date=p.get("query_date"),
+            )
+
         raise ValueError(f"Unknown step type: {step_type}")
 
 
