@@ -1052,15 +1052,32 @@ async def query_similar_events(pool, seed_event_id: int, limit: int = 10) -> Lis
         actor_names.append(a2)
     
     for an in actor_names:
+        # Actor1 match — avoids index_merge, lets MySQL use idx_numarticles for ORDER BY
         rows = await pool.fetchall(f"""
             SELECT GlobalEventID FROM {DEFAULT_TABLE}
             WHERE SQLDATE BETWEEN %s AND %s
               AND GlobalEventID != %s
               AND SQLDATE != %s
-              AND (Actor1Name = %s OR Actor2Name = %s)
-            ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+              AND Actor1Name = %s
+            ORDER BY NumArticles DESC
             LIMIT %s
-        """, (window_start, window_end, seed_event_id, sd, an, an, limit * 2))
+        """, (window_start, window_end, seed_event_id, sd, an, limit * 2))
+        for r in rows:
+            gid = r['GlobalEventID']
+            if gid not in candidate_ids:
+                candidate_ids[gid] = set()
+            candidate_ids[gid].add('Same actor')
+        
+        # Actor2 match — separate query avoids OR-caused index_merge
+        rows = await pool.fetchall(f"""
+            SELECT GlobalEventID FROM {DEFAULT_TABLE}
+            WHERE SQLDATE BETWEEN %s AND %s
+              AND GlobalEventID != %s
+              AND SQLDATE != %s
+              AND Actor2Name = %s
+            ORDER BY NumArticles DESC
+            LIMIT %s
+        """, (window_start, window_end, seed_event_id, sd, an, limit * 2))
         for r in rows:
             gid = r['GlobalEventID']
             if gid not in candidate_ids:
@@ -1075,7 +1092,7 @@ async def query_similar_events(pool, seed_event_id: int, limit: int = 10) -> Lis
               AND GlobalEventID != %s
               AND SQLDATE != %s
               AND EventRootCode = %s
-            ORDER BY NumArticles * ABS(GoldsteinScale) DESC
+            ORDER BY NumArticles DESC
             LIMIT %s
         """, (window_start, window_end, seed_event_id, sd, rc, limit))
         for r in rows:
@@ -1100,7 +1117,7 @@ async def query_similar_events(pool, seed_event_id: int, limit: int = 10) -> Lis
         FROM {DEFAULT_TABLE} e
         LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
         WHERE e.GlobalEventID IN ({id_list})
-        ORDER BY e.NumArticles * ABS(e.GoldsteinScale) DESC
+        ORDER BY e.NumArticles DESC
         LIMIT %s
     """, (limit,))
     
