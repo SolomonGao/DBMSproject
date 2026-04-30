@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, LayoutDashboard } from 'lucide-react';
 import { api } from '../api/client';
-import type { DashboardData, TimeSeriesPoint, GeoPoint, EventItem, GeoEventPoint, FilterState } from '../types';
+import type { DashboardData, TimeSeriesPoint, GeoPoint, EventItem, GeoEventPoint, FilterState, InsightsData, HeadlineItem } from '../types';
 import type { GeoEventPoint as GeoEventPointType } from '../types';
 import StatsCards from './StatsCards';
 import TimeSeriesChart from './TimeSeriesChart';
 import MapPanel from './MapPanel';
 import FilterBar from './FilterBar';
 import EventTimeline from './EventTimeline';
+import HotEventsPanel from './HotEventsPanel';
+import DistributionCharts from './DistributionCharts';
+import InsightCards from './InsightCards';
 
 export default function Dashboard() {
   const today = '2024-01-31';
@@ -31,20 +34,23 @@ export default function Dashboard() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([]);
   const [geoData, setGeoData] = useState<GeoPoint[]>([]);
+  const [insights, setInsights] = useState<InsightsData | null>(null);
+  const [topHeadlines, setTopHeadlines] = useState<HeadlineItem[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [geoEvents, setGeoEvents] = useState<GeoEventPoint[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // Default dashboard fetch (heatmap + stats)
+  // Default dashboard fetch (core data only)
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [dashRes, tsRes, geoRes] = await Promise.all([
+      const [dashRes, tsRes, geoRes, topRes] = await Promise.all([
         api.getDashboard(filters.startDate, filters.endDate),
         api.getTimeSeries(filters.startDate, filters.endDate, 'day'),
         api.getGeoHeatmap(filters.startDate, filters.endDate, 2),
+        api.getTopEvents(filters.startDate, filters.endDate, 5),
       ]);
 
       if (dashRes.ok) setDashboard(dashRes.data || dashRes);
@@ -52,10 +58,21 @@ export default function Dashboard() {
 
       if (tsRes.ok) setTimeSeries(tsRes.data || []);
       if (geoRes.ok) setGeoData(geoRes.data || []);
+      if (topRes.ok) setTopHeadlines(topRes.data || []);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch data');
     } finally {
       setLoading(false);
+    }
+  }, [filters.startDate, filters.endDate]);
+
+  // Load insights independently (non-blocking)
+  const fetchInsights = useCallback(async () => {
+    try {
+      const res = await api.getInsights(filters.startDate, filters.endDate);
+      if (res.ok) setInsights(res.data || null);
+    } catch {
+      // Silently fail — insights are decorative, not critical
     }
   }, [filters.startDate, filters.endDate]);
 
@@ -115,10 +132,31 @@ export default function Dashboard() {
   // Initial load
   useEffect(() => {
     fetchDashboard();
-  }, [fetchDashboard]);
+    fetchInsights();
+  }, [fetchDashboard, fetchInsights]);
 
   const handleSelectEvent = useCallback((ev: EventItem) => {
     setSelectedEvent(ev);
+  }, []);
+
+  const handleSelectHeadline = useCallback((hl: HeadlineItem) => {
+    // Convert HeadlineItem to EventItem for detail view
+    const ev: EventItem = {
+      GlobalEventID: hl.GlobalEventID,
+      SQLDATE: hl.SQLDATE,
+      Actor1Name: hl.Actor1Name,
+      Actor2Name: hl.Actor2Name,
+      GoldsteinScale: hl.GoldsteinScale,
+      AvgTone: hl.AvgTone,
+      NumArticles: hl.NumArticles,
+      ActionGeo_FullName: hl.ActionGeo_FullName,
+      headline: hl.headline,
+      summary: hl.summary,
+      event_type_label: hl.event_type_label,
+      severity_score: hl.severity_score,
+    };
+    setSelectedEvent(ev);
+    setHasSearched(true);
   }, []);
 
   // Determine map mode: if user has searched and we have geo events, show event points
@@ -187,12 +225,15 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Insight Cards */}
+      <InsightCards dashboard={dashboard} timeSeries={timeSeries} insights={insights} />
+
       {/* Stats */}
-      <StatsCards data={dashboard} />
+      <StatsCards data={dashboard} timeSeries={timeSeries} />
 
       {/* Charts Grid */}
       <div className="dashboard-grid">
-        <TimeSeriesChart data={timeSeries} title="Daily Events & Conflict Rate" />
+        <TimeSeriesChart data={timeSeries} title="Daily Events, Conflict Rate & Sentiment" />
         <MapPanel
           data={showEventPoints ? undefined : geoData}
           eventPoints={showEventPoints ? geoEvents : undefined}
@@ -205,8 +246,16 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Event Timeline + Detail */}
-      {hasSearched && (
+      {/* Distribution Charts (only when no search active) */}
+      {!hasSearched && dashboard && (
+        <DistributionCharts
+          eventTypes={dashboard.event_types?.data || []}
+          geoDistribution={dashboard.geo_distribution?.data || []}
+        />
+      )}
+
+      {/* Hot Events + Event Timeline + Detail */}
+      {hasSearched ? (
         <div className="dashboard-grid" style={{ marginTop: 16 }}>
           <EventTimeline
             events={events}
@@ -259,11 +308,11 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-      )}
-
-      {/* Default Top Actors & Event Types (only when no search active) */}
-      {!hasSearched && (
+      ) : (
+        /* Default view: Hot Events + Top Actors/Event Types */
         <div className="dashboard-grid" style={{ marginTop: 16 }}>
+          <HotEventsPanel events={topHeadlines} onSelectEvent={handleSelectHeadline} />
+
           <div className="panel">
             <h3>Top Actors</h3>
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
@@ -284,10 +333,8 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
-          </div>
 
-          <div className="panel">
-            <h3>Event Types</h3>
+            <h3 style={{ marginTop: 20 }}>Event Types</h3>
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>

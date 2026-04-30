@@ -234,6 +234,64 @@ class HealthResponse(BaseResponse):
 
 
 # ============================================================================
+# Insights Data
+# ============================================================================
+
+class QuadClassItem(BaseModel):
+    quad_class: str
+    event_count: int
+    avg_goldstein: Optional[float]
+
+
+class ActorTypeItem(BaseModel):
+    actor_type: str
+    event_count: int
+
+
+class HeadlineItem(BaseModel):
+    global_event_id: int
+    sql_date: str
+    actor1_name: Optional[str]
+    actor2_name: Optional[str]
+    goldstein_scale: Optional[float]
+    avg_tone: Optional[float]
+    num_articles: Optional[int]
+    action_geo_full_name: Optional[str]
+    headline: Optional[str]
+    summary: Optional[str]
+    event_type_label: Optional[str]
+    severity_score: Optional[float]
+
+
+class SentimentSummary(BaseModel):
+    avg_tone: Optional[float]
+    avg_goldstein: Optional[float]
+    conflict_count: Optional[int]
+    cooperation_count: Optional[int]
+    total_events: Optional[int]
+
+
+class InsightsData(BaseModel):
+    quad_class: Dict[str, Any]
+    actor_types: Dict[str, Any]
+    top_headlines: Dict[str, Any]
+    sentiment: SentimentSummary
+
+
+class InsightsResponse(BaseResponse):
+    data: InsightsData
+    start_date: str
+    end_date: str
+
+
+class TopEventsResponse(BaseResponse):
+    data: List[EventItem]
+    start_date: str
+    end_date: str
+    total: int
+
+
+# ============================================================================
 # Agent Chat
 # ============================================================================
 

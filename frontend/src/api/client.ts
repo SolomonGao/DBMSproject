@@ -88,4 +88,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ data, prompt, llm_config: llmConfig }),
     }),
+
+  // Dashboard insights
+  getInsights: (start: string, end: string) =>
+    fetchJson<any>(`/api/v1/data/insights?start=${start}&end=${end}`),
+
+  getTopEvents: (start: string, end: string, limit = 5) =>
+    fetchJson<any>(`/api/v1/data/top-events?start=${start}&end=${end}&limit=${limit}`),
 };

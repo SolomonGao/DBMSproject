@@ -860,7 +860,8 @@ async def query_hot_events(
         for fp in hot_fingerprints[:top_n]:
             row = await pool.fetchone("""
                 SELECT f.fingerprint, f.headline, f.summary, f.severity_score,
-                       f.location_name, e.SQLDATE, e.GoldsteinScale, e.NumArticles,
+                       f.location_name, CAST(e.SQLDATE AS CHAR) as SQLDATE,
+                       e.GoldsteinScale, e.NumArticles,
                        e.GlobalEventID, 'standard' as fp_type
                 FROM event_fingerprints f
                 JOIN events_table e ON f.global_event_id = e.GlobalEventID
@@ -884,7 +885,7 @@ async def query_hot_events(
             COALESCE(f.summary, e.ActionGeo_FullName) as summary,
             COALESCE(f.severity_score, ABS(e.GoldsteinScale)) as severity_score,
             COALESCE(f.location_name, e.ActionGeo_FullName) as location_name,
-            CAST(e.SQLDATE AS CHAR) as date,
+            CAST(e.SQLDATE AS CHAR) as SQLDATE,
             e.GoldsteinScale,
             e.NumArticles,
             e.GlobalEventID,
@@ -936,7 +937,8 @@ async def query_top_events(
     # Use subquery for fast index usage + avoid filesort on full table
     sql = f"""
         SELECT
-            e.GlobalEventID, e.SQLDATE, e.Actor1Name, e.Actor2Name,
+            e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
             e.ActionGeo_FullName, e.ActionGeo_CountryCode,
             e.EventRootCode, e.GoldsteinScale, e.NumArticles,
             e.NumSources, e.AvgTone, e.SOURCEURL
@@ -1229,6 +1231,71 @@ async def query_search_news_context(
 # ============================================================================
 # Event Sequence for THP Forecasting
 # ============================================================================
+
+# ============================================================================
+# Dashboard Insights (QuadClass, ActorTypes, Hot Headlines)
+# ============================================================================
+
+async def query_insights(
+    pool, start_date: str, end_date: str
+) -> Dict[str, Any]:
+    """Return overview insights: top headlines and precomputed sentiment.
+    
+    NOTE: All heavy real-time GROUP BYs removed. Sentiment comes from daily_summary only.
+    If daily_summary is not populated, sentiment returns empty.
+    """
+    
+    # Sentiment summary — ONLY from precomputed daily_summary (fast PK range scan)
+    ds_rows = await pool.fetchall(
+        "SELECT total_events, conflict_events, cooperation_events, "
+        "avg_goldstein, avg_tone FROM daily_summary WHERE date BETWEEN %s AND %s",
+        (start_date, end_date)
+    )
+    if ds_rows:
+        total_events = sum(r['total_events'] or 0 for r in ds_rows)
+        conflict_count = sum(r['conflict_events'] or 0 for r in ds_rows)
+        cooperation_count = sum(r['cooperation_events'] or 0 for r in ds_rows)
+        goldstein_sum = sum((r['avg_goldstein'] or 0) * (r['total_events'] or 0) for r in ds_rows)
+        tone_sum = sum((r['avg_tone'] or 0) * (r['total_events'] or 0) for r in ds_rows)
+        sentiment = {
+            "avg_tone": round(tone_sum / total_events, 2) if total_events else None,
+            "avg_goldstein": round(goldstein_sum / total_events, 2) if total_events else None,
+            "conflict_count": conflict_count,
+            "cooperation_count": cooperation_count,
+            "total_events": total_events,
+        }
+    else:
+        sentiment = {}
+    
+    # Top headlines with fingerprints — use subquery for fast index path
+    headline_rows = await pool.fetchall(
+        f"""
+        SELECT
+            e.GlobalEventID,
+            CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
+            e.GoldsteinScale, e.AvgTone, e.NumArticles,
+            e.ActionGeo_FullName,
+            f.headline, f.summary, f.event_type_label, f.severity_score
+        FROM (
+            SELECT GlobalEventID FROM {DEFAULT_TABLE}
+            WHERE SQLDATE BETWEEN %s AND %s
+            ORDER BY NumArticles DESC
+            LIMIT 5
+        ) ids
+        JOIN {DEFAULT_TABLE} e ON e.GlobalEventID = ids.GlobalEventID
+        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+        """,
+        (start_date, end_date)
+    )
+    
+    return {
+        "quad_class": {"data": []},
+        "actor_types": {"data": []},
+        "top_headlines": {"data": [dict(r) for r in headline_rows]},
+        "sentiment": sentiment,
+    }
+
 
 async def query_event_sequence(
     pool,

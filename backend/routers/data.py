@@ -24,6 +24,12 @@ from backend.schemas.responses import (
     TimeSeriesPoint,
     GeoPoint,
     GeoEventPoint,
+    TopEventsResponse,
+    InsightsResponse,
+    HeadlineItem,
+    QuadClassItem,
+    ActorTypeItem,
+    SentimentSummary,
 )
 
 router = APIRouter(prefix="/data", tags=["data"])
@@ -228,6 +234,47 @@ async def get_forecast(
         return ForecastResponse(data=data, start_date=start, end_date=end)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Forecast query failed: {e}")
+
+
+@router.get("/top-events", response_model=TopEventsResponse)
+async def get_top_events(
+    start: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end: str = Query(..., description="End date (YYYY-MM-DD)"),
+    region: Optional[str] = Query(None, description="Optional region filter"),
+    event_type: Optional[str] = Query(None, description="Optional event type filter"),
+    limit: int = Query(5, ge=1, le=20),
+    service: DataService = Depends(get_data_service),
+):
+    """Get top events by media coverage (NumArticles) for the date range."""
+    try:
+        rows = await service.get_top_events(start, end, region, event_type, limit)
+        data = [EventItem(**row) for row in rows]
+        return TopEventsResponse(
+            data=data,
+            start_date=start,
+            end_date=end,
+            total=len(data),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Top events query failed: {e}")
+
+
+@router.get("/insights", response_model=InsightsResponse)
+async def get_insights(
+    start: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end: str = Query(..., description="End date (YYYY-MM-DD)"),
+    service: DataService = Depends(get_data_service),
+):
+    """Get overview insights: QuadClass distribution, actor types, top headlines, sentiment summary."""
+    try:
+        result = await service.get_insights(start, end)
+        return InsightsResponse(
+            data=result,
+            start_date=start,
+            end_date=end,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Insights query failed: {e}")
 
 
 @router.get("/health", response_model=HealthResponse)

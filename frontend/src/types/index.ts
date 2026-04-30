@@ -161,6 +161,47 @@ export interface AnalyzeResponse {
   error?: string;
 }
 
+export interface QuadClassItem {
+  quad_class: string;
+  event_count: number;
+  avg_goldstein?: number;
+}
+
+export interface ActorTypeItem {
+  actor_type: string;
+  event_count: number;
+}
+
+export interface HeadlineItem {
+  GlobalEventID: number;
+  SQLDATE: string;
+  Actor1Name?: string;
+  Actor2Name?: string;
+  GoldsteinScale?: number;
+  AvgTone?: number;
+  NumArticles?: number;
+  ActionGeo_FullName?: string;
+  headline?: string;
+  summary?: string;
+  event_type_label?: string;
+  severity_score?: number;
+}
+
+export interface SentimentSummary {
+  avg_tone?: number;
+  avg_goldstein?: number;
+  conflict_count?: number;
+  cooperation_count?: number;
+  total_events?: number;
+}
+
+export interface InsightsData {
+  quad_class: { data: QuadClassItem[] };
+  actor_types: { data: ActorTypeItem[] };
+  top_headlines: { data: HeadlineItem[] };
+  sentiment: SentimentSummary;
+}
+
 export interface ApiResponse<T> {
   ok: boolean;
   error?: string;
