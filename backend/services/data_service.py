@@ -29,6 +29,7 @@ from backend.queries.core_queries import (
     query_stream_events,
     query_search_news_context,
     query_event_sequence,
+    query_insights,
 )
 from backend.services.thp_service import TransformerHawkesForecaster
 
@@ -135,6 +136,9 @@ class DataService:
 
     async def get_daily_brief(self, query_date: Optional[str] = None) -> Optional[Dict[str, Any]]:
         return await query_daily_brief(self._pool, query_date)
+
+    async def get_insights(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        return await query_insights(self._pool, start_date, end_date)
 
     async def forecast_event_risk(
         self,

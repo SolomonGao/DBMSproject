@@ -164,6 +164,25 @@ export default function MapPanel({
     <div className="panel">
       <h3>{title}</h3>
       <div ref={mapRef} style={{ width: '100%', height: 400, borderRadius: 8 }} />
+      <div className="map-legend">
+        <span style={{ fontWeight: 600, color: '#374151' }}>Legend:</span>
+        <div className="map-legend-item">
+          <div className="map-legend-dot" style={{ background: '#dc2626' }} />
+          <span>Conflict</span>
+        </div>
+        <div className="map-legend-item">
+          <div className="map-legend-dot" style={{ background: '#16a34a' }} />
+          <span>Cooperation</span>
+        </div>
+        <div className="map-legend-item">
+          <div className="map-legend-dot" style={{ background: '#f59e0b' }} />
+          <span>Protest</span>
+        </div>
+        <div className="map-legend-item">
+          <div className="map-legend-dot" style={{ background: '#3b82f6' }} />
+          <span>Other</span>
+        </div>
+      </div>
     </div>
   );
 }
