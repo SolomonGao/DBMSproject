@@ -6,6 +6,18 @@ import EventDetailCard from './EventDetailCard';
 import SimilarEventCards from './SimilarEventCards';
 import ReportPanel from './ReportPanel';
 
+// Daily brief stat card
+function DailyBriefStat({ label, value, color }: { label: string; value: number | string | null; color: string }) {
+  if (value === null || value === undefined) return null;
+  const displayValue = typeof value === 'number' ? value.toLocaleString() : String(value);
+  return (
+    <div style={{ textAlign: 'center', padding: '10px 8px', background: '#f8fafc', borderRadius: 8 }}>
+      <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color }}>{displayValue}</div>
+    </div>
+  );
+}
+
 // Compact event card for search results
 function CompactEventCard({ event, onClick }: { event: EventItem; onClick: () => void }) {
   const headline = event.headline || `${event.Actor1Name || 'Unknown'} vs ${event.Actor2Name || 'Unknown'}`;
@@ -181,6 +193,7 @@ export default function ExplorePanel() {
   const eventDetail = getDataByType('event_detail');
   const similarEvents = getDataByType('similar_events');
   const searchEvents = getDataByType('events') || getDataByType('top_events') || getDataByType('hot_events');
+  const dailyBrief = getDataByType('daily_brief');
 
   // When user clicks a search result or similar event, populate the input box
   // but do NOT auto-run — user must click Analyze.
@@ -393,6 +406,22 @@ export default function ExplorePanel() {
               {similarEvents && (
                 <div style={{ animation: 'fadeIn 0.6s ease' }}>
                   <SimilarEventCards events={similarEvents} onEventClick={handleEventClick} />
+                </div>
+              )}
+
+              {/* Daily Brief Stats */}
+              {dailyBrief && (
+                <div className="panel" style={{ animation: 'fadeIn 0.5s ease' }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
+                    Daily Brief
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12 }}>
+                    <DailyBriefStat label="Total Events" value={dailyBrief.total_events} color="#2563eb" />
+                    <DailyBriefStat label="Conflict Events" value={dailyBrief.conflict_events} color="#dc2626" />
+                    <DailyBriefStat label="Cooperation Events" value={dailyBrief.cooperation_events} color="#16a34a" />
+                    <DailyBriefStat label="Avg Goldstein" value={typeof dailyBrief.avg_goldstein === 'number' ? dailyBrief.avg_goldstein.toFixed(2) : dailyBrief.avg_goldstein} color="#7c3aed" />
+                    <DailyBriefStat label="Avg Tone" value={typeof dailyBrief.avg_tone === 'number' ? dailyBrief.avg_tone.toFixed(2) : dailyBrief.avg_tone} color="#059669" />
+                  </div>
                 </div>
               )}
 
