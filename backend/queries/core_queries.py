@@ -176,9 +176,15 @@ def _build_optimized_search_sql(
     event_type: Optional[str],
     actor: Optional[str],
     actor_exact: Optional[str],
-    max_results: int,
+    query_text: Optional[str] = None,
+    max_results: int = 20,
 ) -> tuple[str, list]:
-    """Build optimized search SQL. Uses subquery + FORCE INDEX for exact matches."""
+    """Build optimized search SQL. Uses subquery + FORCE INDEX for exact matches.
+    
+    Keyword search: When query_text is provided, we search event_fingerprints.headline/summary
+    via a separate subquery and UNION with the main results. This avoids full-table scans on
+    the large events_table while still supporting text search on the smaller fingerprint table.
+    """
     
     loc_cond, loc_params = _build_smart_location_condition(location_hint, location_exact)
     act_cond, act_params = _build_actor_condition(actor, actor_exact)
@@ -236,9 +242,45 @@ def _build_optimized_search_sql(
     
     inner_where += type_sql
     
-    # Use subquery pattern whenever we have filters (much faster), regular query for truly broad searches
-    if actor_exact or location_exact or location_hint or actor:
-        sql = f"""
+    # Keyword search via event_fingerprints (smaller table, has headline/summary)
+    keyword_sql = ""
+    keyword_params = []
+    if query_text and query_text.strip():
+        kw = query_text.strip()
+        # Search headline and summary in event_fingerprints, then join back to events_table
+        keyword_sql = f"""
+        SELECT
+            e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
+            e.EventCode, e.GoldsteinScale, e.AvgTone, e.NumArticles,
+            e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            e.ActionGeo_Lat, e.ActionGeo_Long,
+            f.fingerprint, f.headline, f.summary, f.event_type_label, f.severity_score
+        FROM event_fingerprints f
+        JOIN {DEFAULT_TABLE} e ON e.GlobalEventID = f.global_event_id
+        WHERE e.SQLDATE BETWEEN %s AND %s
+          AND (f.headline LIKE %s OR f.summary LIKE %s)
+        """
+        keyword_params = [start_date, end_date, f"%{kw}%", f"%{kw}%"]
+        
+        # Add event_type filter to keyword query if present
+        if event_type and event_type != "any":
+            type_conditions = {
+                "conflict": "GoldsteinScale < -5",
+                "cooperation": "GoldsteinScale > 5",
+                "protest": "EventRootCode = '14'",
+            }
+            if event_type in type_conditions:
+                keyword_sql += f" AND e.{type_conditions[event_type]}"
+        
+        keyword_sql += " ORDER BY e.NumArticles DESC LIMIT %s"
+        keyword_params.append(max_results)
+    
+    # Main filter-based query (location, actor, etc.)
+    has_structured_filters = actor_exact or location_exact or location_hint or actor
+    
+    if has_structured_filters or not keyword_sql:
+        main_sql = f"""
         SELECT
             e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
             e.Actor1Name, e.Actor2Name,
@@ -255,10 +297,10 @@ def _build_optimized_search_sql(
         JOIN {DEFAULT_TABLE} e ON e.GlobalEventID = ids.GlobalEventID
         LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
         """
-        params = inner_params + [max_results]
+        main_params = inner_params + [max_results]
     else:
-        # Fallback: regular query for truly broad searches with no filters at all
-        sql = f"""
+        # No structured filters, only keyword — use simpler query
+        main_sql = f"""
         SELECT
             e.GlobalEventID, CAST(e.SQLDATE AS CHAR) as SQLDATE,
             e.Actor1Name, e.Actor2Name,
@@ -270,15 +312,29 @@ def _build_optimized_search_sql(
         LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
         WHERE e.SQLDATE BETWEEN %s AND %s
         """
-        params = [start_date, end_date]
+        main_params = [start_date, end_date]
         
-        sql += type_sql.replace("GoldsteinScale", "e.GoldsteinScale").replace("EventRootCode", "e.EventRootCode")
+        main_sql += type_sql.replace("GoldsteinScale", "e.GoldsteinScale").replace("EventRootCode", "e.EventRootCode")
         
-        sql += """
-        ORDER BY e.NumArticles DESC
-        LIMIT %s
-        """
-        params.append(max_results)
+        main_sql += " ORDER BY e.NumArticles DESC LIMIT %s"
+        main_params.append(max_results)
+    
+    # If both keyword and structured filters exist, UNION them
+    if keyword_sql and has_structured_filters:
+        sql = f"""{main_sql}
+        UNION
+        {keyword_sql}
+        ORDER BY NumArticles DESC
+        LIMIT %s"""
+        params = main_params + keyword_params + [max_results]
+    elif keyword_sql and not has_structured_filters:
+        # Only keyword, no structured filters
+        sql = keyword_sql
+        params = keyword_params
+    else:
+        # Only structured filters, no keyword
+        sql = main_sql
+        params = main_params
     
     return sql, params
 
@@ -310,7 +366,8 @@ async def query_search_events(
         date_start, date_end,
         location_hint, location_exact,
         event_type, actor, actor_exact,
-        min(max_results, 50),
+        query_text=query_text,
+        max_results=min(max_results, 50),
     )
     return await pool.fetchall(sql, tuple(params))
 

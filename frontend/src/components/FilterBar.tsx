@@ -99,7 +99,7 @@ export default function FilterBar({ filters, onChange, onSearch, loading }: Prop
         <Sparkles size={14} color="#8b5cf6" />
         <input
           type="text"
-          placeholder="Keyword (sorting only)..."
+          placeholder="Search headline, summary, actors..."
           value={filters.keyword}
           onChange={(e) => update('keyword', e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onSearch()}
