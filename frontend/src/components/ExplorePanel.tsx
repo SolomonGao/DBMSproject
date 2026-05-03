@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users, Brain, Terminal, Sparkles, BookOpen } from 'lucide-react';
+import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users, Brain, Terminal, Sparkles, BookOpen, Database, ToggleLeft, ToggleRight } from 'lucide-react';
 import { api } from '../api/client';
 import type { AnalyzeResponse, ReportResult, EventItem, EnhancedReportResult } from '../types';
 import EventDetailCard from './EventDetailCard';
@@ -103,6 +103,9 @@ export default function ExplorePanel() {
   // Enhanced report state (Reporter v2)
   const [enhancedReport, setEnhancedReport] = useState<EnhancedReportResult | null>(null);
   const [enhancedReportLoading, setEnhancedReportLoading] = useState(false);
+  
+  // GKG toggle — user can disable BigQuery GKG to save money
+  const [useGKG, setUseGKG] = useState(true);
 
   // Loading phase cycling
   useEffect(() => {
@@ -147,6 +150,7 @@ export default function ExplorePanel() {
     setError(null);
     setResult(null);
     setReport(null);
+    setEnhancedReport(null);
 
     try {
       const res = await api.analyze(query.trim());
@@ -177,7 +181,7 @@ export default function ExplorePanel() {
   const loadEnhancedReport = async (data: any, prompt?: string) => {
     setEnhancedReportLoading(true);
     try {
-      const res = await api.generateEventReport(data, prompt);
+      const res = await api.generateEventReport(data, prompt, true, true, useGKG);
       if (res.report) {
         setEnhancedReport(res.report);
       }
@@ -223,6 +227,9 @@ export default function ExplorePanel() {
     const formattedDate = date.includes('-') ? date : `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
     const evtQuery = `EVT-${formattedDate}-${gid}`;
     setQuery(evtQuery);
+    // Clear previous reports so they don't show for the new event
+    setReport(null);
+    setEnhancedReport(null);
   };
 
   return (
@@ -378,45 +385,75 @@ export default function ExplorePanel() {
             <>
               {/* Report Buttons */}
               {vizes.includes('report') && result?.plan?.report_prompt && !report && !reportLoading && !enhancedReport && !enhancedReportLoading && (
-                <div style={{ marginBottom: 16, display: 'flex', gap: 10 }}>
-                  <button
-                    onClick={() => loadReport(result.data, result.plan.report_prompt!)}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                    <button
+                      onClick={() => loadReport(result.data, result.plan.report_prompt!)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: 6,
+                        border: '1px solid #2563eb',
+                        background: '#fff',
+                        color: '#2563eb',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <FileText size={14} />
+                      Quick Report
+                    </button>
+                    <button
+                      onClick={() => loadEnhancedReport(result.data, result.plan.report_prompt!)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: 6,
+                        border: '1px solid #7c3aed',
+                        background: '#fff',
+                        color: '#7c3aed',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <BookOpen size={14} />
+                      Deep Dive Report
+                    </button>
+                  </div>
+                  
+                  {/* GKG Toggle */}
+                  <div
+                    onClick={() => setUseGKG(!useGKG)}
                     style={{
-                      padding: '8px 16px',
-                      borderRadius: 6,
-                      border: '1px solid #2563eb',
-                      background: '#fff',
-                      color: '#2563eb',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      display: 'flex',
+                      display: 'inline-flex',
                       alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <FileText size={14} />
-                    Quick Report
-                  </button>
-                  <button
-                    onClick={() => loadEnhancedReport(result.data, result.plan.report_prompt!)}
-                    style={{
-                      padding: '8px 16px',
+                      gap: 8,
+                      padding: '6px 12px',
                       borderRadius: 6,
-                      border: '1px solid #7c3aed',
-                      background: '#fff',
-                      color: '#7c3aed',
-                      fontSize: 13,
-                      fontWeight: 500,
+                      background: useGKG ? '#f5f3ff' : '#f3f4f6',
+                      border: `1px solid ${useGKG ? '#ddd6fe' : '#e5e7eb'}`,
                       cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
+                      fontSize: 12,
+                      color: useGKG ? '#7c3aed' : '#6b7280',
+                      transition: 'all 0.2s ease',
                     }}
+                    title={useGKG ? 'GKG BigQuery enabled (~$0.002-0.005 per query)' : 'GKG BigQuery disabled — saves money'}
                   >
-                    <BookOpen size={14} />
-                    Deep Dive Report
-                  </button>
+                    <Database size={14} />
+                    {useGKG ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                    <span style={{ fontWeight: 500 }}>
+                      GKG BigQuery {useGKG ? 'ON' : 'OFF'}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 4 }}>
+                      {useGKG ? '~$0.005/query' : 'saving $'}
+                    </span>
+                  </div>
                 </div>
               )}
               {reportLoading && (

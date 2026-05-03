@@ -213,13 +213,16 @@ class EnhancedReportGenerator(ReportGenerator):
             if not cooccur.get("error"):
                 gkg_results["cooccurring"] = cooccur.get("cooccurring_entities", {})
 
-            end_dt = __import__("datetime").datetime.strptime(date, "%Y-%m-%d") + __import__("datetime").timedelta(days=2)
-            end_date = end_dt.strftime("%Y-%m-%d")
-
-            themes = await self._gkg.get_entity_themes(actor1, (date, end_date), limit=50)
+            # Use single-day query to stay under 1GB cost limit (~470MB/day)
+            themes = await self._gkg.get_entity_themes(actor1, (date, date), limit=50)
             if not themes.get("error"):
                 gkg_results["themes"] = themes.get("parsed_themes", {})
+            else:
+                print(f"[EnhancedReporter] GKG themes: {themes.get('message')}", flush=True)
 
+            # Tone timeline allows up to 14 days, use 3 days
+            end_dt = __import__("datetime").datetime.strptime(date, "%Y-%m-%d") + __import__("datetime").timedelta(days=3)
+            end_date = end_dt.strftime("%Y-%m-%d")
             tone = await self._gkg.get_tone_timeline(actor1, (date, end_date))
             if not tone.get("error"):
                 gkg_results["tone_timeline"] = tone.get("data", [])
@@ -297,7 +300,7 @@ class EnhancedReportGenerator(ReportGenerator):
         data: Dict[str, Any],
         prompt: Optional[str] = None,
         include_storyline: bool = True,
-        include_news: bool = True,
+        include_news: bool = False,
         include_gkg: bool = True,
     ) -> EnhancedReportResult:
         """Generate comprehensive event report with all enrichments."""
@@ -419,16 +422,17 @@ class EnhancedReportGenerator(ReportGenerator):
 
             content = news_coverage.get("primary_content", "")
             if content:
-                if len(content) > 2000:
-                    content = content[:2000] + "..."
+                # Keep full content but cap at reasonable limit for LLM context
+                if len(content) > 4000:
+                    content = content[:4000] + "\n...[content continues but truncated for brevity]"
                 sections.append(f"Primary Article Content:\n{content}")
 
             if isinstance(related_news, list) and related_news:
                 sections.append("\nRelated Event Coverage:")
                 for i, rn in enumerate(related_news[:3]):
                     if rn.get("has_content"):
-                        snippet = rn.get("primary_content", "")[:300]
-                        sections.append(f"  [{i+1}] {rn.get('headline', '')}: {snippet}...")
+                        snippet = rn.get("primary_content", "")[:500]
+                        sections.append(f"  [{i+1}] {rn.get('headline', '')}: {snippet}")
 
         if storyline:
             sections.append("\n=== STORYLINE ===")
@@ -473,8 +477,9 @@ class EnhancedReportGenerator(ReportGenerator):
                     sections.append(f"  - {t.get('date', '')}: tone={t.get('avg_tone', 'N/A'):.2f}, mentions={t.get('mention_count', 0)}")
 
         result = "\n".join(sections)
-        if len(result) > 8000:
-            result = result[:7800] + "\n\n... [additional data truncated]"
+        # Only truncate if extremely large (>12000 chars), preserving full content when possible
+        if len(result) > 12000:
+            result = result[:11500] + "\n\n...[additional data truncated — core insights preserved above]"
         return result
 
     def _parse_report_text(self, text: str) -> tuple[str, List[str]]:

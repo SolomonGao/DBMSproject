@@ -23,12 +23,14 @@ from bs4 import BeautifulSoup
 # Configuration
 # ---------------------------------------------------------------------------
 
-FETCH_TIMEOUT = aiohttp.ClientTimeout(total=12, connect=5)
+FETCH_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=5)
 MAX_CONCURRENT_FETCHES = 5
 MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5MB
 MIN_ARTICLE_LENGTH = 150
-MAX_ARTICLE_LENGTH = 8000
+MAX_ARTICLE_LENGTH = 12000  # Increased from 8000 for fuller content
 CACHE_TTL_SECONDS = 3600  # 1 hour
+# Content snippet shown in UI preview (expandable to full content)
+MAX_SNIPPET_LENGTH = 800  # Increased from 500 for more meaningful previews
 
 HEADERS = {
     "User-Agent": (
@@ -319,10 +321,12 @@ class NewsScraper:
         if url:
             result = await self.fetch_article(url)
             if result["status"] == "success":
+                snippet = result["content"][:MAX_SNIPPET_LENGTH] + "..." if len(result["content"]) > MAX_SNIPPET_LENGTH else result["content"]
                 sources.append({
                     "url": result["url"],
                     "title": result["title"],
-                    "content_snippet": result["content"][:500] + "..." if len(result["content"]) > 500 else result["content"],
+                    "content_snippet": snippet,
+                    "content_full": result["content"],  # Full content for expandable view
                     "fetch_status": "success",
                 })
                 primary_content = result["content"]
@@ -339,10 +343,13 @@ class NewsScraper:
         if not primary_content and headline:
             chroma_results = await _chroma_fallback(headline, n_results=3)
             for r in chroma_results:
+                chroma_content = r.get("content", "")
+                snippet = chroma_content[:MAX_SNIPPET_LENGTH] + "..." if len(chroma_content) > MAX_SNIPPET_LENGTH else chroma_content
                 sources.append({
                     "url": r.get("source_url", ""),
-                    "title": None,
-                    "content_snippet": r.get("content", "")[:500] + "..." if len(r.get("content", "")) > 500 else r.get("content", ""),
+                    "title": r.get("title", None),
+                    "content_snippet": snippet,
+                    "content_full": chroma_content,  # Full content for expandable view
                     "fetch_status": "chroma_fallback",
                 })
                 if not primary_content:

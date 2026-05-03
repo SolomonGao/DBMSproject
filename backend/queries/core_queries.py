@@ -772,7 +772,16 @@ async def query_suggest_actors(pool, prefix: str, limit: int = 10) -> List[str]:
 # ============================================================================
 
 async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]:
-    """Return raw event detail data or None if not found."""
+    """Return raw event detail data or None if not found.
+    
+    Supports three formats:
+      - EVT-YYYY-MM-DD-ID: Extract numeric ID from EVT format
+      - Pure numeric ID (9-12 digits): Direct GlobalEventID lookup
+      - US-YYYYMMDD-LOC-TYPE-NUM: Custom fingerprint lookup in event_fingerprints
+    """
+    gid = None
+    
+    # Format 1: EVT-YYYY-MM-DD-ID
     if fingerprint.startswith('EVT-'):
         parts = fingerprint.split('-')
         if len(parts) >= 4:
@@ -782,25 +791,12 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
                 return None
         else:
             return None
-
-        row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
-        if row:
-            event_data = dict(row)
-            for k, v in list(event_data.items()):
-                if isinstance(v, bytes):
-                    event_data[k] = v.hex()
-            return {
-                "fingerprint": fingerprint,
-                "headline": f"{event_data.get('Actor1Name', 'Unknown')} vs {event_data.get('Actor2Name', 'Unknown')}",
-                "summary": event_data.get('ActionGeo_FullName', ''),
-                "key_actors": str([event_data.get('Actor1Name'), event_data.get('Actor2Name')]),
-                "event_type_label": None,
-                "severity_score": abs(event_data.get('GoldsteinScale', 0)),
-                "location_name": event_data.get('ActionGeo_FullName'),
-                "location_country": event_data.get('ActionGeo_CountryCode'),
-                "event_data": event_data,
-            }
-        return None
+    
+    # Format 2: Pure numeric ID (9-12 digits)
+    elif fingerprint.isdigit() and 9 <= len(fingerprint) <= 12:
+        gid = int(fingerprint)
+    
+    # Format 3: Custom fingerprint (US-... or any other string)
     else:
         row = await pool.fetchone("""
             SELECT global_event_id, fingerprint, headline, summary,
@@ -818,7 +814,6 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
 
         event_row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
         event_data = dict(event_row) if event_row else {}
-        # Clean non-JSON-serializable values (e.g. MySQL POINT bytes)
         for k, v in list(event_data.items()):
             if isinstance(v, bytes):
                 event_data[k] = v.hex()
@@ -833,6 +828,27 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
             "location_country": row['location_country'],
             "event_data": event_data,
         }
+    
+    # Direct GlobalEventID lookup (for EVT- and pure numeric formats)
+    if gid:
+        row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
+        if row:
+            event_data = dict(row)
+            for k, v in list(event_data.items()):
+                if isinstance(v, bytes):
+                    event_data[k] = v.hex()
+            return {
+                "fingerprint": fingerprint,
+                "headline": f"{event_data.get('Actor1Name', 'Unknown')} vs {event_data.get('Actor2Name', 'Unknown')}",
+                "summary": event_data.get('ActionGeo_FullName', ''),
+                "key_actors": str([event_data.get('Actor1Name'), event_data.get('Actor2Name')]),
+                "event_type_label": None,
+                "severity_score": abs(event_data.get('GoldsteinScale', 0)),
+                "location_name": event_data.get('ActionGeo_FullName'),
+                "location_country": event_data.get('ActionGeo_CountryCode'),
+                "event_data": event_data,
+            }
+    return None
 
 
 # ============================================================================

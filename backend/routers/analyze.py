@@ -222,12 +222,13 @@ async def get_storyline(request: StorylineRequest):
             actor = ed.get("Actor1Name")
             if date and actor:
                 try:
-                    from datetime import datetime, timedelta
-                    end_dt = datetime.strptime(date, "%Y-%m-%d") + timedelta(days=2)
-                    end_date = end_dt.strftime("%Y-%m-%d")
-                    gkg_result = await gkg_client.get_entity_themes(actor, (date, end_date), limit=50)
+                    # Use single-day query to stay under 1GB cost limit
+                    # GKG scans ~470MB/day, so 1 day is safe
+                    gkg_result = await gkg_client.get_entity_themes(actor, (date, date), limit=50)
                     if not gkg_result.get("error"):
                         gkg_themes = gkg_result.get("parsed_themes")
+                    else:
+                        print(f"[Storyline] GKG themes: {gkg_result.get('message')}", flush=True)
                 except Exception as e:
                     print(f"[Storyline] GKG fetch failed: {e}", flush=True)
 

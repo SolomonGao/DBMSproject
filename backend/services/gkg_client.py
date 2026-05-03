@@ -23,10 +23,18 @@ Environment variables:
 import os
 import time
 import hashlib
+import json
 import asyncio
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+# Optional: aiohttp for Ollama entity mapping
+aiohttp = None
+try:
+    import aiohttp
+except ImportError:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -518,6 +526,7 @@ class GKGClient:
                 "message": f"Date range {days} days exceeds 7-day limit for theme queries. Please narrow.",
             }
 
+        search_condition = await _build_entity_search_condition(entity_name)
         sql = f"""
         SELECT
           DATE(_PARTITIONTIME) as date,
@@ -526,7 +535,7 @@ class GKGClient:
         FROM `{GKG_PARTITIONED_TABLE}`
         WHERE _PARTITIONTIME >= TIMESTAMP('{start}')
           AND _PARTITIONTIME < TIMESTAMP('{end_exclusive}')
-          AND (V2Persons LIKE '%{entity_name}%' OR V2Organizations LIKE '%{entity_name}%')
+          AND ({search_condition})
         LIMIT {limit}
         """
 
@@ -549,6 +558,7 @@ class GKGClient:
         """
         next_day = (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
 
+        search_condition = await _build_entity_search_condition(entity_name)
         sql = f"""
         SELECT
           V2Persons,
@@ -557,7 +567,7 @@ class GKGClient:
         FROM `{GKG_PARTITIONED_TABLE}`
         WHERE _PARTITIONTIME >= TIMESTAMP('{date}')
           AND _PARTITIONTIME < TIMESTAMP('{next_day}')
-          AND (V2Persons LIKE '%{entity_name}%' OR V2Organizations LIKE '%{entity_name}%')
+          AND ({search_condition})
         LIMIT {limit}
         """
 
@@ -567,7 +577,8 @@ class GKGClient:
 
         # Parse co-occurring entities
         rows = result.get("data", [])
-        cooccurring = _parse_cooccurring_entities(rows, entity_name)
+        entity_variants = await _normalize_actor_name(entity_name)
+        cooccurring = _parse_cooccurring_entities(rows, entity_name, entity_variants)
         result["cooccurring_entities"] = cooccurring
         return result
 
@@ -590,6 +601,7 @@ class GKGClient:
                 "message": f"Date range {days} days exceeds 14-day limit for tone queries.",
             }
 
+        search_condition = await _build_entity_search_condition(entity_name)
         sql = f"""
         SELECT
           DATE(_PARTITIONTIME) as date,
@@ -598,7 +610,7 @@ class GKGClient:
         FROM `{GKG_PARTITIONED_TABLE}`
         WHERE _PARTITIONTIME >= TIMESTAMP('{start}')
           AND _PARTITIONTIME < TIMESTAMP('{end_exclusive}')
-          AND (V2Persons LIKE '%{entity_name}%' OR V2Organizations LIKE '%{entity_name}%')
+          AND ({search_condition})
         GROUP BY date
         ORDER BY date
         """
@@ -678,8 +690,116 @@ def _parse_gkg_themes(rows: List[Dict]) -> Dict[str, Any]:
     }
 
 
-def _parse_cooccurring_entities(rows: List[Dict], target_entity: str) -> Dict[str, Any]:
-    """Parse V2Persons and V2Orgs to find co-occurring entities."""
+async def _normalize_actor_name(actor_name: str) -> List[str]:
+    """Normalize GDELT Events actor name to GKG entity search terms via Ollama LLM.
+    
+    Uses qwen2.5:3b to dynamically map any actor code to natural language
+    entity names. Falls back to basic heuristics if Ollama is unavailable.
+    
+    Examples:
+        ISRAELI -> ["Israel", "Israeli", "Army Israeli", "Israel Defense Forces"]
+        BIDEN -> ["Biden", "Joe Biden", "Joseph Biden"]
+        REGIME -> ["Regime", "Government", "Administration"]
+        GOV -> ["Government", "Administration", "State"]
+    """
+    if not actor_name:
+        return []
+    
+    name = actor_name.strip()
+    upper = name.upper()
+    
+    # Check cache first
+    cache_key = f"entity_map:{upper}"
+    cached = _gkg_cache.get(cache_key, ())
+    if cached is not None:
+        return cached
+    
+    # Build Ollama prompt
+    prompt = (
+        "You are a GDELT entity translator. Convert actor codes to natural language names.\n"
+        "Output ONLY a JSON array of strings. No explanation.\n\n"
+        'ISRAELI -> ["Israel","Israeli","Army Israeli","Israel Defense Forces"]\n'
+        'BIDEN -> ["Biden","Joe Biden","Joseph Biden"]\n'
+        'GOV -> ["Government","Administration","State"]\n'
+        'REGIME -> ["Regime","Government","Administration"]\n'
+        'TALIBAN -> ["Taliban","Afghan Taliban","Islamic Emirate"]\n'
+        'POLICE -> ["Police","Law Enforcement","Security Forces"]\n'
+        'USA -> ["United States","America","American","US"]\n'
+        'CHINESE -> ["China","Chinese","People Republic Of China"]\n'
+        f"{name} ->"
+    )
+    
+    # Call Ollama
+    ollama_url = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434")
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": "qwen2.5:3b",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.05, "num_predict": 80, "top_p": 0.9},
+                },
+                timeout=aiohttp.ClientTimeout(total=3.0),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    text = data.get("response", "").strip()
+                    start = text.find("[")
+                    end = text.rfind("]")
+                    if start >= 0 and end > start:
+                        try:
+                            variants = json.loads(text[start:end+1])
+                            if isinstance(variants, list):
+                                result = [str(v).strip() for v in variants if v]
+                                result = list(dict.fromkeys(result + [name, name.title()]))
+                                _gkg_cache.set(cache_key, (), result)
+                                return result
+                        except json.JSONDecodeError:
+                            pass
+    except Exception:
+        pass
+    
+    # Fallback: basic heuristics
+    variants = {name, name.title()}
+    if upper.endswith("AN") and len(upper) > 4:
+        root = name[:-2]
+        variants.add(root + "a")
+    if upper.endswith("ISH") and len(upper) > 5:
+        root = name[:-3]
+        variants.add(root + "ain")
+    if upper.endswith("ESE") and len(upper) > 5:
+        variants.add(name[:-3])
+    if upper.endswith("IAN") and len(upper) > 5:
+        variants.add(name[:-3] + "a")
+    if upper.endswith("I") and len(upper) > 3:
+        variants.add(name[:-1])
+    
+    result = list(variants)
+    _gkg_cache.set(cache_key, (), result)
+    return result
+
+
+async def _build_entity_search_condition(entity_name: str) -> str:
+    """Build SQL LIKE conditions for entity search with multiple variants."""
+    variants = await _normalize_actor_name(entity_name)
+    if not variants:
+        return "1=0"  # Always false
+    
+    conditions = []
+    for v in variants:
+        # Escape single quotes
+        safe = v.replace("'", "\\'")
+        conditions.append(f"V2Persons LIKE '%{safe}%'")
+        conditions.append(f"V2Organizations LIKE '%{safe}%'")
+    
+    return " OR ".join(conditions)
+
+
+def _parse_cooccurring_entities(rows: List[Dict], target_entity: str, entity_variants: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Parse V2Persons and V2Organizations to find co-occurring entities."""
     from collections import Counter
 
     persons = Counter()
@@ -687,6 +807,9 @@ def _parse_cooccurring_entities(rows: List[Dict], target_entity: str) -> Dict[st
     themes = Counter()
 
     target_lower = target_entity.lower()
+    # Use provided variants or just the entity name itself
+    target_variants = {v.lower() for v in (entity_variants or [target_entity])}
+    target_variants.add(target_lower)
 
     for row in rows:
         # Parse persons
@@ -696,18 +819,23 @@ def _parse_cooccurring_entities(rows: List[Dict], target_entity: str) -> Dict[st
                 if not entry:
                     continue
                 name = entry.split(",")[0].strip()
-                if name and target_lower not in name.lower():
-                    persons[name] += 1
+                if name:
+                    name_lower = name.lower()
+                    # Skip if name contains any target variant
+                    if not any(tv in name_lower for tv in target_variants):
+                        persons[name] += 1
 
-        # Parse orgs
-        orgs_str = row.get("V2Orgs", "")
+        # Parse organizations
+        orgs_str = row.get("V2Organizations", "")
         if orgs_str:
             for entry in orgs_str.split(";"):
                 if not entry:
                     continue
                 name = entry.split(",")[0].strip()
-                if name and target_lower not in name.lower():
-                    orgs[name] += 1
+                if name:
+                    name_lower = name.lower()
+                    if not any(tv in name_lower for tv in target_variants):
+                        orgs[name] += 1
 
         # Parse themes
         themes_str = row.get("V2Themes", "")

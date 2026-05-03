@@ -1,4 +1,4 @@
-import { Network, Tag, TrendingUp, AlertCircle } from 'lucide-react';
+import { Network, Tag, TrendingUp, AlertCircle, BarChart3 } from 'lucide-react';
 import type { GKGInsightData } from '../types';
 
 interface Props {
@@ -120,13 +120,58 @@ export default function GKGInsightCards({ insights }: Props) {
         </div>
       )}
 
-      {/* Tone Timeline Mini Chart */}
+      {/* Tone Timeline with numeric values */}
       {toneTimeline.length > 0 && (
         <div>
-          <h4 style={{ fontSize: 13, color: '#555', marginBottom: 10 }}>Media Tone Trend</h4>
+          <h4 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#555', marginBottom: 10 }}>
+            <BarChart3 size={14} color="#2563eb" />
+            Media Tone Trend
+          </h4>
+          
+          {/* Tone data table */}
+          <div style={{ marginBottom: 12, overflow: 'hidden', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', color: '#888', fontWeight: 600, borderBottom: '1px solid #e2e8f0' }}>Date</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'center', color: '#888', fontWeight: 600, borderBottom: '1px solid #e2e8f0' }}>Tone</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'center', color: '#888', fontWeight: 600, borderBottom: '1px solid #e2e8f0' }}>Mentions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {toneTimeline.map((t: any, i: number) => {
+                  const tone = t.avg_tone || t.tone || 0;
+                  const mentions = t.mention_count || t.mentions || 0;
+                  const isNegative = tone < 0;
+                  return (
+                    <tr key={i} style={{ borderBottom: i < toneTimeline.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                      <td style={{ padding: '8px 12px', color: '#4b5563' }}>{t.date}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <span style={{
+                          fontWeight: 700,
+                          color: isNegative ? '#dc2626' : '#059669',
+                          background: isNegative ? '#fef2f2' : '#f0fdf4',
+                          padding: '2px 8px',
+                          borderRadius: 10,
+                          fontSize: 11,
+                        }}>
+                          {tone > 0 ? '+' : ''}{tone.toFixed(2)}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center', color: '#6b7280', fontSize: 11 }}>
+                        {mentions.toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Visual bar chart */}
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 60, padding: '8px 0' }}>
             {toneTimeline.map((t: any, i: number) => {
-              const tone = t.avg_tone || 0;
+              const tone = t.avg_tone || t.tone || 0;
               const height = Math.min(Math.abs(tone) * 20 + 10, 50);
               const color = tone < 0 ? '#dc2626' : '#059669';
               return (
@@ -140,7 +185,7 @@ export default function GKGInsightCards({ insights }: Props) {
                       opacity: 0.7,
                       minWidth: 20,
                     }}
-                    title={`${t.date}: tone=${tone.toFixed(2)}, mentions=${t.mention_count}`}
+                    title={`${t.date}: tone=${tone.toFixed(2)}, mentions=${t.mention_count || t.mentions || 0}`}
                   />
                   <span style={{ fontSize: 9, color: '#aaa', marginTop: 2 }}>
                     {t.date?.slice(5) || ''}

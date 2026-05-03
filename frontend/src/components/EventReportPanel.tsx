@@ -1,7 +1,6 @@
-import { FileText, Lightbulb, BookOpen, Newspaper, Network } from 'lucide-react';
+import { FileText, Lightbulb, BookOpen, Network } from 'lucide-react';
 import type { EnhancedReportResult, EventItem } from '../types';
 import StorylineTimeline from './StorylineTimeline';
-import NewsCoveragePanel from './NewsCoveragePanel';
 import GKGInsightCards from './GKGInsightCards';
 
 interface Props {
@@ -13,7 +12,6 @@ export default function EventReportPanel({ report, event }: Props) {
   if (!report) return null;
 
   const hasStoryline = !!report.storyline;
-  const hasNews = !!report.news_coverage && report.news_coverage.has_content;
   const hasGKG = !!report.gkg_insights;
 
   return (
@@ -66,12 +64,6 @@ export default function EventReportPanel({ report, event }: Props) {
               Storyline
             </span>
           )}
-          {hasNews && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#059669', background: '#f0fdf4', padding: '4px 10px', borderRadius: 10 }}>
-              <Newspaper size={12} />
-              News Coverage
-            </span>
-          )}
           {hasGKG && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#7c3aed', background: '#f5f3ff', padding: '4px 10px', borderRadius: 10 }}>
               <Network size={12} />
@@ -85,13 +77,6 @@ export default function EventReportPanel({ report, event }: Props) {
       {hasStoryline && report.storyline && (
         <div style={{ marginTop: 16 }}>
           <StorylineTimeline storyline={report.storyline} />
-        </div>
-      )}
-
-      {/* News Coverage */}
-      {hasNews && report.news_coverage && (
-        <div style={{ marginTop: 16 }}>
-          <NewsCoveragePanel coverage={report.news_coverage} />
         </div>
       )}
 

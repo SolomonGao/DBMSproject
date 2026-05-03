@@ -43,6 +43,9 @@ services:
     # 加载环境变量文件
     env_file:
       - .env
+    # macOS Docker host gateway for Ollama access
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       # 容器内 MySQL host 是服务名 "db"
       DB_HOST: db

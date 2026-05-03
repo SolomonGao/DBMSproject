@@ -1,4 +1,5 @@
-import { Newspaper, ExternalLink, CheckCircle, AlertCircle, Database } from 'lucide-react';
+import { useState } from 'react';
+import { Newspaper, ExternalLink, CheckCircle, AlertCircle, Database, ChevronDown, ChevronUp } from 'lucide-react';
 import type { NewsCoverageData } from '../types';
 
 interface Props {
@@ -20,6 +21,107 @@ function getStatusLabel(status: string): string {
   if (status === 'too_large') return 'Too Large';
   if (status === 'too_short') return 'No Content';
   return status;
+}
+
+function SourceCard({ source, index }: { source: any; index: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasFullContent = !!(source.content_full || source.content_snippet);
+  const displayContent = expanded
+    ? (source.content_full || source.content_snippet || '')
+    : (source.content_snippet || source.content_full || '');
+
+  return (
+    <div
+      style={{
+        padding: '12px 16px',
+        background: '#f8fafc',
+        borderRadius: 8,
+        border: '1px solid #e2e8f0',
+      }}
+    >
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 11, color: '#888', fontWeight: 500, minWidth: 20 }}>
+          {index + 1}.
+        </span>
+        {getStatusIcon(source.fetch_status)}
+        <span style={{ fontSize: 11, color: '#888', fontWeight: 500 }}>
+          {getStatusLabel(source.fetch_status)}
+        </span>
+        {source.url && (
+          <a
+            href={source.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              marginLeft: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 12,
+              color: '#2563eb',
+              textDecoration: 'none',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink size={12} />
+            Source
+          </a>
+        )}
+      </div>
+
+      {/* Title */}
+      {source.title && (
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', marginBottom: 8, paddingLeft: 28 }}>
+          {source.title}
+        </div>
+      )}
+
+      {/* Content */}
+      {displayContent && (
+        <div style={{ paddingLeft: 28 }}>
+          <p
+            style={{
+              fontSize: 13,
+              color: '#4b5563',
+              lineHeight: 1.7,
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {displayContent}
+          </p>
+          {hasFullContent && source.content_full && source.content_full.length > (source.content_snippet?.length || 0) && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: '#2563eb',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: 0,
+              }}
+            >
+              {expanded ? (
+                <>
+                  <ChevronUp size={14} /> Show less
+                </>
+              ) : (
+                <>
+                  <ChevronDown size={14} /> Read full article
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function NewsCoveragePanel({ coverage }: Props) {
@@ -55,54 +157,9 @@ export default function NewsCoveragePanel({ coverage }: Props) {
       )}
 
       {/* Source list */}
-      <div style={{ display: 'grid', gap: 8 }}>
+      <div style={{ display: 'grid', gap: 10 }}>
         {sources.map((source, i) => (
-          <div
-            key={i}
-            style={{
-              padding: '10px 14px',
-              background: '#f8fafc',
-              borderRadius: 8,
-              border: '1px solid #e2e8f0',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              {getStatusIcon(source.fetch_status)}
-              <span style={{ fontSize: 11, color: '#888', fontWeight: 500 }}>
-                {getStatusLabel(source.fetch_status)}
-              </span>
-              {source.url && (
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    marginLeft: 'auto',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    fontSize: 12,
-                    color: '#2563eb',
-                    textDecoration: 'none',
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <ExternalLink size={12} />
-                  Source
-                </a>
-              )}
-            </div>
-            {source.title && (
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', marginBottom: 4 }}>
-                {source.title}
-              </div>
-            )}
-            {source.content_snippet && (
-              <p style={{ fontSize: 12, color: '#666', lineHeight: 1.5, margin: 0 }}>
-                {source.content_snippet}
-              </p>
-            )}
-          </div>
+          <SourceCard key={i} source={source} index={i} />
         ))}
       </div>
 

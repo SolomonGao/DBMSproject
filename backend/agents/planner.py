@@ -259,6 +259,50 @@ No other text. Just the JSON."""
 
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
+        # Compile fallback patterns once
+        self._EVENT_ID_PATTERN = re.compile(
+            r'^(EVT-\d{4}-\d{2}-\d{2}-\d+)\b|'
+            r'^(US-\d{8}-[A-Z]+-[A-Z]+-\d+)\b|'
+            r'^\d{9,12}\b',
+            re.IGNORECASE,
+        )
+        self._GREETING_PATTERNS = re.compile(
+            r'^(hi|hello|hey|greetings|good morning|good afternoon|good evening|thanks|thank you|bye|goodbye|ok|okay)\b',
+            re.IGNORECASE,
+        )
+        self._MONTH_YEAR_PATTERN = re.compile(
+            r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})\b',
+            re.IGNORECASE,
+        )
+        self._FULL_DATE_PATTERN = re.compile(
+            r'\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b|'
+            r'\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b|'
+            r'\b(\d{4})(\d{2})(\d{2})\b',
+        )
+        self._LOCATION_PATTERN = re.compile(
+            r'\b(?:in|at|near|around|on)\s+([A-Z][A-Za-z\s,]+?)(?=\s+(?:in|at|near|around|on|during|for|from|to|of|with|this|last|'
+            r'\d{4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|\?|$)|$)',
+            re.IGNORECASE,
+        )
+        self._KNOWN_LOCATIONS = re.compile(
+            r'\b(California|Texas|Florida|New York|Washington DC|Washington|Illinois|Pennsylvania|Ohio|'
+            r'Georgia|North Carolina|Virginia|Michigan|Massachusetts|Arizona|Colorado|Minnesota|Wisconsin|'
+            r'Maryland|Missouri|Tennessee|Indiana|Nevada|Oregon|Utah|Louisiana|Alabama|Kentucky|'
+            r'Connecticut|Oklahoma|Iowa|Arkansas|Mississippi|Kansas|New Mexico|Nebraska|'
+            r'West Virginia|Idaho|Hawaii|New Hampshire|Maine|Montana|Rhode Island|Delaware|'
+            r'South Dakota|North Dakota|Alaska|Vermont|Wyoming|DC|'
+            r'Los Angeles|Chicago|Houston|San Francisco|Seattle|Boston|Miami|Dallas|Philadelphia|'
+            r'Atlanta|Denver|Phoenix|Detroit|Nashville|Portland|San Diego|Austin|New Orleans|'
+            r'Las Vegas|Memphis|Louisville|Buffalo|Baltimore|Milwaukee|Tampa|Orlando|'
+            r'Sacramento|Long Beach|Oakland|Canada|Mexico|United States|USA|US|'
+            r'Ukraine|Gaza|Israel|China|Russia|UK|France|Germany|Japan|India|Australia|Brazil|'
+            r'Europe|Asia|Africa|Middle East)\b',
+            re.IGNORECASE,
+        )
+        self._MONTH_MAP = {
+            'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
+            'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
+        }
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -348,6 +392,90 @@ No other text. Just the JSON."""
         
         print(f"[OllamaRouter] All URLs failed (last: {last_error}), falling back to regex extraction", flush=True)
         return self._fallback_extract_context(query)
+
+    def _fallback_extract_context(self, query: str) -> QueryContext:
+        """Regex-based fallback extraction when Ollama router fails."""
+        q = query.lower().strip()
+        
+        # Greeting check
+        if len(q) < 3 or self._GREETING_PATTERNS.match(q):
+            return QueryContext(intent_category="off_topic", confidence="low")
+        
+        # Event ID check
+        evt_match = self._EVENT_ID_PATTERN.search(query.strip())
+        if evt_match:
+            return QueryContext(intent_category="detail", confidence="low")
+        
+        # Location
+        location = None
+        loc_match = self._LOCATION_PATTERN.search(query)
+        if loc_match:
+            location = loc_match.group(1).strip()
+        else:
+            loc_fallback = self._KNOWN_LOCATIONS.search(query)
+            location = loc_fallback.group(1) if loc_fallback else None
+        if location:
+            location = re.sub(r'\s+(in|at|near|around|on|during|for|from|to|of|with)$', '', location, flags=re.IGNORECASE).strip()
+            if location.lower() in ('dc', 'washington dc', 'washington, dc'):
+                location = 'Washington DC'
+        
+        # Date range
+        start_date, end_date = None, None
+        nat_match = self._NATURAL_DATE_PATTERN.search(query) if hasattr(self, '_NATURAL_DATE_PATTERN') else None
+        if nat_match:
+            if nat_match.group(1):
+                month_abbr = nat_match.group(1).lower()[:3]
+                d = nat_match.group(2).zfill(2)
+                y = nat_match.group(3)
+                start_date = f"{y}-{self._MONTH_MAP.get(month_abbr, '01')}-{d}"
+                end_date = start_date
+            elif nat_match.group(4):
+                d = nat_match.group(4).zfill(2)
+                month_abbr = nat_match.group(5).lower()[:3]
+                y = nat_match.group(6)
+                start_date = f"{y}-{self._MONTH_MAP.get(month_abbr, '01')}-{d}"
+                end_date = start_date
+        
+        if not start_date:
+            full_match = self._FULL_DATE_PATTERN.search(query)
+            if full_match:
+                if full_match.group(1):
+                    start_date = f"{full_match.group(1)}-{full_match.group(2).zfill(2)}-{full_match.group(3).zfill(2)}"
+                    end_date = start_date
+                elif full_match.group(4):
+                    start_date = f"{full_match.group(6)}-{full_match.group(4).zfill(2)}-{full_match.group(5).zfill(2)}"
+                    end_date = start_date
+                elif full_match.group(7):
+                    start_date = f"{full_match.group(7)}-{full_match.group(8)}-{full_match.group(9)}"
+                    end_date = start_date
+        
+        if not start_date:
+            my_match = self._MONTH_YEAR_PATTERN.search(query)
+            if my_match:
+                month_abbr = my_match.group(1).lower()[:3]
+                y = my_match.group(2)
+                m = self._MONTH_MAP.get(month_abbr, '01')
+                start_date = f"{y}-{m}-01"
+                end_date = f"{y}-{m}-31"
+        
+        # Event type
+        event_type = None
+        if 'protest' in q or 'demonstration' in q or 'rally' in q or 'march' in q:
+            event_type = 'protest'
+        elif 'conflict' in q or 'war' in q or 'attack' in q or 'fight' in q or 'battle' in q or 'clash' in q:
+            event_type = 'conflict'
+        elif 'cooperation' in q or 'treaty' in q or 'agreement' in q or 'partnership' in q:
+            event_type = 'cooperation'
+        
+        return QueryContext(
+            intent_category="search",
+            confidence="low",
+            location=location,
+            date_start=start_date,
+            date_end=end_date,
+            event_type=event_type,
+            query_text=query.strip(),
+        )
 
     async def extract_context_fast(self, query: str) -> QueryContext:
         """Fast-path context extraction using regex only — no Ollama call.
@@ -603,80 +731,7 @@ class Planner:
     # Fallback Entity Extraction (when Ollama is unavailable)
     # -----------------------------------------------------------------------
 
-    def _fallback_extract_context(self, query: str) -> QueryContext:
-        """Regex-based fallback extraction when Ollama router fails."""
-        q = query.lower().strip()
-        
-        # Greeting check
-        if len(q) < 3 or self._GREETING_PATTERNS.match(q):
-            return QueryContext(intent_category="off_topic", confidence="low")
-        
-        # Event ID check
-        evt_match = self._EVENT_ID_PATTERN.search(query.strip())
-        if evt_match:
-            return QueryContext(intent_category="detail", confidence="low")
-        
-        # Location
-        location = None
-        loc_match = self._LOCATION_PATTERN.search(query)
-        if loc_match:
-            location = loc_match.group(1).strip()
-        else:
-            loc_fallback = self._KNOWN_LOCATIONS.search(query)
-            location = loc_fallback.group(1) if loc_fallback else None
-        if location:
-            location = re.sub(r'\s+(in|at|near|around|on|during|for|from|to|of|with)$', '', location, flags=re.IGNORECASE).strip()
-            if location.lower() in ('dc', 'washington dc', 'washington, dc'):
-                location = 'Washington DC'
-        
-        # Date range
-        start_date, end_date = None, None
-        nat_match = self._NATURAL_DATE_PATTERN.search(query)
-        if nat_match:
-            if nat_match.group(1):
-                month_abbr = nat_match.group(1).lower()[:3]
-                d = nat_match.group(2).zfill(2)
-                y = nat_match.group(3)
-            else:
-                d = nat_match.group(4).zfill(2)
-                month_abbr = nat_match.group(5).lower()[:3]
-                y = nat_match.group(6)
-            month_num = self._MONTH_MAP.get(month_abbr, '01')
-            start_date = end_date = f"{y}-{month_num}-{d}"
-        else:
-            date_match = self._FULL_DATE_PATTERN.search(query)
-            if date_match:
-                if date_match.group(1):
-                    y, m, d = date_match.group(1), date_match.group(2).zfill(2), date_match.group(3).zfill(2)
-                elif date_match.group(4):
-                    m, d, y = date_match.group(4).zfill(2), date_match.group(5).zfill(2), date_match.group(6)
-                else:
-                    y, m, d = date_match.group(7), date_match.group(8), date_match.group(9)
-                start_date = end_date = f"{y}-{m}-{d}"
-            else:
-                my_match = self._MONTH_YEAR_PATTERN.search(query)
-                if my_match:
-                    month_abbr = my_match.group(1).lower()[:3]
-                    year = my_match.group(2)
-                    month_num = self._MONTH_MAP.get(month_abbr, '01')
-                    start_date = f"{year}-{month_num}-01"
-                    next_month = datetime.strptime(start_date, '%Y-%m-%d') + timedelta(days=32)
-                    end_date = (next_month.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
-                elif self._TIME_MENTIONED.search(query):
-                    start_date = DEFAULT_DATA_START
-                    end_date = DEFAULT_DATA_END
-        
-        # Hot keywords
-        if self._HOT_KEYWORDS.search(query):
-            return QueryContext(
-                location=location, date_start=start_date, date_end=end_date,
-                intent_category="hot", confidence="low",
-            )
-        
-        return QueryContext(
-            location=location, date_start=start_date, date_end=end_date,
-            intent_category="search", confidence="low",
-        )
+    # (Moved to OllamaRouter class above)
 
     # -----------------------------------------------------------------------
     # Rule-Based Planner (uses structured context from router)
