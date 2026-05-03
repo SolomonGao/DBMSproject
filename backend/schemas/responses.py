@@ -480,14 +480,26 @@ class EnhancedReportOutput(BaseModel):
     generated_at: str = ""
 
 
+class ReportConfig(BaseModel):
+    """User-configurable report generation settings."""
+    include_storyline: bool = True
+    include_news: bool = False
+    include_gkg: bool = True
+    gkg_tone_days: int = Field(14, ge=3, le=14, description="Days of GKG tone timeline (3-14)")
+    gkg_themes_days: int = Field(1, ge=1, le=7, description="Days of GKG themes query (1-7)")
+    gkg_cooccurring_limit: int = Field(30, ge=10, le=100, description="GKG co-occurring entities limit")
+    max_report_length: int = Field(12000, ge=4000, le=16000, description="Max report chars (4000-16000)")
+
+
 class EventReportRequest(BaseModel):
     """Request to generate a comprehensive event report."""
     data: Dict[str, Any] = Field(..., description="Query results from /analyze")
     prompt: Optional[str] = Field(None, description="Optional custom prompt")
     include_storyline: bool = True
-    include_news: bool = True
+    include_news: bool = False
     include_gkg: bool = True
     llm_config: Optional[LLMConfig] = None
+    config: Optional[ReportConfig] = Field(None, description="Advanced report configuration")
 
 
 class EventReportResponse(BaseModel):

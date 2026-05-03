@@ -189,8 +189,20 @@ class EnhancedReportGenerator(ReportGenerator):
 
         return await self._news_scraper.fetch_for_events(related_events)
 
-    async def _gather_gkg_data(self, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Fetch GKG data for the primary event's actors/entities."""
+    async def _gather_gkg_data(
+        self,
+        event_data: Dict[str, Any],
+        tone_days: int = 14,
+        themes_days: int = 1,
+        cooccurring_limit: int = 30,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch GKG data for the primary event's actors/entities.
+        
+        Args:
+            tone_days: Days of tone timeline (3-14, centered on event date)
+            themes_days: Days of themes query (1-7)
+            cooccurring_limit: Max co-occurring entities to fetch
+        """
         if not self._gkg.available:
             return None
 
@@ -207,23 +219,34 @@ class EnhancedReportGenerator(ReportGenerator):
             return None
 
         gkg_results = {}
+        dt = __import__("datetime").datetime
+        td = __import__("datetime").timedelta
 
         try:
-            cooccur = await self._gkg.get_cooccurring_entities(actor1, date, limit=30)
+            cooccur = await self._gkg.get_cooccurring_entities(actor1, date, limit=cooccurring_limit)
             if not cooccur.get("error"):
                 gkg_results["cooccurring"] = cooccur.get("cooccurring_entities", {})
 
-            # Use single-day query to stay under 1GB cost limit (~470MB/day)
-            themes = await self._gkg.get_entity_themes(actor1, (date, date), limit=50)
+            # Themes: configurable days (1-7)
+            themes_end = dt.strptime(date, "%Y-%m-%d") + td(days=max(themes_days - 1, 0))
+            themes = await self._gkg.get_entity_themes(
+                actor1,
+                (date, themes_end.strftime("%Y-%m-%d")),
+                limit=50,
+            )
             if not themes.get("error"):
                 gkg_results["themes"] = themes.get("parsed_themes", {})
             else:
                 print(f"[EnhancedReporter] GKG themes: {themes.get('message')}", flush=True)
 
-            # Tone timeline allows up to 14 days, use 3 days
-            end_dt = __import__("datetime").datetime.strptime(date, "%Y-%m-%d") + __import__("datetime").timedelta(days=3)
-            end_date = end_dt.strftime("%Y-%m-%d")
-            tone = await self._gkg.get_tone_timeline(actor1, (date, end_date))
+            # Tone timeline: configurable days (3-14), centered on event date
+            half_window = tone_days // 2
+            tone_start = dt.strptime(date, "%Y-%m-%d") - td(days=half_window)
+            tone_end = dt.strptime(date, "%Y-%m-%d") + td(days=tone_days - half_window - 1)
+            tone = await self._gkg.get_tone_timeline(
+                actor1,
+                (tone_start.strftime("%Y-%m-%d"), tone_end.strftime("%Y-%m-%d"))
+            )
             if not tone.get("error"):
                 gkg_results["tone_timeline"] = tone.get("data", [])
 
@@ -302,9 +325,23 @@ class EnhancedReportGenerator(ReportGenerator):
         include_storyline: bool = True,
         include_news: bool = False,
         include_gkg: bool = True,
+        config: Optional[Dict[str, Any]] = None,
     ) -> EnhancedReportResult:
-        """Generate comprehensive event report with all enrichments."""
+        """Generate comprehensive event report with all enrichments.
+        
+        Args:
+            config: Optional dict with keys:
+                - gkg_tone_days (3-14): Days of tone timeline
+                - gkg_themes_days (1-7): Days of themes query
+                - gkg_cooccurring_limit (10-100): Co-occurring entities limit
+                - max_report_length (4000-16000): Max report chars
+        """
         t0 = __import__("time").time()
+        cfg = config or {}
+        tone_days = min(max(cfg.get("gkg_tone_days", 14), 3), 14)
+        themes_days = min(max(cfg.get("gkg_themes_days", 1), 1), 7)
+        cooccur_limit = min(max(cfg.get("gkg_cooccurring_limit", 30), 10), 100)
+        max_length = min(max(cfg.get("max_report_length", 12000), 4000), 16000)
 
         gather_tasks = []
 
@@ -316,7 +353,12 @@ class EnhancedReportGenerator(ReportGenerator):
             gather_tasks.append(asyncio.sleep(0))
 
         if include_gkg:
-            gather_tasks.append(self._gather_gkg_data(data))
+            gather_tasks.append(self._gather_gkg_data(
+                data,
+                tone_days=tone_days,
+                themes_days=themes_days,
+                cooccurring_limit=cooccur_limit,
+            ))
         else:
             gather_tasks.append(asyncio.sleep(0))
 
@@ -329,7 +371,8 @@ class EnhancedReportGenerator(ReportGenerator):
             storyline = build_full_storyline(events, gkg_themes)
 
         narrative_input = self._format_enhanced_data(
-            data, news_coverage, related_news, storyline, gkg_data
+            data, news_coverage, related_news, storyline, gkg_data,
+            max_length=max_length,
         )
 
         if not narrative_input.strip():
@@ -406,6 +449,7 @@ class EnhancedReportGenerator(ReportGenerator):
         related_news: Any,
         storyline: Any,
         gkg_data: Optional[Dict[str, Any]],
+        max_length: int = 12000,
     ) -> str:
         """Format all gathered data into a narrative input for the LLM."""
         sections = []
@@ -422,7 +466,6 @@ class EnhancedReportGenerator(ReportGenerator):
 
             content = news_coverage.get("primary_content", "")
             if content:
-                # Keep full content but cap at reasonable limit for LLM context
                 if len(content) > 4000:
                     content = content[:4000] + "\n...[content continues but truncated for brevity]"
                 sections.append(f"Primary Article Content:\n{content}")
@@ -473,13 +516,12 @@ class EnhancedReportGenerator(ReportGenerator):
             tone = gkg_data.get("tone_timeline")
             if tone and isinstance(tone, list):
                 sections.append("Media Tone Trend:")
-                for t in tone[:5]:
+                for t in tone[:14]:
                     sections.append(f"  - {t.get('date', '')}: tone={t.get('avg_tone', 'N/A'):.2f}, mentions={t.get('mention_count', 0)}")
 
         result = "\n".join(sections)
-        # Only truncate if extremely large (>12000 chars), preserving full content when possible
-        if len(result) > 12000:
-            result = result[:11500] + "\n\n...[additional data truncated — core insights preserved above]"
+        if len(result) > max_length:
+            result = result[:max_length - 500] + "\n\n...[additional data truncated — core insights preserved above]"
         return result
 
     def _parse_report_text(self, text: str) -> tuple[str, List[str]]:

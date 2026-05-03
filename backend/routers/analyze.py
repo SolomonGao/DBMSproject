@@ -154,12 +154,14 @@ async def generate_event_report(request: EventReportRequest):
 
     try:
         reporter = get_enhanced_reporter(llm_config)
+        config = request.config.model_dump() if request.config else None
         result = await reporter.generate_event_report(
             data=request.data,
             prompt=request.prompt,
             include_storyline=request.include_storyline,
             include_news=request.include_news,
             include_gkg=request.include_gkg,
+            config=config,
         )
 
         t_report = round((time.time() - t0) * 1000, 1)
