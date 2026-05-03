@@ -526,7 +526,7 @@ class GKGClient:
         FROM `{GKG_PARTITIONED_TABLE}`
         WHERE _PARTITIONTIME >= TIMESTAMP('{start}')
           AND _PARTITIONTIME < TIMESTAMP('{end_exclusive}')
-          AND (V2Persons LIKE '%{entity_name}%' OR V2Orgs LIKE '%{entity_name}%')
+          AND (V2Persons LIKE '%{entity_name}%' OR V2Organizations LIKE '%{entity_name}%')
         LIMIT {limit}
         """
 
@@ -552,12 +552,12 @@ class GKGClient:
         sql = f"""
         SELECT
           V2Persons,
-          V2Orgs,
+          V2Organizations,
           V2Themes
         FROM `{GKG_PARTITIONED_TABLE}`
         WHERE _PARTITIONTIME >= TIMESTAMP('{date}')
           AND _PARTITIONTIME < TIMESTAMP('{next_day}')
-          AND (V2Persons LIKE '%{entity_name}%' OR V2Orgs LIKE '%{entity_name}%')
+          AND (V2Persons LIKE '%{entity_name}%' OR V2Organizations LIKE '%{entity_name}%')
         LIMIT {limit}
         """
 
@@ -598,7 +598,7 @@ class GKGClient:
         FROM `{GKG_PARTITIONED_TABLE}`
         WHERE _PARTITIONTIME >= TIMESTAMP('{start}')
           AND _PARTITIONTIME < TIMESTAMP('{end_exclusive}')
-          AND (V2Persons LIKE '%{entity_name}%' OR V2Orgs LIKE '%{entity_name}%')
+          AND (V2Persons LIKE '%{entity_name}%' OR V2Organizations LIKE '%{entity_name}%')
         GROUP BY date
         ORDER BY date
         """
