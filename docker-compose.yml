@@ -42,6 +42,8 @@ services:
       - ./chroma_db:/app/chroma_db:ro
       - ./data:/app/data:ro
       - ./logs:/app/logs
+      # GCP Service Account 密钥挂载（用于 GKG BigQuery 查询）
+      - ./secrets:/app/secrets:ro
     # 加载环境变量文件
     env_file:
       - .env
