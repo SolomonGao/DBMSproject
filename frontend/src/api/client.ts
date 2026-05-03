@@ -95,4 +95,24 @@ export const api = {
 
   getTopEvents: (start: string, end: string, limit = 5) =>
     fetchJson<any>(`/api/v1/data/top-events?start=${start}&end=${end}&limit=${limit}`),
+
+  // Enhanced Event Report (Reporter v2)
+  generateEventReport: (data: any, prompt?: string, includeStoryline = true, includeNews = true, includeGKG = true, llmConfig?: any) =>
+    fetchJson<any>('/api/v1/analyze/event-report', {
+      method: 'POST',
+      body: JSON.stringify({
+        data,
+        prompt,
+        include_storyline: includeStoryline,
+        include_news: includeNews,
+        include_gkg: includeGKG,
+        llm_config: llmConfig,
+      }),
+    }),
+
+  getStoryline: (eventId?: number, fingerprint?: string, dateRange?: { start: string; end: string }) =>
+    fetchJson<any>('/api/v1/analyze/storyline', {
+      method: 'POST',
+      body: JSON.stringify({ event_id: eventId, fingerprint, date_range: dateRange }),
+    }),
 };

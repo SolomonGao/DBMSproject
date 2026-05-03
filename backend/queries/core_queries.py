@@ -273,8 +273,7 @@ def _build_optimized_search_sql(
             if event_type in type_conditions:
                 keyword_sql += f" AND e.{type_conditions[event_type]}"
         
-        keyword_sql += " ORDER BY e.NumArticles DESC LIMIT %s"
-        keyword_params.append(max_results)
+        # NOTE: No ORDER BY/LIMIT in keyword_sql — applied at UNION level or final
     
     # Main filter-based query (location, actor, etc.)
     has_structured_filters = actor_exact or location_exact or location_hint or actor
@@ -319,18 +318,21 @@ def _build_optimized_search_sql(
         main_sql += " ORDER BY e.NumArticles DESC LIMIT %s"
         main_params.append(max_results)
     
+
+
     # If both keyword and structured filters exist, UNION them
     if keyword_sql and has_structured_filters:
-        sql = f"""{main_sql}
+        # MySQL requires parentheses around subqueries with ORDER BY in UNION
+        sql = f"""( {main_sql} )
         UNION
-        {keyword_sql}
+        ( {keyword_sql} )
         ORDER BY NumArticles DESC
         LIMIT %s"""
         params = main_params + keyword_params + [max_results]
     elif keyword_sql and not has_structured_filters:
         # Only keyword, no structured filters
-        sql = keyword_sql
-        params = keyword_params
+        sql = keyword_sql + " ORDER BY e.NumArticles DESC LIMIT %s"
+        params = keyword_params + [max_results]
     else:
         # Only structured filters, no keyword
         sql = main_sql

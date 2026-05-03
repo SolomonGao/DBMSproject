@@ -399,4 +399,113 @@ class ReportRequest(BaseModel):
     """Request to generate an AI report from existing query results."""
     data: Dict[str, Any] = Field(..., description="Query results from /analyze")
     prompt: Optional[str] = Field(None, description="Optional custom prompt for the report")
+
+
+# ============================================================================
+# Enhanced Event Report (Reporter v2)
+# ============================================================================
+
+class NewsSourceItem(BaseModel):
+    url: str
+    title: Optional[str] = None
+    content_snippet: str = ""
+    fetch_status: str = ""  # success | failed | cached | chroma_fallback
+
+
+class TimelineEventItem(BaseModel):
+    index: int
+    event_id: Optional[int] = None
+    date: str
+    title: str
+    description: str
+    actors: List[str] = Field(default_factory=list)
+    location: Optional[str] = None
+    event_type: Optional[str] = None
+    significance_score: float = 0.0
+    goldstein_scale: Optional[float] = None
+    num_articles: Optional[int] = None
+    avg_tone: Optional[float] = None
+
+
+class StorylineTimelineData(BaseModel):
+    events: List[TimelineEventItem] = Field(default_factory=list)
+    period: Dict[str, Any] = Field(default_factory=dict)
+    key_milestones: List[Dict[str, Any]] = Field(default_factory=list)
+    total_events: int = 0
+
+
+class EntityEvolutionData(BaseModel):
+    actors: List[Dict[str, Any]] = Field(default_factory=list)
+    locations: List[Dict[str, Any]] = Field(default_factory=list)
+    total_actors: int = 0
+    total_locations: int = 0
+
+
+class ThemeEvolutionData(BaseModel):
+    themes_over_time: List[Dict[str, Any]] = Field(default_factory=list)
+    emerging_themes: List[Dict[str, Any]] = Field(default_factory=list)
+    declining_themes: List[Dict[str, Any]] = Field(default_factory=list)
+    dominant_themes: List[Dict[str, Any]] = Field(default_factory=list)
+    total_unique_themes: int = 0
+
+
+class StorylineData(BaseModel):
+    timeline: StorylineTimelineData = Field(default_factory=StorylineTimelineData)
+    entity_evolution: EntityEvolutionData = Field(default_factory=EntityEvolutionData)
+    theme_evolution: ThemeEvolutionData = Field(default_factory=ThemeEvolutionData)
+    narrative_arc: str = ""
+
+
+class NewsCoverageData(BaseModel):
+    event_id: Optional[int] = None
+    headline: Optional[str] = None
+    sources: List[NewsSourceItem] = Field(default_factory=list)
+    primary_content: str = ""
+    source_count: int = 0
+    has_content: bool = False
+
+
+class GKGInsightData(BaseModel):
+    cooccurring: Optional[Dict[str, Any]] = None
+    themes: Optional[Dict[str, Any]] = None
+    tone_timeline: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class EnhancedReportOutput(BaseModel):
+    summary: str
+    key_findings: List[str] = Field(default_factory=list)
+    storyline: Optional[StorylineData] = None
+    news_coverage: Optional[NewsCoverageData] = None
+    gkg_insights: Optional[GKGInsightData] = None
+    generated_at: str = ""
+
+
+class EventReportRequest(BaseModel):
+    """Request to generate a comprehensive event report."""
+    data: Dict[str, Any] = Field(..., description="Query results from /analyze")
+    prompt: Optional[str] = Field(None, description="Optional custom prompt")
+    include_storyline: bool = True
+    include_news: bool = True
+    include_gkg: bool = True
+    llm_config: Optional[LLMConfig] = None
+
+
+class EventReportResponse(BaseModel):
+    ok: bool = True
+    error: Optional[str] = None
+    report: Optional[EnhancedReportOutput] = None
+    elapsed_ms: Optional[float] = None
+
+
+class StorylineRequest(BaseModel):
+    event_id: Optional[int] = None
+    fingerprint: Optional[str] = None
+    date_range: Optional[Dict[str, str]] = None
+
+
+class StorylineResponse(BaseModel):
+    ok: bool = True
+    error: Optional[str] = None
+    storyline: Optional[StorylineData] = None
+    elapsed_ms: Optional[float] = None
     llm_config: Optional[LLMConfig] = Field(None, description="Custom LLM configuration")

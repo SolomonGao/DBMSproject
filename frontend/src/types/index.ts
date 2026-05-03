@@ -143,6 +143,82 @@ export interface ReportResult {
   key_findings: string[];
 }
 
+// Enhanced Reporter v2 types
+export interface NewsSourceItem {
+  url: string;
+  title?: string;
+  content_snippet: string;
+  fetch_status: string;
+}
+
+export interface TimelineEventItem {
+  index: number;
+  event_id?: number;
+  date: string;
+  title: string;
+  description: string;
+  actors: string[];
+  location?: string;
+  event_type?: string;
+  significance_score: number;
+  goldstein_scale?: number;
+  num_articles?: number;
+  avg_tone?: number;
+}
+
+export interface StorylineTimelineData {
+  events: TimelineEventItem[];
+  period: Record<string, any>;
+  key_milestones: Record<string, any>[];
+  total_events: number;
+}
+
+export interface EntityEvolutionData {
+  actors: Record<string, any>[];
+  locations: Record<string, any>[];
+  total_actors: number;
+  total_locations: number;
+}
+
+export interface ThemeEvolutionData {
+  themes_over_time: Record<string, any>[];
+  emerging_themes: Record<string, any>[];
+  declining_themes: Record<string, any>[];
+  dominant_themes: Record<string, any>[];
+  total_unique_themes: number;
+}
+
+export interface StorylineData {
+  timeline: StorylineTimelineData;
+  entity_evolution: EntityEvolutionData;
+  theme_evolution: ThemeEvolutionData;
+  narrative_arc: string;
+}
+
+export interface NewsCoverageData {
+  event_id?: number;
+  headline?: string;
+  sources: NewsSourceItem[];
+  primary_content: string;
+  source_count: number;
+  has_content: boolean;
+}
+
+export interface GKGInsightData {
+  cooccurring?: Record<string, any>;
+  themes?: Record<string, any>;
+  tone_timeline: Record<string, any>[];
+}
+
+export interface EnhancedReportResult {
+  summary: string;
+  key_findings: string[];
+  storyline?: StorylineData;
+  news_coverage?: NewsCoverageData;
+  gkg_insights?: GKGInsightData;
+  generated_at: string;
+}
+
 export interface Phase {
   name: string;
   status: "pending" | "running" | "completed";
