@@ -41,7 +41,8 @@ Output rules:
 - Structure the output into clearly labeled sections.
 - Do NOT use JSON. Use markdown-style plain text.
 - If data is sparse, say so directly rather than inventing.
-- No preamble like "Here is the report". Start immediately."""
+- No preamble like "Here is the report". Start immediately.
+- IMPORTANT: Keep the report concise and focused. Avoid unnecessary repetition or filler text."""
 
 
 # ---------------------------------------------------------------------------
@@ -386,9 +387,13 @@ class EnhancedReportGenerator(ReportGenerator):
             "who was involved, the timeline of events, media coverage, and broader implications."
         )
 
+        # Add length constraint to prompt so LLM controls output size
+        length_hint = f"\n\n[LENGTH CONSTRAINT] Please keep the total report under {max_length} characters. "
+        length_hint += "Be concise and focused — prioritize key facts and insights over verbose descriptions."
+
         messages = [
             SystemMessage(content=ENHANCED_REPORT_SYSTEM_PROMPT),
-            HumanMessage(content=f"{user_prompt}\n\n{narrative_input}\n\nWrite the report:"),
+            HumanMessage(content=f"{user_prompt}{length_hint}\n\n{narrative_input}\n\nWrite the report:"),
         ]
 
         try:
@@ -520,8 +525,10 @@ class EnhancedReportGenerator(ReportGenerator):
                     sections.append(f"  - {t.get('date', '')}: tone={t.get('avg_tone', 'N/A'):.2f}, mentions={t.get('mention_count', 0)}")
 
         result = "\n".join(sections)
-        if len(result) > max_length:
-            result = result[:max_length - 500] + "\n\n...[additional data truncated — core insights preserved above]"
+        # No hard truncation — let the LLM handle length via the prompt constraint
+        # Only trim if extremely oversized (> max_length + 3000 buffer)
+        if len(result) > max_length + 3000:
+            result = result[:max_length + 2500] + "\n\n...[additional context available but omitted for brevity]"
         return result
 
     def _parse_report_text(self, text: str) -> tuple[str, List[str]]:

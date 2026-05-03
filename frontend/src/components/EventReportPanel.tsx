@@ -61,7 +61,7 @@ export default function EventReportPanel({ report, event }: Props) {
           {hasStoryline && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#2563eb', background: '#eff6ff', padding: '4px 10px', borderRadius: 10 }}>
               <BookOpen size={12} />
-              Storyline
+              Related Events
             </span>
           )}
           {hasGKG && (

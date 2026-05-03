@@ -189,7 +189,7 @@ export default function StorylineTimeline({ storyline }: Props) {
   return (
     <div className="panel">
       <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a1a', marginBottom: 4 }}>
-        Event Storyline
+        Related Events & Context
       </h3>
       {period.start && period.end && (
         <p style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
