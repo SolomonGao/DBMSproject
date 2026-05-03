@@ -317,14 +317,20 @@ No other text. Just the JSON."""
                 
                 # Post-process: if query_text looks like an event fingerprint, force intent=detail
                 # and clear all other fields (fingerprint lookup does not need date/location filters)
-                if query_text:
-                    # Match EVT-YYYY-MM-DD-NNNNNNNNNN or raw numeric ID
-                    if re.match(r'^(EVT-\d{4}-\d{2}-\d{2}-\d+|\d{9,12})$', query_text.strip(), re.IGNORECASE):
+                check_text = (query_text or "").strip()
+                if not check_text:
+                    check_text = user_input.strip()
+                if check_text:
+                    # Match EVT-YYYY-MM-DD-NNNNNNNNNN, US-YYYYMMDD-LOC-TYPE-NUM, or raw numeric ID
+                    if re.match(r'^(EVT-\d{4}-\d{2}-\d{2}-\d+|US-\d{8}-[A-Z]+-[A-Z]+-\d+|\d{9,12})$', check_text, re.IGNORECASE):
                         intent = "detail"
                         location = None
                         date_start = None
                         date_end = None
                         event_type = None
+                        # Put the fingerprint into query_text so planner can extract it
+                        if not query_text:
+                            query_text = check_text
                 
                 return QueryContext(
                     location=location,
@@ -538,9 +544,10 @@ class Planner:
         re.IGNORECASE,
     )
 
-    # Detect specific event ID patterns (EVT-... or raw numeric ID)
+    # Detect specific event ID patterns (EVT-..., US-YYYYMMDD-LOC-TYPE-NUM, or raw numeric ID)
     _EVENT_ID_PATTERN = re.compile(
         r'^(EVT-\d{4}-\d{2}-\d{2}-\d+)\b|'
+        r'^(US-\d{8}-[A-Z]+-[A-Z]+-\d+)\b|'
         r'^\d{9,12}\b',
         re.IGNORECASE,
     )
@@ -693,12 +700,16 @@ class Planner:
             search_text = (ctx.user_input or "") + " " + (ctx.query_text or "")
             evt_match = self._EVENT_ID_PATTERN.search(search_text)
             if evt_match:
-                fingerprint = evt_match.group(1) or evt_match.group(0)
+                fingerprint = evt_match.group(1) or evt_match.group(2) or evt_match.group(0)
+                # For EVT-IDs, extract numeric seed for similar_events
                 if fingerprint.upper().startswith('EVT-'):
                     try:
                         seed_id = int(fingerprint.split('-')[-1])
                     except ValueError:
                         seed_id = None
+                elif fingerprint.upper().startswith('US-'):
+                    # Custom fingerprint: look up by fingerprint string, no similar_events seed
+                    seed_id = None
                 else:
                     seed_id = int(fingerprint)
                 steps = [QueryStep(type="event_detail", params={"fingerprint": fingerprint})]

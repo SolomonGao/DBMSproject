@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users, Brain, Terminal, Sparkles } from 'lucide-react';
+import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users, Brain, Terminal, Sparkles, BookOpen } from 'lucide-react';
 import { api } from '../api/client';
-import type { AnalyzeResponse, ReportResult, EventItem } from '../types';
+import type { AnalyzeResponse, ReportResult, EventItem, EnhancedReportResult } from '../types';
 import EventDetailCard from './EventDetailCard';
 import SimilarEventCards from './SimilarEventCards';
 import ReportPanel from './ReportPanel';
+import EventReportPanel from './EventReportPanel';
 
 // Daily brief stat card
 function DailyBriefStat({ label, value, color }: { label: string; value: number | string | null; color: string }) {
@@ -99,6 +100,10 @@ export default function ExplorePanel() {
   const [report, setReport] = useState<ReportResult | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
 
+  // Enhanced report state (Reporter v2)
+  const [enhancedReport, setEnhancedReport] = useState<EnhancedReportResult | null>(null);
+  const [enhancedReportLoading, setEnhancedReportLoading] = useState(false);
+
   // Loading phase cycling
   useEffect(() => {
     if (!loading) {
@@ -166,6 +171,20 @@ export default function ExplorePanel() {
       console.error('Report load failed:', err);
     } finally {
       setReportLoading(false);
+    }
+  };
+
+  const loadEnhancedReport = async (data: any, prompt?: string) => {
+    setEnhancedReportLoading(true);
+    try {
+      const res = await api.generateEventReport(data, prompt);
+      if (res.report) {
+        setEnhancedReport(res.report);
+      }
+    } catch (err: any) {
+      console.error('Enhanced report load failed:', err);
+    } finally {
+      setEnhancedReportLoading(false);
     }
   };
 
@@ -357,9 +376,9 @@ export default function ExplorePanel() {
           {/* Data content — fades in after thinking completes */}
           {showData && (
             <>
-              {/* AI Report — manual trigger */}
-              {vizes.includes('report') && result?.plan?.report_prompt && !report && !reportLoading && (
-                <div style={{ marginBottom: 16 }}>
+              {/* Report Buttons */}
+              {vizes.includes('report') && result?.plan?.report_prompt && !report && !reportLoading && !enhancedReport && !enhancedReportLoading && (
+                <div style={{ marginBottom: 16, display: 'flex', gap: 10 }}>
                   <button
                     onClick={() => loadReport(result.data, result.plan.report_prompt!)}
                     style={{
@@ -377,7 +396,26 @@ export default function ExplorePanel() {
                     }}
                   >
                     <FileText size={14} />
-                    Generate AI Report
+                    Quick Report
+                  </button>
+                  <button
+                    onClick={() => loadEnhancedReport(result.data, result.plan.report_prompt!)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 6,
+                      border: '1px solid #7c3aed',
+                      background: '#fff',
+                      color: '#7c3aed',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <BookOpen size={14} />
+                    Deep Dive Report
                   </button>
                 </div>
               )}
@@ -393,7 +431,25 @@ export default function ExplorePanel() {
                   </div>
                 </div>
               )}
-              {report && <div style={{ animation: 'fadeIn 0.5s ease' }}><ReportPanel report={report} /></div>}
+              {enhancedReportLoading && (
+                <div className="panel" style={{ background: '#fafafa', animation: 'fadeIn 0.5s ease' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <BookOpen size={18} color="#7c3aed" />
+                    Deep Dive Report
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, color: '#888', fontSize: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Loader2 size={16} className="spinning" />
+                      Fetching news sources...
+                    </div>
+                    <div style={{ fontSize: 12, color: '#aaa', paddingLeft: 24 }}>
+                      Building storyline · Querying GKG · Generating narrative
+                    </div>
+                  </div>
+                </div>
+              )}
+              {report && !enhancedReport && <div style={{ animation: 'fadeIn 0.5s ease' }}><ReportPanel report={report} /></div>}
+              {enhancedReport && <EventReportPanel report={enhancedReport} />}
 
               {/* Event Detail Card */}
               {eventDetail && (
