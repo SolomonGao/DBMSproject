@@ -98,29 +98,82 @@ class EnhancedReportGenerator(ReportGenerator):
         self._news_scraper = news_scraper
         self._gkg = gkg_client
 
+    # -- Helpers: find events from step results with suffixed keys --
+
+    @staticmethod
+    def _find_primary_event(event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Find the primary event from step results.
+
+        Step result keys are suffixed (e.g. event_detail_0, events_1) so we
+        scan for both exact matches and prefix matches.
+        """
+        # Exact keys first
+        for exact_key in ("event_detail", "events", "top_events", "hot_events"):
+            if exact_key in event_data:
+                item = event_data[exact_key]
+                if isinstance(item, dict) and "data" in item:
+                    return item["data"]
+                elif isinstance(item, list) and item:
+                    return item[0]
+                return item
+
+        # Prefixed keys (e.g. event_detail_0, events_1)
+        for key, item in event_data.items():
+            if key.startswith("event_detail"):
+                if isinstance(item, dict) and "data" in item:
+                    return item["data"]
+                return item
+
+        for key, item in event_data.items():
+            if key.startswith(("events_", "top_events_", "hot_events_")):
+                if isinstance(item, dict) and "data" in item:
+                    item = item["data"]
+                if isinstance(item, list) and item:
+                    return item[0]
+                return item
+
+        return None
+
+    @staticmethod
+    def _find_related_events(event_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Find related events (similar_events or fallback to events list)."""
+        related: List[Dict[str, Any]] = []
+
+        # Exact key
+        if "similar_events" in event_data:
+            se = event_data["similar_events"]
+            if isinstance(se, dict) and "data" in se:
+                se = se["data"]
+            if isinstance(se, list):
+                related = se[:5]
+
+        # Prefixed key
+        if not related:
+            for key, item in event_data.items():
+                if key.startswith("similar_events"):
+                    if isinstance(item, dict) and "data" in item:
+                        item = item["data"]
+                    if isinstance(item, list):
+                        related = item[:5]
+                        break
+
+        # Fallback to any event list
+        if not related:
+            for key, item in event_data.items():
+                if key.startswith(("events_", "top_events_", "hot_events_")):
+                    if isinstance(item, dict) and "data" in item:
+                        item = item["data"]
+                    if isinstance(item, list) and item:
+                        related = item[:5]
+                        break
+
+        return related
+
     # -- Data gathering --
 
     async def _gather_news_coverage(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
         """Fetch news coverage for the primary event."""
-        primary_event = None
-
-        # Try to find the primary event
-        if "event_detail" in event_data:
-            detail = event_data["event_detail"]
-            if isinstance(detail, dict) and "data" in detail:
-                primary_event = detail["data"]
-            else:
-                primary_event = detail
-
-        if not primary_event:
-            for key in ("events", "top_events", "hot_events"):
-                if key in event_data:
-                    items = event_data[key]
-                    if isinstance(items, dict) and "data" in items:
-                        items = items["data"]
-                    if isinstance(items, list) and items:
-                        primary_event = items[0]
-                        break
+        primary_event = self._find_primary_event(event_data)
 
         if not primary_event:
             return {"sources": [], "primary_content": "", "has_content": False}
@@ -129,21 +182,7 @@ class EnhancedReportGenerator(ReportGenerator):
 
     async def _gather_related_news(self, event_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Fetch news for related events (similar_events, etc.)."""
-        related_events = []
-
-        if "similar_events" in event_data:
-            se = event_data["similar_events"]
-            if isinstance(se, dict) and "data" in se:
-                se = se["data"]
-            if isinstance(se, list):
-                related_events = se[:5]
-
-        if not related_events and "events" in event_data:
-            ev = event_data["events"]
-            if isinstance(ev, dict) and "data" in ev:
-                ev = ev["data"]
-            if isinstance(ev, list):
-                related_events = ev[:5]
+        related_events = self._find_related_events(event_data)
 
         if not related_events:
             return []
@@ -155,20 +194,7 @@ class EnhancedReportGenerator(ReportGenerator):
         if not self._gkg.available:
             return None
 
-        primary_event = None
-        if "event_detail" in event_data:
-            detail = event_data["event_detail"]
-            primary_event = detail.get("data") if isinstance(detail, dict) else detail
-
-        if not primary_event:
-            for key in ("events", "top_events", "hot_events"):
-                if key in event_data:
-                    items = event_data[key]
-                    if isinstance(items, dict) and "data" in items:
-                        items = items["data"]
-                    if isinstance(items, list) and items:
-                        primary_event = items[0]
-                        break
+        primary_event = self._find_primary_event(event_data)
 
         if not primary_event:
             return None
@@ -210,6 +236,7 @@ class EnhancedReportGenerator(ReportGenerator):
         """Extract all events from step results for storyline building."""
         all_events = []
 
+        # Exact keys
         if "event_detail" in event_data:
             detail = event_data["event_detail"]
             if isinstance(detail, dict) and "data" in detail:
@@ -231,6 +258,24 @@ class EnhancedReportGenerator(ReportGenerator):
                     items = items["data"]
                 if isinstance(items, list):
                     all_events.extend(items)
+
+        # Prefixed keys (e.g. event_detail_0, similar_events_1, events_0)
+        for key, item in event_data.items():
+            if key.startswith("event_detail") and key != "event_detail":
+                if isinstance(item, dict) and "data" in item:
+                    all_events.append(item["data"])
+                elif isinstance(item, dict):
+                    all_events.append(item)
+            elif key.startswith("similar_events") and key != "similar_events":
+                if isinstance(item, dict) and "data" in item:
+                    item = item["data"]
+                if isinstance(item, list):
+                    all_events.extend(item)
+            elif any(key.startswith(prefix) and key != prefix for prefix in ("events_", "top_events_", "hot_events_")):
+                if isinstance(item, dict) and "data" in item:
+                    item = item["data"]
+                if isinstance(item, list):
+                    all_events.extend(item)
 
         seen = set()
         unique = []

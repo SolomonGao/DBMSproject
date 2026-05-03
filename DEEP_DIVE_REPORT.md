@@ -1,627 +1,561 @@
-# Deep Dive Report — Technical Documentation
+# Deep Dive Report 技术文档（中文版）
 
-> **Document Version**: 1.0  
-> **Last Updated**: 2026-05-03  
-> **Author**: Kimi Code (AI Agent)  
-> **Project**: GDELT Analysis Platform (Virginia Tech)
-
----
-
-## Table of Contents
-
-1. [Overview](#1-overview)
-2. [Architecture & Data Flow](#2-architecture--data-flow)
-3. [Technology Stack](#3-technology-stack)
-4. [Backend Components](#4-backend-components)
-5. [Frontend Components](#5-frontend-components)
-6. [API Endpoints](#6-api-endpoints)
-7. [Data Models](#7-data-models)
-8. [GKG BigQuery Integration](#8-gkg-bigquery-integration)
-9. [Configuration & Environment Variables](#9-configuration--environment-variables)
-10. [Known Issues & Fixes](#10-known-issues--fixes)
-11. [Future Enhancements](#11-future-enhancements)
+> **文档版本**: 2.0  
+> **最后更新**: 2026-05-03  
+> **项目**: GDELT Analysis Platform (Virginia Tech)
 
 ---
 
-## 1. Overview
+## 目录
 
-**Deep Dive Report** (internally called "Enhanced Event Report" or "Reporter v2") is a comprehensive event analysis feature that goes beyond the basic AI summary. It enriches event data with:
-
-- **Storyline**: Timeline visualization, entity evolution tracking, theme evolution
-- **News Coverage**: Live article fetching from event SOURCEURLs + ChromaDB fallback
-- **GKG Insights**: Media Knowledge Graph data from GDELT's BigQuery dataset (entities, themes, tone trends)
-
-Users trigger it from the AI Explore panel by clicking **"Deep Dive Report"** after receiving initial query results.
+1. [功能概述](#1-功能概述)
+2. [架构与数据流](#2-架构与数据流)
+3. [技术栈](#3-技术栈)
+4. [后端组件详解](#4-后端组件详解)
+5. [前端组件详解](#5-前端组件详解)
+6. [API 接口](#6-api-接口)
+7. [数据模型](#7-数据模型)
+8. [执行流程逐步拆解](#8-执行流程逐步拆解)
+9. [GKG BigQuery 集成](#9-gkg-bigquery-集成)
+10. [配置与环境变量](#10-配置与环境变量)
+11. [已知问题与修复记录](#11-已知问题与修复记录)
+12. [文件索引](#12-文件索引)
 
 ---
 
-## 2. Architecture & Data Flow
+## 1. 功能概述
 
-### 2.1 High-Level Flow
+Deep Dive Report（深度分析报告）在基础 AI 摘要之上，提供三层数据增强：
+
+| 模块 | 数据来源 | 展示内容 |
+|------|---------|---------|
+| Storyline | MySQL 事件数据 + GKG 主题数据 | 时间轴、参与者演变、地点演变、主题趋势 |
+| News Coverage | 事件 SOURCEURL 实时抓取 + ChromaDB 回退 | 原始新闻标题、内容摘要、来源链接 |
+| GKG Insights | Google BigQuery (GDELT GKG 公开数据集) | 相关人物、组织、媒体主题、情感趋势 |
+
+---
+
+## 2. 架构与数据流
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              User Frontend                                   │
-│  ExplorePanel.tsx ──► clicks "Deep Dive Report"                             │
-└───────────────────────────────┬─────────────────────────────────────────────┘
-                                │ POST /api/v1/analyze/event-report
-                                │ { data: <analyze_results>, prompt, flags }
-                                ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         FastAPI Backend                                      │
-│                                                                              │
-│  analyze.py /event-report                                                    │
-│       │                                                                      │
-│       ▼                                                                      │
-│  EnhancedReportGenerator.generate_event_report()                             │
-│       │                                                                      │
-│       ├──► _gather_news_coverage() ──► NewsScraper.fetch_for_event()        │
-│       │              ├──► HTTP fetch SOURCEURL (aiohttp + BeautifulSoup)    │
-│       │              └──► ChromaDB fallback (if URL fails)                   │
-│       │                                                                      │
-│       ├──► _gather_related_news() ──► NewsScraper.fetch_for_events()        │
-│       │                                                                      │
-│       ├──► _gather_gkg_data() ──► GKGClient (BigQuery)                      │
-│       │              ├──► get_cooccurring_entities()                         │
-│       │              ├──► get_entity_themes()                                │
-│       │              └──► get_tone_timeline()                                │
-│       │                                                                      │
-│       ├──► _extract_events_for_storyline()                                  │
-│       │              └──► build_full_storyline()                             │
-│       │                      ├──► build_timeline()                           │
-│       │                      ├──► build_entity_evolution()                   │
-│       │                      ├──► build_theme_evolution()                    │
-│       │                      └──► build_narrative_arc()                      │
-│       │                                                                      │
-│       └──► LLM (LangChain) ──► generate narrative report                   │
-│                                                                              │
-└───────────────────────────────┬─────────────────────────────────────────────┘
-                                │ JSON response
-                                ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Frontend Render                                    │
-│  EventReportPanel.tsx                                                        │
-│       ├──► Summary + Key Findings                                            │
-│       ├──► StorylineTimeline.tsx (timeline / entities / themes tabs)        │
-│       ├──► NewsCoveragePanel.tsx (source list with status)                   │
-│       └──► GKGInsightCards.tsx (people, orgs, themes, tone chart)           │
-└─────────────────────────────────────────────────────────────────────────────┘
+用户点击 Deep Dive Report
+        |
+        v
+POST /api/v1/analyze/event-report
+        |
+        v
+EnhancedReportGenerator.generate_event_report()
+        |
+        +--► _gather_news_coverage()  ──► NewsScraper (HTTP 抓取)
+        +--► _gather_related_news()   ──► NewsScraper (批量抓取)
+        +--► _gather_gkg_data()       ──► GKGClient (BigQuery)
+        |
+        v
+build_full_storyline()  (时间轴 + 参与者 + 主题)
+        |
+        v
+_format_enhanced_data()  (组装 LLM prompt)
+        |
+        v
+LLM (LangChain) 生成叙事报告
+        |
+        v
+返回 JSON 给前端
+        |
+        v
+EventReportPanel 渲染 (摘要 + Storyline + News + GKG)
 ```
 
-### 2.2 Parallel Data Gathering
-
-Inside `generate_event_report()`, three data sources are fetched concurrently via `asyncio.gather()`:
-
-```python
-news_coverage, related_news, gkg_data = await asyncio.gather(
-    self._gather_news_coverage(data),   # ~1-5s (HTTP dependent)
-    self._gather_related_news(data),    # ~1-5s
-    self._gather_gkg_data(data),        # ~2-10s (BigQuery dependent)
-)
-```
-
-Storyline building happens **after** GKG data returns (because theme evolution needs GKG themes).
+三个数据收集任务通过 `asyncio.gather()` 并行执行。
 
 ---
 
-## 3. Technology Stack
+## 3. 技术栈
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Backend Framework** | Python 3.13, FastAPI, Uvicorn | API server |
-| **LLM Framework** | LangChain, LangChain-OpenAI | Report generation |
-| **HTTP Client** | aiohttp | Async news article fetching |
-| **HTML Parsing** | BeautifulSoup4 | Article content extraction |
-| **Vector DB** | ChromaDB | News content fallback / RAG |
-| **BigQuery** | google-cloud-bigquery | GKG data queries |
-| **Auth** | google-oauth2 (service account) | GCP authentication |
-| **Frontend** | React 18, TypeScript, Vite | UI rendering |
-| **Icons** | Lucide React | UI icons |
-
-### 3.1 Python Dependencies
-
-```txt
-# Core
-fastapi>=0.115.0
-uvicorn[standard]
-pydantic>=2.9.0
-
-# LLM
-langchain>=0.3.0
-langchain-openai>=0.2.0
-openai>=1.55.0
-
-# HTTP / Scraping
-aiohttp>=3.9.0
-beautifulsoup4>=4.12.0
-
-# BigQuery (optional — only needed for GKG)
-google-cloud-bigquery>=3.0.0
-google-auth>=2.0.0
-
-# Vector DB
-chromadb>=0.5.0
-```
+| 层级 | 技术 |
+|------|------|
+| 后端框架 | Python 3.13, FastAPI, Uvicorn |
+| LLM 框架 | LangChain, LangChain-OpenAI |
+| HTTP 客户端 | aiohttp |
+| HTML 解析 | BeautifulSoup4 |
+| 向量数据库 | ChromaDB |
+| 大数据查询 | google-cloud-bigquery |
+| 认证 | google-oauth2 (service account) |
+| 前端 | React 18, TypeScript, Vite |
+| 图标 | Lucide React |
 
 ---
 
-## 4. Backend Components
+## 4. 后端组件详解
 
-### 4.1 Enhanced Reporter (`backend/agents/enhanced_reporter.py`)
+### 4.1 Enhanced Reporter
 
-**Class**: `EnhancedReportGenerator` extends `ReportGenerator`
+文件: `backend/agents/enhanced_reporter.py`
 
-**Key Methods**:
+核心方法:
 
-| Method | Purpose | Async |
-|--------|---------|-------|
-| `generate_event_report()` | Main orchestrator — gathers data, builds storyline, calls LLM | ✅ |
-| `_gather_news_coverage()` | Fetch primary event's news article | ✅ |
-| `_gather_related_news()` | Fetch news for related events | ✅ |
-| `_gather_gkg_data()` | Query BigQuery for GKG insights | ✅ |
-| `_extract_events_for_storyline()` | Flatten step results into event list | ❌ |
-| `_format_enhanced_data()` | Build LLM prompt from all sources | ❌ |
-| `_parse_report_text()` | Parse LLM output into summary + findings | ❌ |
+| 方法 | 功能 |
+|------|------|
+| `generate_event_report()` | 总调度 |
+| `_find_primary_event()` | 从 step results 定位主事件（支持带后缀 key） |
+| `_find_related_events()` | 从 step results 定位相关事件 |
+| `_gather_news_coverage()` | 抓取主事件新闻 |
+| `_gather_related_news()` | 批量抓取相关事件新闻 |
+| `_gather_gkg_data()` | 查询 BigQuery |
+| `_extract_events_for_storyline()` | 扁平化事件列表 |
+| `_format_enhanced_data()` | 格式化 LLM prompt |
+| `_parse_report_text()` | 解析 LLM 输出 |
 
-**Singleton Access**:
-```python
-from backend.agents.enhanced_reporter import get_enhanced_reporter
-reporter = get_enhanced_reporter(config)
-```
+### 4.2 Storyline Builder
 
-### 4.2 Storyline Builder (`backend/services/storyline_builder.py`)
+文件: `backend/services/storyline_builder.py`
 
-Pure functions — no external dependencies.
+纯函数，无外部依赖:
 
-| Function | Input | Output |
-|----------|-------|--------|
-| `build_full_storyline(events, gkg_data)` | Event list + optional GKG themes | `dict` with 4 keys |
-| `build_timeline(events)` | Event list | Timeline with milestones |
-| `build_entity_evolution(events)` | Event list | Actor/location tracking |
-| `build_theme_evolution(gkg_themes)` | GKG parsed themes | Theme trends |
-| `build_narrative_arc(...)` | Timeline + entities + themes | Text summary for LLM |
+| 函数 | 功能 |
+|------|------|
+| `build_full_storyline()` | 主入口，返回完整故事线 |
+| `build_timeline()` | 按时间排序，计算重要性评分，提取里程碑 |
+| `build_entity_evolution()` | 追踪参与者/地点演变 |
+| `build_theme_evolution()` | 分析主题趋势 |
+| `build_narrative_arc()` | 生成叙事弧线文本 |
 
-**Significance Score Calculation** (0-10):
-- Articles coverage: max 4 pts (`articles / 50`)
-- Goldstein intensity: max 3 pts (`|goldstein| / 2`)
-- Fingerprint severity score: raw value
-- Has headline + summary: +1 pt
+重要性评分 (0-10):
+- 媒体报道量: max 4 分
+- Goldstein 强度: max 3 分
+- 指纹严重度: 原始值
+- 有标题+摘要: +1 分
 
-### 4.3 News Scraper (`backend/services/news_scraper.py`)
+### 4.3 News Scraper
 
-**Class**: `NewsScraper`
+文件: `backend/services/news_scraper.py`
 
-**Features**:
-- In-memory URL cache (TTL 1 hour)
-- Max 5 concurrent fetches (semaphore)
-- Timeout: 12s total, 5s connect
-- Content limits: 150 chars min, 8000 chars max, 5MB max download
-- Smart extraction: `article` → `main` → `role='main'` → all `<p>` tags with class scoring
-- ChromaDB fallback when URL fetch fails
+- 内存 URL 缓存（TTL 1 小时）
+- 最大 5 并发抓取
+- 超时: 12s 总计 / 5s 连接
+- 内容限制: 150-8000 字符，最大 5MB
+- 智能提取: article → main → role='main' → 所有 p 标签按 class 打分
+- ChromaDB 回退
 
-**Fetch Status Values**:
-| Status | Meaning |
-|--------|---------|
-| `success` | Article fetched and extracted |
-| `cached_success` | Returned from cache |
-| `chroma_fallback` | URL failed, used ChromaDB |
-| `http_xxx` | HTTP error (e.g., 404, 403) |
-| `timeout` | Request timed out |
-| `too_large` | Content exceeded 5MB |
-| `too_short` | Extracted text < 150 chars |
+### 4.4 GKG Client
 
-### 4.4 GKG Client (`backend/services/gkg_client.py`)
+文件: `backend/services/gkg_client.py`
 
-**Class**: `GKGClient`
+成本控制:
+- 强制 `_PARTITIONTIME` 过滤
+- Dry-run 估算字节数
+- 单次限制 1GB，每日限额 10GB
+- 结果缓存 TTL 1 小时
 
-**Cost Protection**:
-- Mandatory `_PARTITIONTIME` filter (queries rejected without it)
-- Dry-run before execution to estimate bytes
-- Per-query limit: 1GB default
-- Daily quota: 10GB default (~$0.05/day)
-- In-memory result cache (TTL 1 hour)
+查询方法:
 
-**Query Methods**:
-
-| Method | BigQuery Table | Cost Control |
-|--------|---------------|--------------|
-| `get_event_gkg_records(date)` | `gdelt-bq.gdeltv2.gkg_partitioned` | 500MB limit, single day |
-| `get_entity_themes(entity, date_range)` | Same | 1GB limit, max 7 days |
-| `get_cooccurring_entities(entity, date)` | Same | 500MB limit, single day |
-| `get_tone_timeline(entity, date_range)` | Same | 1GB limit, max 14 days |
-
-**GKG Data Parsers**:
-- `_parse_gkg_themes()`: Parses `V2Themes` (format: `THEME,score;THEME,score;...`)
-- `_parse_cooccurring_entities()`: Parses `V2Persons` and `V2Orgs` (semicolon-delimited)
+| 方法 | 说明 |
+|------|------|
+| `get_event_gkg_records()` | 单日 GKG 记录 |
+| `get_entity_themes()` | 实体主题查询，最多 7 天 |
+| `get_cooccurring_entities()` | 共现实体查询，单日 |
+| `get_tone_timeline()` | 情感趋势查询，最多 14 天 |
 
 ---
 
-## 5. Frontend Components
+## 5. 前端组件详解
 
-### 5.1 ExplorePanel (`frontend/src/components/ExplorePanel.tsx`)
-
-Renders the **"Quick Report"** and **"Deep Dive Report"** buttons after AI analysis completes:
-
-```tsx
-// Buttons appear when:
-// - visualization includes 'report'
-// - report_prompt exists
-// - no report is currently loading or displayed
-{vizes.includes('report') && result?.plan?.report_prompt && !report && !reportLoading && !enhancedReport && !enhancedReportLoading && (
-  <div style={{ display: 'flex', gap: 10 }}>
-    <button onClick={() => loadReport(result.data, result.plan.report_prompt!)}>
-      <FileText size={14} /> Quick Report
-    </button>
-    <button onClick={() => loadEnhancedReport(result.data, result.plan.report_prompt!)}>
-      <BookOpen size={14} /> Deep Dive Report
-    </button>
-  </div>
-)}
-```
-
-### 5.2 EventReportPanel (`frontend/src/components/EventReportPanel.tsx`)
-
-Main container for Deep Dive Report output. Displays:
-- Report header with generation timestamp
-- AI-generated summary (paragraphs)
-- Key findings (bullet list)
-- Data source badges (Storyline | News Coverage | GKG Insights)
-
-### 5.3 StorylineTimeline (`frontend/src/components/StorylineTimeline.tsx`)
-
-Three-tab component:
-
-| Tab | Content |
-|-----|---------|
-| **Timeline** | Chronological event nodes with significance scoring, expandable details (Goldstein, Articles, Tone) |
-| **Entities** | Actor cards (name, event count, role, Goldstein avg) + Location cards |
-| **Themes** | Dominant theme tags, emerging themes (green), declining themes (red) |
-
-### 5.4 NewsCoveragePanel (`frontend/src/components/NewsCoveragePanel.tsx`)
-
-- Source count badge
-- Headline display
-- Source list with status icons:
-  - ✅ Fetched (green)
-  - 🗄️ From KB (blue — ChromaDB fallback)
-  - ⚠️ Error variants (red)
-- External link to original source
-
-### 5.5 GKGInsightCards (`frontend/src/components/GKGInsightCards.tsx`)
-
-- **Related People**: Purple tag pills with mention counts
-- **Related Organizations**: Gray tag pills
-- **Media Themes**: Green tag pills
-- **Tone Trend**: Mini bar chart (red = negative, green = positive)
-
-When GKG is unavailable, shows a configuration hint:
-> "GKG BigQuery data not available. Configure GCP credentials to enable media knowledge graph insights."
+| 组件 | 文件 | 功能 |
+|------|------|------|
+| ExplorePanel | `frontend/src/components/ExplorePanel.tsx` | 渲染 Quick/Deep Dive 按钮 |
+| EventReportPanel | `frontend/src/components/EventReportPanel.tsx` | 报告主容器 |
+| StorylineTimeline | `frontend/src/components/StorylineTimeline.tsx` | 时间轴/参与者/主题 三标签 |
+| NewsCoveragePanel | `frontend/src/components/NewsCoveragePanel.tsx` | 新闻来源列表 |
+| GKGInsightCards | `frontend/src/components/GKGInsightCards.tsx` | GKG 数据卡片 |
 
 ---
 
-## 6. API Endpoints
+## 6. API 接口
 
-### 6.1 POST `/api/v1/analyze/event-report`
+### POST `/api/v1/analyze/event-report`
 
-**Request Body** (`EventReportRequest`):
-
+请求体:
 ```json
 {
   "data": {
     "event_detail_0": { "type": "event_detail", "data": { ... } },
     "similar_events_1": { "type": "similar_events", "data": [ ... ] }
   },
-  "prompt": "Optional custom prompt",
+  "prompt": "可选自定义提示词",
   "include_storyline": true,
   "include_news": true,
-  "include_gkg": true,
-  "llm_config": { "provider": "kimi", "api_key": "...", "model": "..." }
+  "include_gkg": true
 }
 ```
 
-**Response** (`EventReportResponse`):
-
+响应:
 ```json
 {
   "ok": true,
   "report": {
-    "summary": "AI-generated narrative...",
-    "key_findings": ["Finding 1", "Finding 2"],
-    "storyline": {
-      "timeline": { "events": [...], "period": {...}, "key_milestones": [...] },
-      "entity_evolution": { "actors": [...], "locations": [...] },
-      "theme_evolution": { "dominant_themes": [...], "emerging_themes": [...] },
-      "narrative_arc": "Story Period: ...\nTotal Events: ..."
-    },
-    "news_coverage": {
-      "headline": "...",
-      "sources": [{ "url": "...", "title": "...", "fetch_status": "success" }],
-      "primary_content": "...",
-      "has_content": true
-    },
-    "gkg_insights": {
-      "cooccurring": { "top_persons": [...], "top_organizations": [...] },
-      "themes": { "top_themes": [...] },
-      "tone_timeline": [{ "date": "...", "avg_tone": -2.5, "mention_count": 10 }]
-    },
-    "generated_at": "2026-05-03T01:28:30.090347"
+    "summary": "AI 生成的叙事报告...",
+    "key_findings": ["发现 1", "发现 2"],
+    "storyline": { "timeline": {...}, "entity_evolution": {...}, "theme_evolution": {...}, "narrative_arc": "..." },
+    "news_coverage": { "headline": "...", "sources": [...], "has_content": true },
+    "gkg_insights": { "cooccurring": {...}, "themes": {...}, "tone_timeline": [...] },
+    "generated_at": "2026-05-03T01:28:30"
   },
   "elapsed_ms": 23531.8
 }
 ```
 
-### 6.2 POST `/api/v1/analyze/storyline`
+### POST `/api/v1/analyze/storyline`
 
-Standalone endpoint for storyline data without LLM report generation.
-
-**Request**:
-```json
-{ "fingerprint": "US-20240226-WAS-PROTEST-330", "event_id": 1160074330 }
-```
-
-**Response**:
-```json
-{
-  "ok": true,
-  "storyline": { "timeline": {...}, "entity_evolution": {...}, "theme_evolution": {...}, "narrative_arc": "..." },
-  "elapsed_ms": 450.2
-}
-```
+独立接口，仅获取 storyline 数据（不调用 LLM）。
 
 ---
 
-## 7. Data Models
+## 7. 数据模型
 
-### 7.1 Backend (Pydantic)
+### 后端 (Pydantic)
 
-Defined in `backend/schemas/responses.py`:
+定义在 `backend/schemas/responses.py`:
 
-| Model | Key Fields |
-|-------|-----------|
-| `EventReportRequest` | `data`, `prompt`, `include_storyline`, `include_news`, `include_gkg` |
-| `EventReportResponse` | `ok`, `error`, `report: EnhancedReportOutput`, `elapsed_ms` |
-| `EnhancedReportOutput` | `summary`, `key_findings`, `storyline`, `news_coverage`, `gkg_insights`, `generated_at` |
-| `StorylineData` | `timeline`, `entity_evolution`, `theme_evolution`, `narrative_arc` |
-| `NewsCoverageData` | `headline`, `sources: List[NewsSourceItem]`, `primary_content`, `has_content` |
-| `GKGInsightData` | `cooccurring`, `themes`, `tone_timeline` |
+| 模型 | 说明 |
+|------|------|
+| `EventReportRequest` | 请求体 |
+| `EventReportResponse` | 响应体 |
+| `EnhancedReportOutput` | 完整报告输出 |
+| `StorylineData` | 故事线数据 |
+| `NewsCoverageData` | 新闻覆盖数据 |
+| `GKGInsightData` | GKG 洞察数据 |
 
-### 7.2 Frontend (TypeScript)
+### 前端 (TypeScript)
 
-Defined in `frontend/src/types/index.ts`:
+定义在 `frontend/src/types/index.ts`:
 
-| Interface | Key Fields |
-|-----------|-----------|
-| `EnhancedReportResult` | `summary`, `key_findings`, `storyline?`, `news_coverage?`, `gkg_insights?`, `generated_at` |
-| `StorylineData` | `timeline`, `entity_evolution`, `theme_evolution`, `narrative_arc` |
-| `NewsCoverageData` | `headline?`, `sources`, `primary_content`, `has_content` |
-| `GKGInsightData` | `cooccurring?`, `themes?`, `tone_timeline` |
-| `TimelineEventItem` | `date`, `title`, `description`, `actors`, `significance_score`, `goldstein_scale`, `num_articles` |
-
----
-
-## 8. GKG BigQuery Integration
-
-### 8.1 What is GKG?
-
-**GDELT Global Knowledge Graph (GKG)** is a separate dataset from the GDELT Events database. It contains:
-- **Persons** mentioned in news (`V2Persons`)
-- **Organizations** (`V2Orgs`)
-- **Themes** (`V2Themes`) — e.g., "PROTEST", "ECON_INFLATION", "WB_1234_GENDER"
-- **Tone** (`V2Tone`) — sentiment scores
-- **Locations** (`V2Locations`)
-
-GKG is hosted on **Google BigQuery** as a public dataset: `gdelt-bq.gdeltv2.gkg_partitioned`.
-
-### 8.2 Why GCP Credentials Are Required
-
-The GKG dataset is **public** (free to query), but Google Cloud Platform requires authentication to access BigQuery:
-
-1. **Service Account** (recommended for production):
-   - Create a GCP project
-   - Enable BigQuery API
-   - Create a service account with `BigQuery Data Viewer` + `BigQuery Job User` roles
-   - Download JSON key file
-   - Set `GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json`
-
-2. **Application Default Credentials** (for local dev):
-   - Run `gcloud auth application-default login`
-   - No key file needed, uses your personal Google account
-
-### 8.3 Cost Structure
-
-| Item | Value |
-|------|-------|
-| GKG dataset cost | **Free** (GDELT hosts it publicly) |
-| BigQuery on-demand pricing | $5 per TB scanned |
-| Our daily limit | 10 GB (~$0.05/day) |
-| Per-query limit | 1 GB |
-| Without partition filter | ~3.6 TB per query (~$18) ⚠️ |
-
-**Critical**: The code enforces `_PARTITIONTIME` filtering. A query without it scans the entire dataset and would cost ~$18.
-
-### 8.4 Setup Instructions
-
-#### Step 1: Create GCP Project
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (e.g., `gdelt-analysis`)
-3. Enable billing (required even for free-tier queries)
-4. Enable the **BigQuery API**
-
-#### Step 2: Create Service Account
-
-```bash
-# Via gcloud CLI
-gcloud iam service-accounts create gdelt-gkg-reader \
-  --display-name="GDELT GKG Reader"
-
-# Grant roles
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:gdelt-gkg-reader@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/bigquery.dataViewer"
-
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:gdelt-gkg-reader@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/bigquery.jobUser"
-
-# Download key
-gcloud iam service-accounts keys create gkg-service-account.json \
-  --iam-account=gdelt-gkg-reader@YOUR_PROJECT_ID.iam.gserviceaccount.com
-```
-
-#### Step 3: Configure Environment
-
-Add to `.env`:
-
-```bash
-# GKG BigQuery Configuration
-GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/gkg-service-account.json
-BIGQUERY_PROJECT_ID=your-gcp-project-id
-BIGQUERY_DAILY_GB_LIMIT=10
-BIGQUERY_QUERY_TIMEOUT_SEC=30
-GKG_CACHE_TTL_SEC=3600
-```
-
-For Docker, mount the secrets directory:
-
-```yaml
-# docker-compose.yml
-services:
-  backend:
-    volumes:
-      - .:/app
-      - ./secrets:/app/secrets:ro
-```
-
-#### Step 4: Verify
-
-```bash
-# Test GKG client directly
-curl -X POST http://localhost:8000/api/v1/analyze/event-report \
-  -H "Content-Type: application/json" \
-  -d '{
-    "data": {"event_detail_0": {"type": "event_detail", "data": {"fingerprint": "US-20240226-WAS-PROTEST-330", "headline": "Test", "event_data": {"GlobalEventID": 1160074330, "SQLDATE": "2024-02-26", "Actor1Name": "ISRAELI"}}}},
-    "include_gkg": true
-  }'
-```
-
-Check backend logs for:
-```
-[GKGClient] BigQuery client initialized (project=your-gcp-project-id)
-[GKGClient] Query OK: 15 rows, 45.23MB processed, $0.0002
-```
-
-### 8.5 Without GCP (Graceful Degradation)
-
-If GKG is not configured, the system works fine — just without GKG insights:
-
-- `gkg_client.available` returns `false`
-- `_gather_gkg_data()` returns `None`
-- `theme_evolution` returns empty arrays
-- Frontend shows: "GKG BigQuery data not available. Configure GCP credentials..."
+| 接口 | 说明 |
+|------|------|
+| `EnhancedReportResult` | 完整报告结果 |
+| `StorylineData` | 故事线 |
+| `NewsCoverageData` | 新闻覆盖 |
+| `GKGInsightData` | GKG 洞察 |
+| `TimelineEventItem` | 时间轴事件项 |
 
 ---
 
-## 9. Configuration & Environment Variables
+## 8. 执行流程逐步拆解
 
-### 9.1 Required for Deep Dive
+### 8.1 触发
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `KIMI_CODE_API_KEY` | ✅ | LLM API key (or `OPENAI_API_KEY`, `MOONSHOT_API_KEY`) |
-| `LLM_PROVIDER` | ❌ | `kimi` (default), `openai`, `moonshot`, `claude` |
-| `LLM_MODEL` | ❌ | e.g., `kimi-k2-0905-preview` |
+用户点击 Deep Dive Report → 前端发送:
+```ts
+api.generateEventReport(result.data, result.plan.report_prompt)
+```
 
-### 9.2 Optional (GKG only)
+`result.data` 的 key 是带后缀的（如 `event_detail_0`、`similar_events_1`）。
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to GCP service account JSON |
-| `BIGQUERY_PROJECT_ID` | — | GCP project ID |
-| `BIGQUERY_DAILY_GB_LIMIT` | 10 | Daily query budget in GB |
-| `BIGQUERY_QUERY_TIMEOUT_SEC` | 30 | Query timeout |
-| `GKG_CACHE_TTL_SEC` | 3600 | Result cache TTL |
+### 8.2 后端接收
 
----
+`analyze.py` 调用 `EnhancedReportGenerator.generate_event_report()`。
 
-## 10. Known Issues & Fixes
-
-### 10.1 Bug: `dict` object has no attribute `narrative_arc`
-
-**Status**: ✅ Fixed (2026-05-03)
-
-**Root Cause**: `build_full_storyline()` returns a plain `dict`, but `enhanced_reporter.py` treated it as an object with `.to_dict()` and `.narrative_arc` attributes.
-
-**Fix**: Changed all storyline access to be dict-compatible:
+### 8.3 阶段一: 并行数据收集
 
 ```python
-# Before (broken):
-storyline.to_dict() if storyline else None
-storyline.narrative_arc
-storyline.timeline
-
-# After (fixed):
-storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None)
-storyline.get("narrative_arc") if isinstance(storyline, dict) else storyline.narrative_arc
-storyline.get("timeline") if isinstance(storyline, dict) else storyline.timeline
+news_coverage, related_news, gkg_data = await asyncio.gather(
+    self._gather_news_coverage(data),
+    self._gather_related_news(data),
+    self._gather_gkg_data(data),
+)
 ```
 
-**Files Modified**: `backend/agents/enhanced_reporter.py`
+#### A. News Coverage
 
-### 10.2 Docker Code Sync
+1. `_find_primary_event(data)` 扫描 key:
+   - 先找 `"event_detail"` — 找不到
+   - 再找 `"events"`, `"top_events"`, `"hot_events"` — 找不到
+   - 扫描前缀: `"event_detail_0"` — 匹配！取出 `item["data"]`
 
-**Issue**: Code edits on host don't reflect in running container immediately.
+2. `NewsScraper.fetch_for_event(primary_event)`:
+   - 从 `event_data.SOURCEURL` 取 URL
+   - 检查内存缓存
+   - `aiohttp GET` 请求（伪装 Chrome User-Agent）
+   - BeautifulSoup 解析 HTML，提取 `<article>` / `<main>` 内的 `<p>` 标签
+   - 内容过滤: 150-8000 字符
+   - 失败则 ChromaDB 回退
 
-**Solution**: Restart container after backend code changes:
+#### B. Related News
+
+1. `_find_related_events(data)` 扫描 key:
+   - 找 `"similar_events"` — 找不到
+   - 扫描前缀: `"similar_events_1"` — 匹配！
+
+2. `NewsScraper.fetch_for_events(related_events)`:
+   - 批量并发抓取（共享 session，最多 5 并发）
+
+#### C. GKG Data
+
+1. 检查 `self._gkg.available` — 需要 `google-cloud-bigquery` 包和 GCP 凭证
+
+2. `_find_primary_event(data)` 找到主事件
+
+3. 提取 `SQLDATE` 和 `Actor1Name`
+
+4. 并发查询三个接口:
+   - `get_cooccurring_entities(actor, date, limit=30)`
+   - `get_entity_themes(actor, (date, date+2), limit=50)`
+   - `get_tone_timeline(actor, (date, date+2))`
+
+5. 每个查询的成本保护:
+   - 验证 `_PARTITIONTIME` 过滤存在
+   - Dry-run 估算字节数
+   - 检查 1GB/查询 和 10GB/日限额
+   - 执行查询（30秒超时）
+   - 记录消耗，缓存结果
+
+### 8.4 阶段二: Storyline 构建
+
+```python
+events = self._extract_events_for_storyline(data)
+# 扫描所有 key（含前缀）收集事件，按 GlobalEventID 去重
+
+gkg_themes = gkg_data.get("themes") if gkg_data else None
+storyline = build_full_storyline(events, gkg_themes)
+```
+
+内部:
+- `build_timeline()`: 排序 → 计算 significance → 提取 milestones
+- `build_entity_evolution()`: 统计 actor/location 的首次/末次出现、事件数、合作者、角色推断
+- `build_theme_evolution()`: 分析 GKG 主题趋势（无 GKG 则返回空）
+- `build_narrative_arc()`: 生成文本摘要
+
+### 8.5 阶段三: 格式化 LLM 输入
+
+```python
+narrative_input = self._format_enhanced_data(data, news_coverage, related_news, storyline, gkg_data)
+```
+
+组装结构:
+```
+=== EVENT DATA ===
+PRIMARY: Date: ... | Location: ... | Actors: ...
+
+=== NEWS COVERAGE ===
+Primary Headline: ...
+Sources: N
+Primary Article Content: ...
+
+=== STORYLINE ===
+Story Period: ...
+Total Events: N
+Key Milestones: ...
+Key Actors: ...
+
+=== MEDIA KNOWLEDGE GRAPH INSIGHTS ===
+Related People: ...
+Media Themes: ...
+```
+
+截断到 8000 字符。
+
+### 8.6 阶段四: LLM 生成报告
+
+```python
+messages = [
+    SystemMessage(content=ENHANCED_REPORT_SYSTEM_PROMPT),
+    HumanMessage(content=f"{user_prompt}\n\n{narrative_input}\n\nWrite the report:"),
+]
+response = await asyncio.wait_for(self.llm.ainvoke(messages), timeout=120.0)
+```
+
+System Prompt 要求:
+- 清晰的新闻体写作
+- 引用具体日期、名称、数字
+- 不使用 JSON
+- 数据稀疏时直接说明
+
+### 8.7 阶段五: 解析与返回
+
+```python
+summary, findings = self._parse_report_text(text)
+# 按行遍历，遇到 "Key Finding" / "Findings" 等标记进入 findings 模式
+
+return EnhancedReportResult(
+    summary=summary,
+    key_findings=findings,
+    storyline=storyline,
+    news_coverage=news_coverage,
+    gkg_insights=gkg_data,
+)
+```
+
+### 8.8 阶段六: 前端渲染
+
+```tsx
+// EventReportPanel.tsx
+const hasStoryline = !!report.storyline;
+const hasNews = !!report.news_coverage?.has_content;
+const hasGKG = !!report.gkg_insights;
+
+// 渲染:
+// 1. 摘要段落
+// 2. 关键发现列表
+// 3. 数据徽章: Storyline | News Coverage | GKG Insights
+// 4. StorylineTimeline 组件（三标签页）
+// 5. NewsCoveragePanel（来源列表）
+// 6. GKGInsightCards（人物/组织/主题/情感图）
+```
+
+---
+
+## 9. GKG BigQuery 集成
+
+### 9.1 GKG 是什么
+
+GDELT Global Knowledge Graph (GKG) 是独立于 Events 数据库的数据集，包含:
+- V2Persons: 新闻中提到的人物
+- V2Orgs: 组织
+- V2Themes: 主题（如 PROTEST, ECON_INFLATION）
+- V2Tone: 情感分数
+- V2Locations: 地点
+
+公开数据集: `gdelt-bq.gdeltv2.gkg_partitioned`
+
+### 9.2 为什么需要 GCP 认证
+
+GKG 数据集**免费**，但 Google Cloud 要求认证才能访问 BigQuery:
+
+**方案一: Service Account（生产推荐）**
+1. 创建 GCP 项目
+2. 启用 BigQuery API
+3. 创建 Service Account，授予 `BigQuery Data Viewer` + `BigQuery Job User`
+4. 下载 JSON key
+5. 设置 `GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json`
+
+**方案二: Application Default Credentials（本地开发）**
+```bash
+gcloud auth application-default login
+```
+
+### 9.3 成本
+
+| 项目 | 费用 |
+|------|------|
+| GKG 数据集 | 免费 |
+| BigQuery 按需计费 | $5/TB |
+| 每日限额 | 10GB (~$0.05/天) |
+| 单次查询限额 | 1GB |
+| 无分区过滤 | ~3.6TB/查询 (~$18) |
+
+### 9.4 配置步骤
+
+1. 创建 GCP 项目并启用 BigQuery API
+2. 创建 Service Account 并下载 key
+3. `.env` 中添加:
+```bash
+GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/gkg-service-account.json
+BIGQUERY_PROJECT_ID=your-gcp-project-id
+```
+4. Docker 挂载 secrets 目录
+5. 验证: 查看后端日志 `[GKGClient] BigQuery client initialized`
+
+### 9.5 无 GCP 的降级行为
+
+- `gkg_client.available` 返回 `false`
+- `_gather_gkg_data()` 返回 `None`
+- `theme_evolution` 返回空数组
+- 前端显示: "GKG BigQuery data not available. Configure GCP credentials..."
+- Deep Dive 仍可生成 Summary + Storyline + News Coverage
+
+---
+
+## 10. 配置与环境变量
+
+### 必需
+
+| 变量 | 说明 |
+|------|------|
+| `KIMI_CODE_API_KEY` | LLM API key（或 `OPENAI_API_KEY`, `MOONSHOT_API_KEY`） |
+
+### 可选（GKG 专用）
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | GCP Service Account JSON 路径 |
+| `BIGQUERY_PROJECT_ID` | — | GCP 项目 ID |
+| `BIGQUERY_DAILY_GB_LIMIT` | 10 | 每日查询预算 (GB) |
+| `BIGQUERY_QUERY_TIMEOUT_SEC` | 30 | 查询超时 |
+| `GKG_CACHE_TTL_SEC` | 3600 | 结果缓存 TTL |
+
+---
+
+## 11. 已知问题与修复记录
+
+### 问题 1: Key 匹配失败导致数据为空
+
+**状态**: 已修复 (2026-05-03)
+
+**现象**: News Coverage、Storyline 始终为空
+
+**根因**: 代码查找 `"event_detail"`、`"similar_events"` 等 key，但实际 key 是 `"event_detail_0"`、`"similar_events_1"`（带后缀）
+
+**修复**: 添加 `_find_primary_event()` 和 `_find_related_events()` 方法，同时扫描精确 key 和前缀 key
+
+**修改文件**: `backend/agents/enhanced_reporter.py`
+
+### 问题 2: `dict` 对象没有 `narrative_arc` 属性
+
+**状态**: 已修复 (2026-05-03)
+
+**根因**: `build_full_storyline()` 返回 dict，但代码把它当对象调用 `.to_dict()` 和 `.narrative_arc`
+
+**修复**: 改为兼容写法:
+```python
+storyline.get("narrative_arc") if isinstance(storyline, dict) else storyline.narrative_arc
+```
+
+**修改文件**: `backend/agents/enhanced_reporter.py`
+
+### 问题 3: 缺少 `google-cloud-bigquery` 包
+
+**状态**: 已修复 (2026-05-03)
+
+**现象**: GKG 初始化失败: `cannot import name 'bigquery' from 'google.cloud'`
+
+**修复**: 在 Docker 容器中安装
+```bash
+docker exec gdelt_backend pip install google-cloud-bigquery
+```
+
+**注意**: 容器重启后需重新安装（未写入 Dockerfile）
+
+### 问题 4: Docker 代码同步
+
+**现象**: 主机代码修改后容器内未生效
+
+**解决**: 修改后重启容器
 ```bash
 docker restart gdelt_backend
 ```
 
-### 10.3 News Fetch Reliability
-
-**Issue**: Many SOURCEURLs return 403/404 or block scrapers.
-
-**Mitigation**:
-- ChromaDB fallback for failed fetches
-- In-memory cache reduces repeated failures
-- Frontend shows fetch status per source
-
 ---
 
-## 11. Future Enhancements
+## 12. 文件索引
 
-| Feature | Description | Priority |
-|---------|-------------|----------|
-| **GKG caching to MySQL** | Persist GKG results to avoid re-querying BigQuery | Medium |
-| **Batch news fetching** | Pre-fetch articles for top events in background | Medium |
-| **Storyline export** | Download storyline as PDF/JSON | Low |
-| **Multi-language support** | Translate reports to user's language | Low |
-| **GKG sentiment sparkline** | Better tone visualization over time | Low |
-| **Event comparison** | Compare two events side-by-side in Deep Dive | Low |
+### 后端
 
----
+| 文件 | 行数 | 用途 |
+|------|------|------|
+| `backend/agents/enhanced_reporter.py` | ~520 | 主报告生成器 |
+| `backend/services/storyline_builder.py` | 435 | 故事线构建 |
+| `backend/services/news_scraper.py` | 445 | 新闻抓取 |
+| `backend/services/gkg_client.py` | 731 | BigQuery 客户端 |
+| `backend/routers/analyze.py` | 251 | API 路由 |
+| `backend/schemas/responses.py` | 511 | Pydantic 模型 |
 
-## Appendix: File Reference
+### 前端
 
-### Backend
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `backend/agents/enhanced_reporter.py` | 474 | Main report generator |
-| `backend/services/storyline_builder.py` | 435 | Timeline, entity, theme builders |
-| `backend/services/news_scraper.py` | 445 | Article fetching + ChromaDB fallback |
-| `backend/services/gkg_client.py` | 731 | BigQuery client with cost guards |
-| `backend/routers/analyze.py` | 251 | FastAPI endpoints |
-| `backend/schemas/responses.py` | 511 | Pydantic request/response models |
-
-### Frontend
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `frontend/src/components/ExplorePanel.tsx` | 508 | Main explore UI with report buttons |
-| `frontend/src/components/EventReportPanel.tsx` | 106 | Deep Dive report container |
-| `frontend/src/components/StorylineTimeline.tsx` | 365 | Timeline/entities/themes tabs |
-| `frontend/src/components/NewsCoveragePanel.tsx` | 116 | News source list |
-| `frontend/src/components/GKGInsightCards.tsx` | 156 | GKG data cards |
-| `frontend/src/api/client.ts` | 118 | API client methods |
-| `frontend/src/types/index.ts` | 285 | TypeScript interfaces |
+| 文件 | 行数 | 用途 |
+|------|------|------|
+| `frontend/src/components/ExplorePanel.tsx` | 508 | 主探索 UI |
+| `frontend/src/components/EventReportPanel.tsx` | 106 | 报告容器 |
+| `frontend/src/components/StorylineTimeline.tsx` | 365 | 时间轴组件 |
+| `frontend/src/components/NewsCoveragePanel.tsx` | 116 | 新闻面板 |
+| `frontend/src/components/GKGInsightCards.tsx` | 156 | GKG 卡片 |
+| `frontend/src/api/client.ts` | 118 | API 客户端 |
+| `frontend/src/types/index.ts` | 285 | TypeScript 类型 |
