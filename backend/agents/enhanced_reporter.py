@@ -311,7 +311,7 @@ class EnhancedReportGenerator(ReportGenerator):
                 return EnhancedReportResult(
                     summary="No report content was generated.",
                     key_findings=[],
-                    storyline=storyline.to_dict() if storyline else None,
+                    storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
                     news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                     gkg_insights=gkg_data,
                 )
@@ -328,7 +328,7 @@ class EnhancedReportGenerator(ReportGenerator):
             return EnhancedReportResult(
                 summary=summary,
                 key_findings=findings,
-                storyline=storyline.to_dict() if storyline else None,
+                storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
                 news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                 gkg_insights=gkg_data,
             )
@@ -337,7 +337,7 @@ class EnhancedReportGenerator(ReportGenerator):
             return EnhancedReportResult(
                 summary="AI report generation timed out. The event data is still available.",
                 key_findings=[],
-                storyline=storyline.to_dict() if storyline else None,
+                storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
                 news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                 gkg_insights=gkg_data,
             )
@@ -346,7 +346,7 @@ class EnhancedReportGenerator(ReportGenerator):
             return EnhancedReportResult(
                 summary="Unable to generate AI report at this time.",
                 key_findings=[],
-                storyline=storyline.to_dict() if storyline else None,
+                storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
                 news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                 gkg_insights=gkg_data,
             )
@@ -387,9 +387,10 @@ class EnhancedReportGenerator(ReportGenerator):
 
         if storyline:
             sections.append("\n=== STORYLINE ===")
-            sections.append(storyline.narrative_arc)
+            narrative_arc = storyline.get("narrative_arc") if isinstance(storyline, dict) else storyline.narrative_arc
+            sections.append(narrative_arc)
 
-            timeline = storyline.timeline
+            timeline = storyline.get("timeline") if isinstance(storyline, dict) else storyline.timeline
             if timeline.get("key_milestones"):
                 sections.append("\nKey Milestones:")
                 for m in timeline["key_milestones"]:
