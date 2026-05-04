@@ -28,6 +28,7 @@ pydantic>=2.9.0
 pandas
 numpy
 tabulate
+torch>=2.2.0
 
 # Database
 aiomysql

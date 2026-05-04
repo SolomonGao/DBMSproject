@@ -64,7 +64,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--d-model", type=int, default=48)
     parser.add_argument("--layers", type=int, default=2)
     parser.add_argument("--heads", type=int, default=4)
+    parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--amp", action="store_true", help="Use mixed precision on CUDA.")
@@ -77,6 +79,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--poisson-loss-weight", type=float, default=0.02)
     parser.add_argument("--negative-binomial-loss-weight", type=float, default=0.01)
     parser.add_argument("--negative-binomial-theta", type=float, default=20.0)
+    parser.add_argument(
+        "--target-normalization",
+        choices=("global", "series_event"),
+        default="series_event",
+        help="Normalize forecast targets globally or per series/event type.",
+    )
+    parser.add_argument(
+        "--target-stat-shrinkage",
+        type=float,
+        default=14.0,
+        help="Pseudo-sample shrinkage toward global target stats for sparse series.",
+    )
     parser.add_argument("--training-log", default="models/training_logs/thp_training_log.jsonl")
     parser.add_argument("--search", action="store_true", help="Run a bounded hyperparameter search.")
     parser.add_argument("--search-epochs", type=int, default=20)
@@ -984,6 +998,68 @@ def encode_label_ids(
     )
 
 
+def target_label_key(label: Tuple[str, str]) -> str:
+    series_id, event_type = label
+    return f"{series_id}||{event_type}"
+
+
+def fit_target_stats(
+    labels: List[Tuple[str, str]],
+    y_log: np.ndarray,
+    train_idx: np.ndarray,
+    mode: str,
+    shrinkage: float,
+) -> Dict[str, Dict[str, float]]:
+    train_targets = y_log[train_idx].reshape(-1)
+    global_mean = float(train_targets.mean())
+    global_std_raw = float(train_targets.std())
+    global_std = float(global_std_raw if global_std_raw > 1e-6 else 1.0)
+    stats: Dict[str, Dict[str, float]] = {
+        "__global__": {
+            "mean": global_mean,
+            "std": global_std,
+            "samples": float(train_targets.size),
+        }
+    }
+    if mode != "series_event":
+        return stats
+
+    grouped: Dict[str, List[np.ndarray]] = {}
+    for idx in train_idx.tolist():
+        grouped.setdefault(target_label_key(labels[idx]), []).append(y_log[idx])
+
+    shrink = max(float(shrinkage), 0.0)
+    global_var = global_std ** 2
+    for key, chunks in grouped.items():
+        values = np.concatenate([np.asarray(chunk, dtype=np.float32).reshape(-1) for chunk in chunks])
+        sample_count = float(values.size)
+        local_mean = float(values.mean()) if sample_count else global_mean
+        local_var = float(values.var()) if sample_count else global_var
+        denom = max(sample_count + shrink, 1.0)
+        mean = (sample_count * local_mean + shrink * global_mean) / denom
+        variance = (sample_count * local_var + shrink * global_var) / denom
+        stats[key] = {
+            "mean": float(mean),
+            "std": float(max(variance, 1e-6) ** 0.5),
+            "samples": sample_count,
+        }
+    return stats
+
+
+def target_stat_arrays(
+    labels: List[Tuple[str, str]],
+    target_stats: Dict[str, Dict[str, float]],
+) -> Tuple[np.ndarray, np.ndarray]:
+    fallback = target_stats["__global__"]
+    means = []
+    stds = []
+    for label in labels:
+        stat = target_stats.get(target_label_key(label), fallback)
+        means.append(float(stat.get("mean", fallback["mean"])))
+        stds.append(max(float(stat.get("std", fallback["std"])), 1e-6))
+    return np.asarray(means, dtype=np.float32), np.asarray(stds, dtype=np.float32)
+
+
 def time_based_split(target_positions: np.ndarray, total_days: int, val_fraction: float) -> Tuple[np.ndarray, np.ndarray, int]:
     safe_fraction = min(max(float(val_fraction), 0.05), 0.5)
     split_position = int(total_days * (1.0 - safe_fraction))
@@ -1029,6 +1105,32 @@ def evaluate_by_category(
         category_true = y_true[positions]
         category_pred = y_pred[positions]
         result[category] = {
+            **regression_metrics(category_true, category_pred),
+            "samples": len(positions),
+        }
+    return result
+
+
+def evaluate_by_category_event_type(
+    labels: List[Tuple[str, str]],
+    val_idx: np.ndarray,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+) -> Dict[str, Dict[str, Any]]:
+    categories: Dict[str, List[int]] = {}
+    val_positions = val_idx.tolist()
+    for local_idx, global_idx in enumerate(val_positions):
+        series_id, event_type = labels[global_idx]
+        category = series_id.split(":", 1)[0] if ":" in series_id else "global"
+        categories.setdefault(f"{category}:{event_type}", []).append(local_idx)
+
+    result: Dict[str, Dict[str, Any]] = {}
+    for category_event_type, positions in sorted(categories.items()):
+        if not positions:
+            continue
+        category_true = y_true[positions]
+        category_pred = y_pred[positions]
+        result[category_event_type] = {
             **regression_metrics(category_true, category_pred),
             "samples": len(positions),
         }
@@ -1105,15 +1207,17 @@ def hybrid_loss(
     pred_norm: torch.Tensor,
     target_norm: torch.Tensor,
     target_count: torch.Tensor,
-    target_mean: float,
-    target_std: float,
+    target_mean: torch.Tensor,
+    target_std: torch.Tensor,
     count_scale: float,
     count_loss_weight: float,
     poisson_loss_weight: float,
     negative_binomial_loss_weight: float,
     negative_binomial_theta: float,
 ) -> torch.Tensor:
-    log_mse = torch.nn.functional.mse_loss(pred_norm, target_norm)
+    log_mse = torch.nn.functional.smooth_l1_loss(pred_norm, target_norm)
+    target_mean = target_mean.view(-1, 1).to(pred_norm.device)
+    target_std = target_std.view(-1, 1).to(pred_norm.device).clamp_min(1e-6)
     pred_log = pred_norm * target_std + target_mean
     pred_count = torch.expm1(pred_log).clamp_min(0.0)
     count_mae = torch.nn.functional.l1_loss(pred_count / count_scale, target_count / count_scale)
@@ -1167,10 +1271,10 @@ def predict_counts(
     series_ids: np.ndarray,
     event_type_ids: np.ndarray,
     series_group_ids: np.ndarray,
+    target_mean_values: np.ndarray,
+    target_std_values: np.ndarray,
     batch_size: int,
     horizons: torch.Tensor,
-    target_mean: float,
-    target_std: float,
     device: torch.device,
 ) -> np.ndarray:
     loader = DataLoader(
@@ -1179,6 +1283,8 @@ def predict_counts(
             torch.tensor(series_ids),
             torch.tensor(event_type_ids),
             torch.tensor(series_group_ids),
+            torch.tensor(target_mean_values),
+            torch.tensor(target_std_values),
         ),
         batch_size=batch_size,
         shuffle=False,
@@ -1186,7 +1292,7 @@ def predict_counts(
     predictions = []
     model.eval()
     with torch.no_grad():
-        for batch_x, batch_series, batch_event, batch_group in loader:
+        for batch_x, batch_series, batch_event, batch_group, batch_mean, batch_std in loader:
             pred_norm, _ = model(
                 batch_x.float().to(device),
                 horizons,
@@ -1194,7 +1300,11 @@ def predict_counts(
                 batch_event.long().to(device),
                 batch_group.long().to(device),
             )
-            pred_log = pred_norm.cpu().numpy() * target_std + target_mean
+            pred_log = (
+                pred_norm.cpu().numpy()
+                * batch_std.numpy().reshape(-1, 1)
+                + batch_mean.numpy().reshape(-1, 1)
+            )
             predictions.append(np.maximum(0.0, np.expm1(pred_log)))
     return np.vstack(predictions).astype(np.float32)
 
@@ -1327,6 +1437,8 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
         "device": str(device),
         "amp": bool(args.amp and device.type == "cuda"),
         "torch_compile": bool(args.compile),
+        "target_normalization": args.target_normalization,
+        "target_stat_shrinkage": float(args.target_stat_shrinkage),
         "train_samples": int(len(train_idx)),
         "val_samples": int(len(val_idx)),
         "dimension_summary": dimension_summary,
@@ -1338,10 +1450,18 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
     target_mean = float(y_log[train_idx].mean())
     train_target_std = float(y_log[train_idx].std())
     target_std = float(train_target_std if train_target_std > 1e-6 else 1.0)
+    target_stats = fit_target_stats(
+        labels=labels,
+        y_log=y_log,
+        train_idx=train_idx,
+        mode=args.target_normalization,
+        shrinkage=args.target_stat_shrinkage,
+    )
+    target_mean_values, target_std_values = target_stat_arrays(labels, target_stats)
     count_scale = float(max(np.mean(y_count[train_idx]), 1.0))
 
     x_norm = (x - feature_mean) / feature_std
-    y_norm = (y_log - target_mean) / target_std
+    y_norm = (y_log - target_mean_values[:, None]) / target_std_values[:, None]
 
     train_loader = DataLoader(
         TensorDataset(
@@ -1351,6 +1471,8 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
             torch.tensor(series_group_ids[train_idx]),
             torch.tensor(y_norm[train_idx]),
             torch.tensor(y_count[train_idx]),
+            torch.tensor(target_mean_values[train_idx]),
+            torch.tensor(target_std_values[train_idx]),
         ),
         batch_size=args.batch_size,
         shuffle=True,
@@ -1364,6 +1486,8 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
             torch.tensor(series_group_ids[val_idx]),
             torch.tensor(y_norm[val_idx]),
             torch.tensor(y_count[val_idx]),
+            torch.tensor(target_mean_values[val_idx]),
+            torch.tensor(target_std_values[val_idx]),
         ),
         batch_size=args.batch_size,
         shuffle=False,
@@ -1376,13 +1500,14 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
         d_model=args.d_model,
         nhead=args.heads,
         num_layers=args.layers,
+        dropout=args.dropout,
         num_series=len(series_to_id),
         num_event_types=len(event_type_to_id),
         num_series_groups=len(series_group_to_id),
     ).to(device)
     if args.compile and hasattr(torch, "compile"):
         model = torch.compile(model)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     horizons = torch.arange(1, args.forecast_horizon + 1, dtype=torch.float32, device=device)
     use_amp = bool(args.amp and device.type == "cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
@@ -1395,7 +1520,16 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
     for epoch in range(1, args.epochs + 1):
         model.train()
         train_loss = 0.0
-        for batch_x, batch_series, batch_event, batch_group, batch_y, batch_count in train_loader:
+        for (
+            batch_x,
+            batch_series,
+            batch_event,
+            batch_group,
+            batch_y,
+            batch_count,
+            batch_target_mean,
+            batch_target_std,
+        ) in train_loader:
             optimizer.zero_grad()
             with torch.amp.autocast("cuda", enabled=use_amp):
                 pred, _ = model(
@@ -1409,8 +1543,8 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
                     pred_norm=pred,
                     target_norm=batch_y.float().to(device),
                     target_count=batch_count.float().to(device),
-                    target_mean=target_mean,
-                    target_std=target_std,
+                    target_mean=batch_target_mean.float().to(device),
+                    target_std=batch_target_std.float().to(device),
                     count_scale=count_scale,
                     count_loss_weight=args.count_loss_weight,
                     poisson_loss_weight=args.poisson_loss_weight,
@@ -1430,7 +1564,16 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
         val_pred_batches = []
         val_true_batches = []
         with torch.no_grad():
-            for batch_x, batch_series, batch_event, batch_group, batch_y, batch_count in val_loader:
+            for (
+                batch_x,
+                batch_series,
+                batch_event,
+                batch_group,
+                batch_y,
+                batch_count,
+                batch_target_mean,
+                batch_target_std,
+            ) in val_loader:
                 pred, _ = model(
                     batch_x.float().to(device),
                     horizons,
@@ -1443,8 +1586,8 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
                     pred_norm=pred,
                     target_norm=batch_y.float().to(device),
                     target_count=batch_count_device,
-                    target_mean=target_mean,
-                    target_std=target_std,
+                    target_mean=batch_target_mean.float().to(device),
+                    target_std=batch_target_std.float().to(device),
                     count_scale=count_scale,
                     count_loss_weight=args.count_loss_weight,
                     poisson_loss_weight=args.poisson_loss_weight,
@@ -1452,7 +1595,11 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
                     negative_binomial_theta=args.negative_binomial_theta,
                 )
                 val_loss += loss.item() * len(batch_x)
-                pred_log = pred * target_std + target_mean
+                pred_log = (
+                    pred
+                    * batch_target_std.float().to(device).view(-1, 1).clamp_min(1e-6)
+                    + batch_target_mean.float().to(device).view(-1, 1)
+                )
                 val_pred_batches.append(torch.expm1(pred_log).clamp_min(0.0).cpu().numpy())
                 val_true_batches.append(batch_count.numpy())
         val_loss /= max(1, len(val_idx))
@@ -1521,10 +1668,10 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
         series_ids=series_ids[val_idx],
         event_type_ids=event_type_ids[val_idx],
         series_group_ids=series_group_ids[val_idx],
+        target_mean_values=target_mean_values[val_idx],
+        target_std_values=target_std_values[val_idx],
         batch_size=args.batch_size,
         horizons=horizons,
-        target_mean=target_mean,
-        target_std=target_std,
         device=device,
     )
     evaluation = {
@@ -1538,6 +1685,12 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
         },
     }
     evaluation["per_category"] = evaluate_by_category(
+        labels=labels,
+        val_idx=val_idx,
+        y_true=y_count[val_idx],
+        y_pred=model_val_predictions,
+    )
+    evaluation["per_category_event_type"] = evaluate_by_category_event_type(
         labels=labels,
         val_idx=val_idx,
         y_true=y_count[val_idx],
@@ -1580,7 +1733,7 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
             "d_model": args.d_model,
             "nhead": args.heads,
             "num_layers": args.layers,
-            "dropout": 0.1,
+            "dropout": args.dropout,
             "num_series": len(series_to_id),
             "num_event_types": len(event_type_to_id),
             "num_series_groups": len(series_group_to_id),
@@ -1589,6 +1742,7 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
         "feature_std": feature_std.tolist(),
             "target_mean": target_mean,
             "target_std": target_std,
+            "target_stats": target_stats,
             "count_scale": count_scale,
             "series_to_id": series_to_id,
             "event_type_to_id": event_type_to_id,
@@ -1606,7 +1760,10 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
             "series_count": len(series),
             "training_strategy": "expanded_daily_aggregate_time_split_multitask_embeddings",
             "event_types": list(EVENT_TYPES),
-            "model_version": "thp_v4_hierarchy_nb_intervals",
+            "model_version": "thp_v5_series_event_normalized",
+            "target_normalization": args.target_normalization,
+            "target_stat_shrinkage": float(args.target_stat_shrinkage),
+            "weight_decay": float(args.weight_decay),
             "uses_series_embedding": True,
             "uses_event_type_embedding": True,
             "uses_time_features": True,

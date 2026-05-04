@@ -129,6 +129,7 @@ class NeuralTHPCheckpoint:
         self._feature_std: Optional[np.ndarray] = None
         self._target_mean = 0.0
         self._target_std = 1.0
+        self._target_stats: Dict[str, Dict[str, float]] = {}
         self._metadata: Dict[str, Any] = {}
         self._series_to_id: Dict[str, int] = {}
         self._event_type_to_id: Dict[str, int] = {}
@@ -196,8 +197,10 @@ class NeuralTHPCheckpoint:
                 group_tensor,
             )
 
-        pred_log = pred_norm.squeeze(0).cpu().numpy() * self._target_std + self._target_mean
+        target_mean, target_std = self._lookup_target_stats(series_key, event_type)
+        pred_log = pred_norm.squeeze(0).cpu().numpy() * target_std + target_mean
         expected = np.maximum(0.0, np.expm1(pred_log))
+        expected = self._apply_forecast_calibration(expected, series_key, event_type)
         excitation = parts["excitation"].squeeze(0).cpu().numpy()
         decay = parts["decay"].squeeze(0).cpu().numpy()
 
@@ -240,6 +243,15 @@ class NeuralTHPCheckpoint:
             self._feature_std = np.asarray(checkpoint["feature_std"], dtype=np.float32)
             self._target_mean = float(checkpoint["target_mean"])
             self._target_std = float(checkpoint["target_std"])
+            self._target_stats = {
+                str(key): {
+                    "mean": float(value.get("mean", self._target_mean)),
+                    "std": float(value.get("std", self._target_std)),
+                    "samples": float(value.get("samples", 0.0)),
+                }
+                for key, value in checkpoint.get("target_stats", {}).items()
+                if isinstance(value, dict)
+            }
             self._metadata = self._compact_metadata(checkpoint.get("metadata", {}))
             self._series_to_id = {
                 str(key): int(value)
@@ -277,6 +289,70 @@ class NeuralTHPCheckpoint:
             return 0
         normalized = (event_type or "conflict").lower()
         return self._event_type_to_id.get(normalized, self._event_type_to_id.get("all", 0))
+
+    def _lookup_target_stats(self, series_key: Optional[str], event_type: str) -> tuple[float, float]:
+        fallback = self._target_stats.get(
+            "__global__",
+            {"mean": self._target_mean, "std": self._target_std},
+        )
+        normalized_event = (event_type or "all").lower()
+        keys = []
+        if series_key:
+            keys.append(f"{series_key}||{normalized_event}")
+            if normalized_event != "all":
+                keys.append(f"{series_key}||all")
+        if normalized_event != "all":
+            keys.append(f"global:ALL||{normalized_event}")
+        keys.append("global:ALL||all")
+
+        for key in keys:
+            stat = self._target_stats.get(key)
+            if stat:
+                return float(stat.get("mean", fallback["mean"])), max(
+                    float(stat.get("std", fallback["std"])),
+                    1e-6,
+                )
+        return float(fallback.get("mean", self._target_mean)), max(
+            float(fallback.get("std", self._target_std)),
+            1e-6,
+        )
+
+    def _apply_forecast_calibration(
+        self,
+        expected: np.ndarray,
+        series_key: Optional[str],
+        event_type: str,
+    ) -> np.ndarray:
+        calibration = self._metadata.get("forecast_calibration", {})
+        scopes = calibration.get("scopes", {}) if isinstance(calibration, dict) else {}
+        if not scopes:
+            return expected
+
+        normalized_event = (event_type or "all").lower()
+        category = series_group_key(series_key or "global:ALL")
+        candidate_keys = []
+        if series_key:
+            candidate_keys.append(f"series:{series_key}:{normalized_event}")
+            if normalized_event != "all":
+                candidate_keys.append(f"series:{series_key}:all")
+        candidate_keys.append(f"category:{category}:{normalized_event}")
+        if normalized_event != "all":
+            candidate_keys.append(f"category:{category}:all")
+            candidate_keys.append(f"global:{normalized_event}")
+        candidate_keys.append("global:all")
+
+        for key in candidate_keys:
+            scope = scopes.get(key)
+            if not isinstance(scope, dict):
+                continue
+            bias = scope.get("bias")
+            if not isinstance(bias, list):
+                continue
+            bias_values = np.asarray(bias[: len(expected)], dtype=np.float32)
+            if bias_values.shape[0] < expected.shape[0]:
+                bias_values = np.pad(bias_values, (0, expected.shape[0] - bias_values.shape[0]))
+            return np.maximum(0.0, expected + bias_values)
+        return expected
 
     def _lookup_series_group_id(self, series_key: Optional[str]) -> int:
         if not self._series_group_to_id:

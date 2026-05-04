@@ -92,6 +92,7 @@ export interface CompareResult {
   left: CompareSeries;
   right: CompareSeries;
   event_type: string;
+  focus_type?: string;
   start_date: string;
   end_date: string;
 }

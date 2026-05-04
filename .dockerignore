@@ -1,47 +1,33 @@
-# 大数据目录
-data/
-chroma_db/
-logs/
+.git
+.gitignore
+.env
+.env.*
+!.env.example
 
-# 前端依赖
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+data/
+logs/
+chroma_db/
+
 frontend/node_modules/
 frontend/dist/
+node_modules/
 
-# Git
-.git/
-.gitignore
+models/*
+!models/
+!models/thp_gdelt.pt
+!models/README.md
 
-# Python 缓存
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-
-# 虚拟环境
-venv/
-.venv/
-env/
-
-# 环境变量（敏感信息）
-.env
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# 测试和文档（镜像不需要）
-tests/
-*.md
-!README.md
-
-# Docker 自身
-docker-compose.yml
-Dockerfile
-.dockerignore
+*.npz
+*.pth
+*.onnx
+*.safetensors
+*.duckdb
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql.gz

@@ -116,6 +116,9 @@ export default function ForecastPanel({
   const residualCalibration = evaluation.residual_calibration || {};
   const categoryKey = seriesCategory(checkpoint.series_key);
   const categoryMetrics = evaluation.per_category?.[categoryKey];
+  const eventTypeKey = String(forecastResult?.target?.event_type || 'all').toLowerCase();
+  const categoryEventMetrics = evaluation.per_category_event_type?.[`${categoryKey}:${eventTypeKey}`];
+  const targetMetrics = categoryEventMetrics || categoryMetrics;
   const validationLabel = metadata.best_epoch
     ? `Best epoch ${metadata.best_epoch} of ${metadata.completed_epochs || metadata.epochs || 'n/a'}`
     : 'Validation backtest';
@@ -210,19 +213,23 @@ export default function ForecastPanel({
                   <small>THP vs baseline</small>
                 </div>
                 <div>
-                  <span>Target Group MAE</span>
-                  <strong>{formatMetric(categoryMetrics?.mae, 1)}</strong>
-                  <small>{categoryKey.replace(/_/g, ' ')} validation group</small>
+                  <span>Target Event MAE</span>
+                  <strong>{formatMetric(targetMetrics?.mae, 1)}</strong>
+                  <small>
+                    {categoryEventMetrics
+                      ? `${categoryKey.replace(/_/g, ' ')} / ${eventTypeKey}`
+                      : `${categoryKey.replace(/_/g, ' ')} validation group`}
+                  </small>
                 </div>
                 <div>
-                  <span>Target Group RMSE</span>
-                  <strong>{formatMetric(categoryMetrics?.rmse, 1)}</strong>
+                  <span>Target Event RMSE</span>
+                  <strong>{formatMetric(targetMetrics?.rmse, 1)}</strong>
                   <small>Penalizes large errors</small>
                 </div>
                 <div>
-                  <span>Target Samples</span>
-                  <strong>{categoryMetrics?.samples?.toLocaleString?.() || 'n/a'}</strong>
-                  <small>{String(residualCalibration.coverage || 'central_80_percent').replace(/_/g, ' ')} intervals</small>
+                  <span>Validation Windows</span>
+                  <strong>{targetMetrics?.samples?.toLocaleString?.() || 'n/a'}</strong>
+                  <small>Held-out backtest windows</small>
                 </div>
               </div>
               <p className="evaluation-note">

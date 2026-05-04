@@ -1,14 +1,11 @@
-# ================================================
 # Python
-# ================================================
-# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 
-# Distribution / packaging
+# Build artifacts
 build/
 dist/
 *.egg-info/
@@ -20,50 +17,56 @@ venv/
 ENV/
 env/
 
-# IDEs
+# Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# ================================================
-# Project Specific
-# ================================================
-# Data files (GDELT CSV files)
-data/*
+# Frontend dependencies and build output
+node_modules/
+frontend/node_modules/
+frontend/dist/
 
-# Model checkpoints, cached training arrays, and local evaluation logs
-models/
+# Raw datasets
+data/*
+!data/.gitkeep
+
+# Local model artifacts.
+# Keep only the final lightweight THP checkpoint needed for Forecast.
 *.pt
 *.pth
 *.onnx
 *.safetensors
 *.npz
+models/*
+!models/
+!models/thp_gdelt.pt
+!models/README.md
 
-# Local database files and Docker database dumps
+# Local databases, dumps, and vector stores
 *.db
 *.sqlite
 *.sqlite3
 *.duckdb
 *.sql.gz
 *.dump
-
-# Environment variables (API keys, passwords)
-.env
-.env.*
-
-# Logs
-logs/*
-
-# Agent documentation (auto-generated)
-AGENTS.md
-
-# Local test files
-test_*.py
-*_test.py
-# 忽略 ChromaDB 向量数据库文件夹
 chroma_db/
 
-# 忽略本地同步进度文件
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+
+# Logs and local runtime outputs
+logs/*
+!logs/.gitkeep
+
+# Generated agent docs and local progress files
+AGENTS.md
 db_scripts/sync_progress.txt
+
+# Local tests / scratch files
+test_*.py
+*_test.py

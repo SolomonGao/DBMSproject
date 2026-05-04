@@ -19,7 +19,7 @@ function hasPairSeparator(value: string) {
 }
 
 export default function ForecastWorkspace() {
-  const [forecastDate, setForecastDate] = useState('2024-02-01');
+  const [forecastDate, setForecastDate] = useState('2024-01-31');
   const [forecastFocusMode, setForecastFocusMode] = useState<ForecastFocusMode>('location');
   const [forecastTarget, setForecastTarget] = useState('United States and Canada');
   const [forecastEventType, setForecastEventType] = useState('all');
@@ -52,8 +52,12 @@ export default function ForecastWorkspace() {
         api.health().catch(() => null),
       ]);
       setTimeSeries([]);
-      if (forecastRes.ok) setForecastResult(forecastRes.data || null);
-      else setError(forecastRes.error || 'Forecast failed');
+      if (forecastRes.ok && forecastRes.data?.ok !== false) {
+        setForecastResult(forecastRes.data || null);
+      } else {
+        setForecastResult(null);
+        setError(forecastRes.error || forecastRes.data?.error || 'Forecast failed');
+      }
       if (healthRes) setHealth(healthRes);
     } catch (err: any) {
       setError(err.message || 'Forecast failed');

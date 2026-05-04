@@ -139,7 +139,13 @@ async def get_forecast(
             event_type=event_type,
             forecast_days=forecast_days,
         )
-        return ForecastResponse(data=_json_safe(data), start_date=start, end_date=end)
+        return ForecastResponse(
+            ok=bool(data.get("ok", True)),
+            error=data.get("error"),
+            data=_json_safe(data),
+            start_date=start,
+            end_date=end,
+        )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Forecast query failed: {e}")
 
@@ -228,11 +234,12 @@ async def compare_entities(
     left: str = Query(..., description="First country, actor, or keyword"),
     right: str = Query(..., description="Second country, actor, or keyword"),
     event_type: str = Query("any", description="any | conflict | cooperation | protest"),
+    focus_type: str = Query("location", description="location | actor"),
     service: DataService = Depends(get_data_service),
 ):
     """Compare two countries, actors, or keywords over time."""
     try:
-        data = await service.compare_entities(start, end, left, right, event_type)
+        data = await service.compare_entities(start, end, left, right, event_type, focus_type)
         return {"ok": True, "data": _json_safe(data)}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Compare query failed: {e}")

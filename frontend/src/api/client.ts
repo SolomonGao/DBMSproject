@@ -118,10 +118,24 @@ export const api = {
   getEventDetail: (fingerprint: string) =>
     fetchJson<any>(`/api/v1/data/events/${encodeURIComponent(fingerprint)}`),
 
-  compareEntities: (start: string, end: string, left: string, right: string, eventType = 'any') =>
-    fetchJson<any>(
-      `/api/v1/data/compare?start=${start}&end=${end}&left=${encodeURIComponent(left)}&right=${encodeURIComponent(right)}&event_type=${encodeURIComponent(eventType)}`
-    ),
+  compareEntities: (
+    start: string,
+    end: string,
+    left: string,
+    right: string,
+    eventType = 'any',
+    focusType = 'location'
+  ) => {
+    const qs = new URLSearchParams({
+      start,
+      end,
+      left,
+      right,
+      event_type: eventType,
+      focus_type: focusType,
+    });
+    return fetchJson<any>(`/api/v1/data/compare?${qs.toString()}`);
+  },
 
   getCountryPairTrends: (start: string, end: string, countryA: string, countryB: string) =>
     fetchJson<any>(

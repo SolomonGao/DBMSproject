@@ -903,10 +903,15 @@ async def query_compare_entities(
     left: str,
     right: str,
     event_type: str = "any",
+    focus_type: str = "location",
 ) -> Dict[str, Any]:
     """Compare two actor/region terms over time for frontend compare mode."""
 
-    def entity_condition(term: str) -> tuple[str, list]:
+    mode = (focus_type or "location").lower()
+    if mode not in {"location", "actor"}:
+        mode = "location"
+
+    def location_condition(term: str) -> tuple[str, list, str]:
         cleaned = sanitize_text(term or "").strip()
         if not cleaned:
             cleaned = "Unknown"
@@ -915,22 +920,19 @@ async def query_compare_entities(
             return (
                 "ActionGeo_CountryCode = %s",
                 [country_code],
+                "FORCE INDEX (idx_forecast_country_event)",
             )
         parsed_terms = parse_region_input(cleaned) or [cleaned]
         clauses = []
         params = []
         for parsed in parsed_terms[:4]:
             like = f"%{parsed}%"
-            clauses.extend([
-                "Actor1Name LIKE %s",
-                "Actor2Name LIKE %s",
-                "ActionGeo_FullName LIKE %s",
-            ])
-            params.extend([like, like, like])
+            clauses.append("ActionGeo_FullName LIKE %s")
+            params.append(like)
             if len(parsed) <= 3 and parsed.isalpha():
                 clauses.append("ActionGeo_CountryCode = %s")
                 params.append(parsed.upper()[:3])
-        return f"({' OR '.join(clauses)})", params
+        return f"({' OR '.join(clauses)})", params, ""
 
     type_filter = ""
     if event_type == "conflict":
@@ -940,23 +942,7 @@ async def query_compare_entities(
     elif event_type == "protest":
         type_filter = "AND EventRootCode = '14'"
 
-    async def run_one(label: str):
-        condition, params = entity_condition(label)
-        sql = f"""
-            SELECT
-                CAST(SQLDATE AS CHAR) as period,
-                COUNT(*) as event_count,
-                ROUND(SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as conflict_pct,
-                ROUND(SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as cooperation_pct,
-                ROUND(AVG(GoldsteinScale), 2) as avg_goldstein
-            FROM {DEFAULT_TABLE}
-            WHERE SQLDATE BETWEEN %s AND %s
-              AND {condition}
-              {type_filter}
-            GROUP BY SQLDATE
-            ORDER BY SQLDATE
-        """
-        rows = await pool.fetchall(sql, tuple([start_date, end_date] + params))
+    def make_result(label: str, rows: list[dict]) -> Dict[str, Any]:
         return {
             "label": label,
             "rows": rows,
@@ -967,11 +953,53 @@ async def query_compare_entities(
             ),
         }
 
+    async def run_actor(label: str):
+        terms = actor_focus_terms(label)
+        if not terms:
+            return make_result(label, [])
+        cte, cte_params = actor_events_cte(start_date, end_date, terms, event_type)
+        sql = f"""
+            {cte}
+            SELECT
+                CAST(SQLDATE AS CHAR) as period,
+                COUNT(*) as event_count,
+                ROUND(SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as conflict_pct,
+                ROUND(SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as cooperation_pct,
+                ROUND(AVG(GoldsteinScale), 2) as avg_goldstein
+            FROM filtered_events
+            GROUP BY SQLDATE
+            ORDER BY SQLDATE
+        """
+        rows = await pool.fetchall(sql, tuple(cte_params))
+        return make_result(label, rows)
+
+    async def run_location(label: str):
+        condition, params, index_hint = location_condition(label)
+        sql = f"""
+            SELECT
+                CAST(SQLDATE AS CHAR) as period,
+                COUNT(*) as event_count,
+                ROUND(SUM(CASE WHEN GoldsteinScale < 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as conflict_pct,
+                ROUND(SUM(CASE WHEN GoldsteinScale > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as cooperation_pct,
+                ROUND(AVG(GoldsteinScale), 2) as avg_goldstein
+            FROM {DEFAULT_TABLE}
+            {index_hint}
+            WHERE SQLDATE BETWEEN %s AND %s
+              AND {condition}
+              {type_filter}
+            GROUP BY SQLDATE
+            ORDER BY SQLDATE
+        """
+        rows = await pool.fetchall(sql, tuple([start_date, end_date] + params))
+        return make_result(label, rows)
+
+    run_one = run_actor if mode == "actor" else run_location
     left_result, right_result = await asyncio.gather(run_one(left), run_one(right))
     return {
         "left": left_result,
         "right": right_result,
         "event_type": event_type,
+        "focus_type": mode,
         "start_date": start_date,
         "end_date": end_date,
     }

@@ -11,6 +11,7 @@ Chat Agent calls them via MCP tools (standard protocol).
 import time
 import copy
 import os
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 from mcp_server.app.database.pool import DatabasePool, get_db_pool
@@ -139,6 +140,36 @@ class DataService:
             cached["_meta"]["cache_hit"] = True
             return cached
         start = time.time()
+        bounds = await self._get_database_date_bounds()
+        min_data_date = bounds.get("min_date")
+        if min_data_date:
+            requested_start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            available_start = datetime.strptime(str(min_data_date), "%Y-%m-%d").date()
+            if requested_start < available_start:
+                recommended_start = available_start + timedelta(days=self._thp.lookback_days)
+                result = {
+                    "model": self._thp._model_name(),
+                    "ok": False,
+                    "error": (
+                        "Not enough historical data before this forecast date. "
+                        f"The database starts on {available_start.isoformat()}; "
+                        f"please choose forecast start >= {recommended_start.isoformat()}."
+                    ),
+                    "requested_history_start": start_date,
+                    "requested_history_end": end_date,
+                    "min_data_date": available_start.isoformat(),
+                    "recommended_forecast_start": recommended_start.isoformat(),
+                    "required_history_days": self._thp.lookback_days,
+                }
+                result["_meta"] = {
+                    "elapsed_ms": round((time.time() - start) * 1000, 2),
+                    "history_rows": 0,
+                    "source": "thp_service",
+                    "cache_hit": False,
+                    "blocked_by_history_window": True,
+                }
+                return self._cache_set(cache_key, result)
+
         rows = await query_event_sequence(
             self._pool,
             start_date=start_date,
@@ -163,6 +194,17 @@ class DataService:
             "cache_hit": False,
         }
         return self._cache_set(cache_key, result)
+
+    async def _get_database_date_bounds(self) -> Dict[str, Any]:
+        cache_key = ("database_date_bounds",)
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+        row = await self._pool.fetchone(
+            "SELECT CAST(MIN(SQLDATE) AS CHAR) AS min_date, "
+            "CAST(MAX(SQLDATE) AS CHAR) AS max_date FROM events_table"
+        )
+        return self._cache_set(cache_key, row or {})
 
     async def get_geo_heatmap(
         self,
@@ -239,13 +281,14 @@ class DataService:
         left: str,
         right: str,
         event_type: str = "any",
+        focus_type: str = "location",
     ) -> Dict[str, Any]:
-        cache_key = ("compare", start_date, end_date, left, right, event_type)
+        cache_key = ("compare", start_date, end_date, left, right, event_type, focus_type)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
         result = await query_compare_entities(
-            self._pool, start_date, end_date, left, right, event_type
+            self._pool, start_date, end_date, left, right, event_type, focus_type
         )
         return self._cache_set(cache_key, result)
 
