@@ -1,9 +1,5 @@
-# 将 GCP Service Account JSON 密钥文件放在此目录
-# 例如: gkg-service-account.json
-# 
-# 获取方式:
-# 1. 访问 https://console.cloud.google.com/
-# 2. 创建项目并启用 BigQuery API
-# 3. IAM -> Service Accounts -> 创建密钥
-# 4. 下载 JSON 文件放到此目录
-#
+# Optional secrets
+
+Place optional local credential files here, such as a Google Cloud service account JSON for GKG/BigQuery features.
+
+This folder is mounted into the backend container as read-only. Credential files in this folder are ignored by Git.

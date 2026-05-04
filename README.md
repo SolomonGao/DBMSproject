@@ -4,7 +4,7 @@
 
 ## Overview
 
-This platform provides a **dual-mode interface** for analyzing GDELT (Global Database of Events, Language, and Tone) data:
+This platform provides a **three-mode interface** for analyzing GDELT (Global Database of Events, Language, and Tone) data:
 
 - **AI Explore** — Natural language querying powered by a hybrid planner (local Ollama router + rule-based fast path + remote LLM report generation).
 - **Dashboard** — Fast, interactive data visualization with auto-generated insights, time-series charts, geographic heatmaps, and event timelines.
@@ -14,12 +14,61 @@ The system is built for **sub-200ms dashboard response times** using a precomput
 
 ---
 
+## Forecast-Ready THP Setup
+
+This branch includes the final lightweight Transformer-Hawkes checkpoint at `models/thp_gdelt.pt`, so Forecast can run without retraining the model. Users only need to provide the GDELT CSV files and import them into MySQL.
+
+Committed runtime model:
+
+```text
+models/thp_gdelt.pt
+```
+
+Not committed:
+
+```text
+data/
+*.csv
+*.npz
+.env
+chroma_db/
+models/training_logs/
+models/thp_sweeps/
+Docker volumes and MySQL database files
+```
+
+Quick Forecast run path:
+
+```bash
+cp .env.example .env
+docker compose up -d
+```
+
+Then place GDELT CSV chunks in `./data/` and run:
+
+```bash
+docker exec -it gdelt_backend python db_scripts/import_event.py
+docker exec -it gdelt_backend python db_scripts/etl_pipeline.py
+docker exec -i gdelt_mysql mysql -u root -prootpassword gdelt < db_scripts/all_indexes.sql
+```
+
+PowerShell users can apply indexes with:
+
+```powershell
+Get-Content db_scripts/all_indexes.sql | docker exec -i gdelt_mysql mysql -u root -prootpassword gdelt
+```
+
+Open `http://localhost:5173`, switch to the Forecast tab, and use a forecast start date on or after `2024-01-31`.
+
+---
+
 ## Technology Stack
 
 ### Backend
 | Technology | Version | Purpose |
 |------------|---------|---------|
 | Python | 3.10+ | Runtime |
+| PyTorch | 2.2+ | Transformer-Hawkes checkpoint loading and inference |
 | FastAPI | ≥0.115 | API framework |
 | Uvicorn | ≥0.32 | ASGI server |
 | aiomysql | — | Async MySQL connection pool |
@@ -170,10 +219,10 @@ cd DBMSproject
 ### 2. Create Environment File
 
 ```bash
-cp .env.env.backup .env
+cp .env.example .env
 ```
 
-Edit `.env` and add your LLM API key:
+Edit `.env` only if you need custom ports, database credentials, or Analyst Chat LLM access. Dashboard and Forecast can run without an LLM API key.
 
 ```bash
 # Database (used by Docker Compose internally)
@@ -203,7 +252,7 @@ KIMI_CODE_API_KEY=sk-your-key-here
 ### 3. Start All Services
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 This starts three containers:
@@ -249,13 +298,13 @@ docker exec -it gdelt_backend python db_scripts/etl_pipeline.py
 ### 7. Stop Services
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 To remove all data (including MySQL volume):
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
 
 ---

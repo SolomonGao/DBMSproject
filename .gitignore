@@ -26,19 +26,23 @@ env/
 *.swp
 *.swo
 *~
+tmp/
 
 # ================================================
 # Project Specific
 # ================================================
 # Data files (GDELT CSV files)
 data/*
+!data/.gitkeep
 
 # Environment variables (API keys, passwords)
 .env
 .env.*
+!.env.example
 
 # Logs
 logs/*
+!logs/.gitkeep
 
 # Agent documentation (auto-generated)
 AGENTS.md
@@ -53,7 +57,28 @@ chroma_db/
 db_scripts/sync_progress.txt
 
 node_modules/
+frontend/node_modules/
+frontend/dist/
 
-models/
+# Local model artifacts.
+# Keep only the final lightweight THP checkpoint needed by Forecast.
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.npz
+models/*
+!models/
+!models/thp_gdelt.pt
+!models/README.md
 
-secrets/
+# Local databases, dumps, and vector stores
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+*.sql.gz
+*.dump
+
+secrets/*
+!secrets/README.md
