@@ -772,7 +772,16 @@ async def query_suggest_actors(pool, prefix: str, limit: int = 10) -> List[str]:
 # ============================================================================
 
 async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]:
-    """Return raw event detail data or None if not found."""
+    """Return raw event detail data or None if not found.
+    
+    Supports three formats:
+      - EVT-YYYY-MM-DD-ID: Extract numeric ID from EVT format
+      - Pure numeric ID (9-12 digits): Direct GlobalEventID lookup
+      - US-YYYYMMDD-LOC-TYPE-NUM: Custom fingerprint lookup in event_fingerprints
+    """
+    gid = None
+    
+    # Format 1: EVT-YYYY-MM-DD-ID
     if fingerprint.startswith('EVT-'):
         parts = fingerprint.split('-')
         if len(parts) >= 4:
@@ -782,25 +791,12 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
                 return None
         else:
             return None
-
-        row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
-        if row:
-            event_data = dict(row)
-            for k, v in list(event_data.items()):
-                if isinstance(v, bytes):
-                    event_data[k] = v.hex()
-            return {
-                "fingerprint": fingerprint,
-                "headline": f"{event_data.get('Actor1Name', 'Unknown')} vs {event_data.get('Actor2Name', 'Unknown')}",
-                "summary": event_data.get('ActionGeo_FullName', ''),
-                "key_actors": str([event_data.get('Actor1Name'), event_data.get('Actor2Name')]),
-                "event_type_label": None,
-                "severity_score": abs(event_data.get('GoldsteinScale', 0)),
-                "location_name": event_data.get('ActionGeo_FullName'),
-                "location_country": event_data.get('ActionGeo_CountryCode'),
-                "event_data": event_data,
-            }
-        return None
+    
+    # Format 2: Pure numeric ID (9-12 digits)
+    elif fingerprint.isdigit() and 9 <= len(fingerprint) <= 12:
+        gid = int(fingerprint)
+    
+    # Format 3: Custom fingerprint (US-... or any other string)
     else:
         row = await pool.fetchone("""
             SELECT global_event_id, fingerprint, headline, summary,
@@ -818,7 +814,6 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
 
         event_row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
         event_data = dict(event_row) if event_row else {}
-        # Clean non-JSON-serializable values (e.g. MySQL POINT bytes)
         for k, v in list(event_data.items()):
             if isinstance(v, bytes):
                 event_data[k] = v.hex()
@@ -833,6 +828,27 @@ async def query_event_detail(pool, fingerprint: str) -> Optional[Dict[str, Any]]
             "location_country": row['location_country'],
             "event_data": event_data,
         }
+    
+    # Direct GlobalEventID lookup (for EVT- and pure numeric formats)
+    if gid:
+        row = await pool.fetchone(f"SELECT * FROM {DEFAULT_TABLE} WHERE GlobalEventID = %s", (gid,))
+        if row:
+            event_data = dict(row)
+            for k, v in list(event_data.items()):
+                if isinstance(v, bytes):
+                    event_data[k] = v.hex()
+            return {
+                "fingerprint": fingerprint,
+                "headline": f"{event_data.get('Actor1Name', 'Unknown')} vs {event_data.get('Actor2Name', 'Unknown')}",
+                "summary": event_data.get('ActionGeo_FullName', ''),
+                "key_actors": str([event_data.get('Actor1Name'), event_data.get('Actor2Name')]),
+                "event_type_label": None,
+                "severity_score": abs(event_data.get('GoldsteinScale', 0)),
+                "location_name": event_data.get('ActionGeo_FullName'),
+                "location_country": event_data.get('ActionGeo_CountryCode'),
+                "event_data": event_data,
+            }
+    return None
 
 
 # ============================================================================
@@ -1174,6 +1190,7 @@ async def query_similar_events(pool, seed_event_id: int, limit: int = 10) -> Lis
             e.Actor1Name, e.Actor2Name,
             e.EventCode, e.GoldsteinScale, e.AvgTone, e.NumArticles,
             e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            e.SOURCEURL,
             f.fingerprint, f.headline, f.summary, f.event_type_label
         FROM {DEFAULT_TABLE} e
         LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
@@ -1412,3 +1429,493 @@ async def query_event_sequence(
         tuple(params),
     )
     return rows
+
+
+# ============================================================================
+# Actor Activity Overview — Daily aggregation for actor situation analysis
+# ============================================================================
+
+async def query_actor_activity_overview(
+    pool,
+    actor_name: str,
+    center_date: str,
+    days_before: int = 7,
+    days_after: int = 7,
+    min_articles: int = 1,
+) -> List[Dict[str, Any]]:
+    """Build daily activity overview for an actor (NOT a storyline).
+    
+    This aggregates ALL events for the actor per day — useful for seeing
+    overall conflict/cooperation trends, but NOT for reading individual
+    event stories (use query_event_storyline for that).
+    
+    Args:
+        actor_name: Actor to track (e.g. 'ISRAELI')
+        center_date: Center date YYYY-MM-DD
+        days_before: Days to look back
+        days_after: Days to look forward
+        min_articles: Minimum NumArticles to filter noise
+    
+    Returns:
+        Daily aggregated rows: events count, articles, avg goldstein/tone,
+        severe conflict/cooperation counts, top CAMEO code.
+    """
+    from datetime import datetime, timedelta
+    
+    center = datetime.strptime(center_date, "%Y-%m-%d")
+    start = (center - timedelta(days=days_before)).strftime("%Y-%m-%d")
+    end = (center + timedelta(days=days_after)).strftime("%Y-%m-%d")
+    
+    rows = await pool.fetchall(
+        f"""
+        SELECT
+            CAST(SQLDATE AS CHAR) as date,
+            COUNT(*) as total_events,
+            SUM(NumArticles) as total_articles,
+            AVG(GoldsteinScale) as avg_goldstein,
+            AVG(AvgTone) as avg_tone,
+            SUM(CASE WHEN GoldsteinScale < -5 THEN 1 ELSE 0 END) as severe_conflict,
+            SUM(CASE WHEN GoldsteinScale > 5 THEN 1 ELSE 0 END) as severe_cooperation,
+            -- Top CAMEO event code of the day (most articles)
+            (SELECT EventCode FROM {DEFAULT_TABLE} AS sub
+             WHERE sub.SQLDATE = e.SQLDATE
+               AND (sub.Actor1Name = %s OR sub.Actor2Name = %s)
+               AND sub.NumArticles >= %s
+             ORDER BY sub.NumArticles DESC
+             LIMIT 1) as top_event_code
+        FROM {DEFAULT_TABLE} AS e
+        WHERE e.SQLDATE BETWEEN %s AND %s
+          AND (e.Actor1Name = %s OR e.Actor2Name = %s)
+          AND e.NumArticles >= %s
+        GROUP BY SQLDATE
+        ORDER BY SQLDATE
+        """,
+        (
+            actor_name, actor_name, min_articles,
+            start, end,
+            actor_name, actor_name, min_articles,
+        ),
+    )
+    
+    return [dict(r) for r in rows]
+
+
+# ============================================================================
+# Event Storyline — True chronological event chain around a specific event
+# ============================================================================
+
+async def query_event_storyline(
+    pool,
+    seed_event_id: int,
+    days_before: int = 7,
+    days_after: int = 7,
+    max_events_per_phase: int = 10,
+) -> Dict[str, Any]:
+    """Build a true event storyline: preceding → seed → following events.
+    
+    Unlike query_similar_events (which finds similar events by actor/type),
+    this finds events that are part of the SAME conflict narrative:
+    - Preceding: Same actor pair, same location, earlier dates
+    - Seed: The event itself
+    - Following: Same actor pair, same location, later dates  
+    - Reactions: Other actors responding to the seed event
+    
+    Args:
+        seed_event_id: GlobalEventID of the central event
+        days_before: How many days to look back for preceding events
+        days_after: How many days to look forward for following events
+        max_events_per_phase: Max events per phase (preceding/following/reactions)
+    
+    Returns:
+        Dict with keys: seed, preceding, following, reactions
+    """
+    from datetime import datetime, timedelta
+    
+    # --- Step 1: Get seed event details ---
+    seed_row = await pool.fetchone(f"""
+        SELECT
+            e.GlobalEventID,
+            CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
+            e.EventCode, e.EventRootCode,
+            e.GoldsteinScale, e.AvgTone, e.NumArticles,
+            e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            e.SOURCEURL,
+            f.fingerprint, f.headline, f.summary, f.event_type_label
+        FROM {DEFAULT_TABLE} e
+        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+        WHERE e.GlobalEventID = %s
+    """, (seed_event_id,))
+    
+    if not seed_row:
+        return {"seed": None, "preceding": [], "following": [], "reactions": []}
+    
+    seed = dict(seed_row)
+    seed_date = seed['SQLDATE']
+    a1, a2 = seed['Actor1Name'], seed['Actor2Name']
+    location = seed['ActionGeo_CountryCode'] or seed['ActionGeo_FullName']
+    root_code = seed['EventRootCode']
+    seed_quad = seed.get('QuadClass')
+    
+    # --- Build precision filters ---
+    # Location filter: same country/region
+    location_filter = ""
+    location_params = []
+    if location:
+        location_filter = "AND (e.ActionGeo_CountryCode = %s OR e.ActionGeo_FullName = %s)"
+        location_params = [location, location]
+    
+    # QuadClass filter: same conflict/cooperation category
+    # 1=Verbal coop, 2=Material coop, 3=Verbal conflict, 4=Material conflict
+    quad_filter = ""
+    quad_params = []
+    if seed_quad is not None:
+        if seed_quad in (1, 2):
+            quad_filter = "AND e.QuadClass IN (1, 2)"
+        elif seed_quad in (3, 4):
+            quad_filter = "AND e.QuadClass IN (3, 4)"
+    
+    # CAMEO causal chain filter for preceding events
+    # Maps seed EventRootCode → plausible preceding EventRootCodes
+    CAUSAL_PRECEDING = {
+        '01': ['01', '02', '03', '04', '05'],           # Statement ← statement/yield/disapprove/consult/cooperate
+        '02': ['01', '03', '04', '05', '07'],           # Yield ← statement/disapprove/consult/cooperate/threaten
+        '03': ['01', '03', '04', '06', '07'],           # Disapprove ← statement/disapprove/consult/protest/threaten
+        '04': ['01', '03', '04', '05', '07'],           # Consult ← statement/disapprove/consult/cooperate/threaten
+        '05': ['01', '02', '04', '05'],                 # Cooperate ← statement/yield/consult/cooperate
+        '06': ['01', '03', '04', '06', '07'],           # Protest ← statement/disapprove/consult/protest/threaten
+        '07': ['01', '03', '04', '06', '07'],           # Threaten ← statement/disapprove/consult/protest/threaten
+        '08': ['01', '03', '04', '06', '07'],           # Coerce ← statement/disapprove/consult/protest/threaten
+        '09': ['01', '03', '04', '06', '07'],           # Assault ← statement/disapprove/consult/protest/threaten
+        '10': ['01', '03', '04', '06', '07'],           # Fight ← statement/disapprove/consult/protest/threaten
+        '11': ['01', '03', '04', '06', '07'],           # Use force ← statement/disapprove/consult/protest/threaten
+        '12': ['01', '03', '04', '06', '07'],           # Use unconventional mass violence ← statement/disapprove/consult/protest/threaten
+        '13': ['01', '03', '04', '06', '07'],           # Use biological weapons ← statement/disapprove/consult/protest/threaten
+        '14': ['01', '03', '04', '06', '07'],           # Use chemical weapons ← statement/disapprove/consult/protest/threaten
+        '15': ['01', '03', '04', '06', '07'],           # Use radiological weapons ← statement/disapprove/consult/protest/threaten
+        '16': ['01', '03', '04', '06', '07'],           # Use nuclear weapons ← statement/disapprove/consult/protest/threaten
+        '17': ['01', '03', '04', '06', '07'],           # Use weapons of mass destruction ← statement/disapprove/consult/protest/threaten
+        '18': ['01', '03', '04', '06', '07'],           # Engage in diplomatic conflict ← statement/disapprove/consult/protest/threaten
+        '19': ['01', '03', '04', '06', '07'],           # Use unconventional mass violence ← statement/disapprove/consult/protest/threaten
+        '20': ['01', '03', '04', '06', '07'],           # Use biological weapons ← statement/disapprove/consult/protest/threaten
+    }
+    
+    preceding_cameo_filter = ""
+    preceding_cameo_params = []
+    if root_code and root_code in CAUSAL_PRECEDING:
+        codes = CAUSAL_PRECEDING[root_code]
+        placeholders = ','.join(['%s'] * len(codes))
+        preceding_cameo_filter = f"AND e.EventRootCode IN ({placeholders})"
+        preceding_cameo_params = codes
+    
+    center_dt = datetime.strptime(seed_date, '%Y-%m-%d')
+    pre_start = (center_dt - timedelta(days=days_before)).strftime('%Y-%m-%d')
+    fol_end = (center_dt + timedelta(days=days_after)).strftime('%Y-%m-%d')
+    
+    # --- Step 2: Preceding events (same actor pair + location + QuadClass + causal CAMEO) ---
+    preceding = []
+    if a1 or a2:
+        actor_conditions = []
+        params = [pre_start, seed_date, seed_event_id, seed_date]
+        
+        if a1 and a2:
+            actor_conditions.append("(e.Actor1Name = %s AND e.Actor2Name = %s)")
+            actor_conditions.append("(e.Actor1Name = %s AND e.Actor2Name = %s)")
+            params.extend([a1, a2, a2, a1])
+        elif a1:
+            actor_conditions.append("(e.Actor1Name = %s OR e.Actor2Name = %s)")
+            params.extend([a1, a1])
+        elif a2:
+            actor_conditions.append("(e.Actor1Name = %s OR e.Actor2Name = %s)")
+            params.extend([a2, a2])
+        
+        actor_sql = " OR ".join(actor_conditions)
+        params.extend(location_params)
+        params.extend(preceding_cameo_params)
+        params.append(max_events_per_phase)
+        
+        pre_rows = await pool.fetchall(f"""
+            SELECT
+                e.GlobalEventID,
+                CAST(e.SQLDATE AS CHAR) as SQLDATE,
+                e.Actor1Name, e.Actor2Name,
+                e.EventCode, e.EventRootCode,
+                e.GoldsteinScale, e.AvgTone, e.NumArticles,
+                e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+                e.SOURCEURL,
+                f.headline, f.summary, f.event_type_label
+            FROM {DEFAULT_TABLE} e
+            LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+            WHERE e.SQLDATE BETWEEN %s AND %s
+              AND e.GlobalEventID != %s
+              AND e.SQLDATE != %s
+              AND ({actor_sql})
+              {location_filter}
+              {quad_filter}
+              {preceding_cameo_filter}
+            ORDER BY e.SQLDATE DESC, e.NumArticles DESC
+            LIMIT %s
+        """, tuple(params))
+        
+        preceding = [dict(r) for r in pre_rows]
+        preceding.reverse()  # Oldest first
+    
+    # --- Step 3: Following events (same actor pair + location + QuadClass) ---
+    following = []
+    if a1 or a2:
+        actor_conditions = []
+        params = [seed_date, fol_end, seed_event_id, seed_date]
+        
+        if a1 and a2:
+            actor_conditions.append("(e.Actor1Name = %s AND e.Actor2Name = %s)")
+            actor_conditions.append("(e.Actor1Name = %s AND e.Actor2Name = %s)")
+            params.extend([a1, a2, a2, a1])
+        elif a1:
+            actor_conditions.append("(e.Actor1Name = %s OR e.Actor2Name = %s)")
+            params.extend([a1, a1])
+        elif a2:
+            actor_conditions.append("(e.Actor1Name = %s OR e.Actor2Name = %s)")
+            params.extend([a2, a2])
+        
+        actor_sql = " OR ".join(actor_conditions)
+        params.extend(location_params)
+        params.append(max_events_per_phase)
+        
+        fol_rows = await pool.fetchall(f"""
+            SELECT
+                e.GlobalEventID,
+                CAST(e.SQLDATE AS CHAR) as SQLDATE,
+                e.Actor1Name, e.Actor2Name,
+                e.EventCode, e.EventRootCode,
+                e.GoldsteinScale, e.AvgTone, e.NumArticles,
+                e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+                e.SOURCEURL,
+                f.headline, f.summary, f.event_type_label
+            FROM {DEFAULT_TABLE} e
+            LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+            WHERE e.SQLDATE BETWEEN %s AND %s
+              AND e.GlobalEventID != %s
+              AND e.SQLDATE != %s
+              AND ({actor_sql})
+              {location_filter}
+              {quad_filter}
+            ORDER BY e.SQLDATE ASC, e.NumArticles DESC
+            LIMIT %s
+        """, tuple(params))
+        
+        following = [dict(r) for r in fol_rows]
+    
+    # --- Step 4: Reactions (other actors responding to the seed event) ---
+    # Look for events where other actors act toward a1 or a2
+    # Event types: statements (01), express intent (02), consult (04), 
+    #              threaten (07), protest (06), coerce (07x), etc.
+    reactions = []
+    reaction_actor = a1 if a1 else a2  # The main actor others react to
+    if reaction_actor:
+        reac_rows = await pool.fetchall(f"""
+            SELECT
+                e.GlobalEventID,
+                CAST(e.SQLDATE AS CHAR) as SQLDATE,
+                e.Actor1Name, e.Actor2Name,
+                e.EventCode, e.EventRootCode,
+                e.GoldsteinScale, e.AvgTone, e.NumArticles,
+                e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+                e.SOURCEURL,
+                f.headline, f.summary, f.event_type_label
+            FROM {DEFAULT_TABLE} e
+            LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+            WHERE e.SQLDATE BETWEEN %s AND %s
+              AND e.GlobalEventID != %s
+              AND e.Actor2Name = %s
+              AND e.Actor1Name != %s
+              AND e.Actor1Name != %s
+              AND e.EventRootCode IN ('01', '02', '03', '04', '05', '06', '07')
+            ORDER BY e.NumArticles DESC
+            LIMIT %s
+        """, (
+            seed_date, fol_end,
+            seed_event_id,
+            reaction_actor,
+            a1 or '', a2 or '',  # Exclude the original actors reacting to themselves
+            max_events_per_phase,
+        ))
+        reactions = [dict(r) for r in reac_rows]
+    
+    return {
+        "seed": seed,
+        "preceding": preceding,
+        "following": following,
+        "reactions": reactions,
+    }
+
+
+# CAMEO Event Code descriptions (simplified)
+CAMEO_CODE_MAP = {
+    "010": "Make statement",
+    "011": "Decline comment",
+    "012": "Make pessimistic comment",
+    "013": "Make optimistic comment",
+    "014": "Consider policy option",
+    "015": "Engage in material cooperation",
+    "016": "Engage in diplomatic cooperation",
+    "017": "Engage in material conflict",
+    "018": "Engage in diplomatic conflict",
+    "019": "Make public statement",
+    "020": "Yield",
+    "021": "Ease administrative sanctions",
+    "022": "Ease military blockade",
+    "023": "Accede to demands for change in leadership",
+    "024": "Return, release",
+    "025": "Ease military alert",
+    "026": "Ease political dissent",
+    "027": "Yield",
+    "028": "Yield",
+    "030": "Disapprove",
+    "031": "Criticize or denounce",
+    "032": "Accuse",
+    "033": "Rally opposition",
+    "034": "Complain officially",
+    "035": "Bring lawsuit against",
+    "036": "Investigate",
+    "037": "Threaten",
+    "038": "Reject",
+    "039": "Threaten",
+    "040": "Reject",
+    "041": "Reject accusation",
+    "042": "Reject proposal to meet, discuss, or negotiate",
+    "043": "Reject plan, agreement to settle dispute",
+    "044": "Reject request for military aid",
+    "045": "Reject request for economic aid",
+    "046": "Reject request for humanitarian aid",
+    "047": "Reject request for military protection",
+    "048": "Reject request for change in leadership",
+    "049": "Reject request for change in policy",
+    "050": "Threaten",
+    "051": "Threaten non-force",
+    "052": "Threaten with administrative sanctions",
+    "053": "Threaten with political dissent",
+    "054": "Threaten to halt negotiations",
+    "055": "Threaten to halt mediation",
+    "056": "Threaten to impose blockade, restrict movement",
+    "057": "Threaten with military force",
+    "058": "Threaten to use unconventional mass violence",
+    "060": "Protest",
+    "061": "Demonstrate or rally",
+    "062": "Conduct hunger strike",
+    "063": "Conduct strike or boycott",
+    "064": "Obstruct passage, block",
+    "065": "Protest violently, riot",
+    "066": "Engage in violent protest",
+    "067": "Engage in political dissent",
+    "068": "Engage in violent protest",
+    "070": "Coerce",
+    "071": "Seize or damage property",
+    "072": "Impose administrative sanctions",
+    "073": "Impose military blockade",
+    "074": "Arrest or detain",
+    "075": "Use force to restore order",
+    "076": "Impose state of emergency or martial law",
+    "077": "Violate ceasefire",
+    "078": "Escalate military engagement",
+    "080": "Assault",
+    "081": "Assault with weapons",
+    "082": "Sexually assault",
+    "083": "Kill by physical assault",
+    "084": "Kill",
+    "085": "Use unconventional mass violence",
+    "086": "Use biological weapons",
+    "087": "Use chemical weapons",
+    "088": "Use radiological weapons",
+    "090": "Use force",
+    "091": "Use military force",
+    "092": "Employ aerial weapons",
+    "093": "Employ artillery and tanks",
+    "094": "Use small arms and light weapons",
+    "095": "Use conventional military force",
+    "096": "Use unconventional mass violence",
+    "097": "Use biological weapons",
+    "098": "Use radiological weapons",
+    "100": "Use chemical weapons",
+    "101": "Use biological weapons",
+    "102": "Use radiological weapons",
+    "103": "Use nuclear weapons",
+    "104": "Use force",
+    "105": "Use force",
+    "106": "Use force",
+    "107": "Use force",
+    "108": "Use force",
+    "110": "Demonstrate force",
+    "111": "Demonstrate military force",
+    "112": "Demonstrate crowd control",
+    "113": "Demonstrate riot control",
+    "114": "Demonstrate military force",
+    "115": "Demonstrate military force",
+    "116": "Demonstrate military force",
+    "120": "Use force",
+    "121": "Use force",
+    "122": "Use force",
+    "123": "Use force",
+    "124": "Use unconventional mass violence",
+    "125": "Use biological weapons",
+    "126": "Use chemical weapons",
+    "127": "Use radiological weapons",
+    "128": "Use nuclear weapons",
+    "129": "Use force",
+    "130": "Threaten",
+    "131": "Threaten",
+    "132": "Threaten",
+    "133": "Threaten",
+    "134": "Threaten",
+    "135": "Threaten",
+    "136": "Threaten",
+    "137": "Threaten",
+    "138": "Threaten",
+    "139": "Threaten",
+    "140": "Coerce",
+    "141": "Coerce",
+    "142": "Coerce",
+    "143": "Coerce",
+    "144": "Coerce",
+    "145": "Coerce",
+    "146": "Coerce",
+    "150": "Engage in material cooperation",
+    "151": "Engage in economic cooperation",
+    "152": "Engage in military cooperation",
+    "153": "Engage in judicial cooperation",
+    "154": "Engage in intelligence cooperation",
+    "155": "Engage in diplomatic cooperation",
+    "160": "Engage in diplomatic cooperation",
+    "161": "Engage in diplomatic cooperation",
+    "162": "Engage in diplomatic cooperation",
+    "163": "Engage in diplomatic cooperation",
+    "164": "Engage in diplomatic cooperation",
+    "165": "Engage in diplomatic cooperation",
+    "166": "Engage in diplomatic cooperation",
+    "170": "Yield",
+    "171": "Ease administrative sanctions",
+    "172": "Ease military blockade",
+    "173": "Accede to demands for change in leadership",
+    "174": "Return, release",
+    "175": "Ease military alert",
+    "180": "Yield",
+    "181": "Ease administrative sanctions",
+    "182": "Ease military blockade",
+    "183": "Accede to demands for change in leadership",
+    "184": "Return, release",
+    "185": "Ease military alert",
+    "186": "Yield",
+    "190": "Use unconventional mass violence",
+    "191": "Use biological weapons",
+    "192": "Use chemical weapons",
+    "193": "Use radiological weapons",
+    "194": "Use nuclear weapons",
+    "195": "Use force",
+    "196": "Use unconventional mass violence",
+}
+
+
+def get_cameo_description(code: Optional[str]) -> str:
+    """Get human-readable description for CAMEO event code."""
+    if not code:
+        return "Unknown event"
+    return CAMEO_CODE_MAP.get(code, f"Event type {code}")

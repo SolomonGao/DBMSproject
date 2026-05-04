@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users, Brain, Terminal, Sparkles, BookOpen } from 'lucide-react';
+import { Search, Loader2, Zap, CheckCircle, FileText, MessageSquareWarning, Calendar, MapPin, Users, Brain, Terminal, Sparkles, BookOpen, Database, ToggleLeft, ToggleRight, Settings, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { AnalyzeResponse, ReportResult, EventItem, EnhancedReportResult } from '../types';
 import EventDetailCard from './EventDetailCard';
@@ -103,6 +103,22 @@ export default function ExplorePanel() {
   // Enhanced report state (Reporter v2)
   const [enhancedReport, setEnhancedReport] = useState<EnhancedReportResult | null>(null);
   const [enhancedReportLoading, setEnhancedReportLoading] = useState(false);
+  
+  // Report config panel
+  const [showConfig, setShowConfig] = useState(false);
+  
+  // User-configurable report settings (persisted in session)
+  const [reportConfig, setReportConfig] = useState({
+    useGKG: true,
+    useStoryline: true,
+    gkgToneDays: 14,
+    gkgThemesDays: 1,
+    storylineDaysBefore: 7,
+    storylineDaysAfter: 7,
+    maxReportLength: 12000,
+    useGKGStorylineFilter: false,
+    useMentionsStorylineFilter: false,
+  });
 
   // Loading phase cycling
   useEffect(() => {
@@ -147,6 +163,7 @@ export default function ExplorePanel() {
     setError(null);
     setResult(null);
     setReport(null);
+    setEnhancedReport(null);
 
     try {
       const res = await api.analyze(query.trim());
@@ -177,7 +194,23 @@ export default function ExplorePanel() {
   const loadEnhancedReport = async (data: any, prompt?: string) => {
     setEnhancedReportLoading(true);
     try {
-      const res = await api.generateEventReport(data, prompt);
+      const config = {
+        gkg_tone_days: reportConfig.gkgToneDays,
+        gkg_themes_days: reportConfig.gkgThemesDays,
+        storyline_days_before: reportConfig.storylineDaysBefore,
+        storyline_days_after: reportConfig.storylineDaysAfter,
+        max_report_length: reportConfig.maxReportLength,
+        use_gkg_storyline_filter: reportConfig.useGKGStorylineFilter,
+        use_mentions_storyline_filter: reportConfig.useMentionsStorylineFilter,
+      };
+      const res = await api.generateEventReport(
+        data, prompt,
+        reportConfig.useStoryline,
+        false,
+        reportConfig.useGKG,
+        undefined,
+        config,
+      );
       if (res.report) {
         setEnhancedReport(res.report);
       }
@@ -223,6 +256,9 @@ export default function ExplorePanel() {
     const formattedDate = date.includes('-') ? date : `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
     const evtQuery = `EVT-${formattedDate}-${gid}`;
     setQuery(evtQuery);
+    // Clear previous reports so they don't show for the new event
+    setReport(null);
+    setEnhancedReport(null);
   };
 
   return (
@@ -378,45 +414,258 @@ export default function ExplorePanel() {
             <>
               {/* Report Buttons */}
               {vizes.includes('report') && result?.plan?.report_prompt && !report && !reportLoading && !enhancedReport && !enhancedReportLoading && (
-                <div style={{ marginBottom: 16, display: 'flex', gap: 10 }}>
-                  <button
-                    onClick={() => loadReport(result.data, result.plan.report_prompt!)}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 6,
-                      border: '1px solid #2563eb',
-                      background: '#fff',
-                      color: '#2563eb',
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 10, alignItems: 'center' }}>
+                    <button
+                      onClick={() => loadReport(result.data, result.plan.report_prompt!)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: 6,
+                        border: '1px solid #2563eb',
+                        background: '#fff',
+                        color: '#2563eb',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <FileText size={14} />
+                      Quick Report
+                    </button>
+                    <button
+                      onClick={() => loadEnhancedReport(result.data, result.plan.report_prompt!)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: 6,
+                        border: '1px solid #7c3aed',
+                        background: '#fff',
+                        color: '#7c3aed',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <BookOpen size={14} />
+                      Deep Dive Report
+                    </button>
+                    <button
+                      onClick={() => setShowConfig(!showConfig)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #e2e8f0',
+                        background: showConfig ? '#f1f5f9' : '#fff',
+                        color: '#64748b',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        marginLeft: 'auto',
+                      }}
+                      title="Configure report settings"
+                    >
+                      <SlidersHorizontal size={14} />
+                      Settings
+                    </button>
+                  </div>
+                  
+                  {/* Config Panel */}
+                  {showConfig && (
+                    <div style={{
+                      padding: 16,
+                      background: '#fafafa',
+                      borderRadius: 8,
+                      border: '1px solid #e2e8f0',
                       fontSize: 13,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <FileText size={14} />
-                    Quick Report
-                  </button>
-                  <button
-                    onClick={() => loadEnhancedReport(result.data, result.plan.report_prompt!)}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 6,
-                      border: '1px solid #7c3aed',
-                      background: '#fff',
-                      color: '#7c3aed',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <BookOpen size={14} />
-                    Deep Dive Report
-                  </button>
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <Settings size={14} color="#64748b" />
+                        <span style={{ fontWeight: 600, color: '#374151' }}>Report Configuration</span>
+                        <button
+                          onClick={() => setShowConfig(false)}
+                          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
+                        >
+                          <X size={14} color="#9ca3af" />
+                        </button>
+                      </div>
+                      
+                      {/* Toggles */}
+                      <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={reportConfig.useGKG}
+                            onChange={(e) => setReportConfig({ ...reportConfig, useGKG: e.target.checked })}
+                          />
+                          <span>
+                            <span style={{ fontWeight: 500 }}>GKG BigQuery</span>
+                            <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 12 }}>
+                              {reportConfig.useGKG ? '~$0.005-0.01 per report' : 'disabled — saving money'}
+                            </span>
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={reportConfig.useStoryline}
+                            onChange={(e) => setReportConfig({ ...reportConfig, useStoryline: e.target.checked })}
+                          />
+                          <span>
+                            <span style={{ fontWeight: 500 }}>Storyline</span>
+                            <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 12 }}>
+                              Timeline + entity evolution
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+
+                      {/* Storyline Precision Layers */}
+                      {reportConfig.useStoryline && (
+                        <div style={{ marginBottom: 16, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#4b5563', marginBottom: 8 }}>
+                            Storyline Precision (BigQuery)
+                          </div>
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={reportConfig.useGKGStorylineFilter}
+                                onChange={(e) => setReportConfig({ ...reportConfig, useGKGStorylineFilter: e.target.checked })}
+                              />
+                              <span>
+                                <span style={{ fontWeight: 500, fontSize: 13 }}>GKG Theme Overlap</span>
+                                <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 12 }}>
+                                  {reportConfig.useGKGStorylineFilter ? '~$0.09 per report' : 'off'}
+                                </span>
+                              </span>
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={reportConfig.useMentionsStorylineFilter}
+                                onChange={(e) => setReportConfig({ ...reportConfig, useMentionsStorylineFilter: e.target.checked })}
+                              />
+                              <span>
+                                <span style={{ fontWeight: 500, fontSize: 13 }}>Shared News Sources</span>
+                                <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 12 }}>
+                                  {reportConfig.useMentionsStorylineFilter ? '~$0.005 per report' : 'off'}
+                                </span>
+                              </span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Sliders */}
+                      {reportConfig.useGKG && (
+                        <div style={{ display: 'grid', gap: 12 }}>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ color: '#4b5563' }}>Tone Timeline Window</span>
+                              <span style={{ fontWeight: 600, color: '#7c3aed' }}>{reportConfig.gkgToneDays} days</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={3}
+                              max={14}
+                              value={reportConfig.gkgToneDays}
+                              onChange={(e) => setReportConfig({ ...reportConfig, gkgToneDays: parseInt(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                              <span>3 days</span>
+                              <span>14 days (max)</span>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ color: '#4b5563' }}>Themes Query Days</span>
+                              <span style={{ fontWeight: 600, color: '#7c3aed' }}>{reportConfig.gkgThemesDays} day{reportConfig.gkgThemesDays > 1 ? 's' : ''}</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={1}
+                              max={7}
+                              value={reportConfig.gkgThemesDays}
+                              onChange={(e) => setReportConfig({ ...reportConfig, gkgThemesDays: parseInt(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                              <span>1 day</span>
+                              <span>7 days</span>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ color: '#4b5563' }}>Storyline Look Back</span>
+                              <span style={{ fontWeight: 600, color: '#dc2626' }}>{reportConfig.storylineDaysBefore} days</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={1}
+                              max={30}
+                              value={reportConfig.storylineDaysBefore}
+                              onChange={(e) => setReportConfig({ ...reportConfig, storylineDaysBefore: parseInt(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                              <span>1 day</span>
+                              <span>30 days</span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ color: '#4b5563' }}>Storyline Look Forward</span>
+                              <span style={{ fontWeight: 600, color: '#dc2626' }}>{reportConfig.storylineDaysAfter} days</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={1}
+                              max={30}
+                              value={reportConfig.storylineDaysAfter}
+                              onChange={(e) => setReportConfig({ ...reportConfig, storylineDaysAfter: parseInt(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                              <span>1 day</span>
+                              <span>30 days</span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ color: '#4b5563' }}>Report Length</span>
+                              <span style={{ fontWeight: 600, color: '#7c3aed' }}>{(reportConfig.maxReportLength / 1000).toFixed(0)}k chars</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={4000}
+                              max={16000}
+                              step={2000}
+                              value={reportConfig.maxReportLength}
+                              onChange={(e) => setReportConfig({ ...reportConfig, maxReportLength: parseInt(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                              <span>4k</span>
+                              <span>16k</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               {reportLoading && (

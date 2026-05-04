@@ -19,6 +19,93 @@ from backend.agents.planner import ReportGenerator, ReportResult, build_llm
 from backend.services.news_scraper import news_scraper
 from backend.services.storyline_builder import build_full_storyline
 from backend.services.gkg_client import gkg_client
+from backend.queries.core_queries import (
+    query_actor_activity_overview,
+    query_event_storyline,
+    get_cameo_description,
+)
+
+
+# ---------------------------------------------------------------------------
+# Storyline Relevance Scoring
+# ---------------------------------------------------------------------------
+
+def _compute_storyline_relevance(
+    evt: Dict[str, Any],
+    seed_dt,
+    seed_location: Optional[str],
+    has_gkg: bool,
+    has_mentions: bool,
+) -> float:
+    """Compute composite relevance score for a candidate event.
+    
+    Score components (0-100 scale):
+    - Temporal proximity: closer to seed date = higher (max 30)
+    - Location match: same country/region = higher (max 20)
+    - SQL match quality: actor pair match, QuadClass match (max 25)
+    - GKG theme overlap: Jaccard similarity (max 15)
+    - Mentions shared articles: same-article count (max 10)
+    """
+    score = 0.0
+    
+    # 1. Temporal proximity (0-30)
+    evt_date_str = evt.get("SQLDATE", "")
+    if evt_date_str:
+        try:
+            from datetime import datetime
+            evt_dt = datetime.strptime(evt_date_str, "%Y-%m-%d")
+            days_diff = abs((evt_dt - seed_dt).days)
+            # Exponential decay: same day = 30, 7 days = 15, 30 days = 5
+            temporal = 30 * (0.85 ** days_diff)
+            score += min(temporal, 30)
+        except Exception:
+            score += 15  # Default if date parse fails
+    else:
+        score += 10
+    
+    # 2. Location match (0-20)
+    evt_loc = evt.get("ActionGeo_CountryCode") or evt.get("ActionGeo_FullName")
+    if seed_location and evt_loc:
+        if seed_location == evt_loc:
+            score += 20
+        elif seed_location in str(evt_loc) or str(evt_loc) in seed_location:
+            score += 12
+        else:
+            score += 5
+    else:
+        score += 5
+    
+    # 3. SQL match quality (0-25)
+    # Already filtered by SQL layer, but we can boost for stronger matches
+    score += 15  # Base: passed all SQL filters
+    
+    # Boost for high NumArticles (more significant events)
+    num_articles = evt.get("NumArticles", 0)
+    if num_articles and num_articles > 10:
+        score += min(num_articles / 10, 10)
+    
+    # 4. GKG theme overlap (0-15)
+    if has_gkg:
+        overlap = evt.get("theme_overlap", 0)
+        if overlap > 0:
+            score += 15 * overlap  # 0.15 overlap = 2.25 pts, 1.0 = 15 pts
+        else:
+            score += 3  # Small penalty for no theme data
+    
+    # 5. Mentions shared articles (0-10)
+    if has_mentions:
+        shared_articles = evt.get("shared_articles", 0)
+        shared_sources = evt.get("shared_sources", 0)
+        if shared_articles > 0:
+            # Log scale: 1 article = 5 pts, 5+ = 10 pts
+            import math
+            score += min(5 + 5 * math.log1p(shared_articles) / math.log1p(5), 10)
+        elif shared_sources > 0:
+            score += min(2 * shared_sources, 5)  # Shared source only = partial credit
+        else:
+            score += 1  # Small penalty for no mention data
+    
+    return score
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +128,8 @@ Output rules:
 - Structure the output into clearly labeled sections.
 - Do NOT use JSON. Use markdown-style plain text.
 - If data is sparse, say so directly rather than inventing.
-- No preamble like "Here is the report". Start immediately."""
+- No preamble like "Here is the report". Start immediately.
+- IMPORTANT: Keep the report concise and focused. Avoid unnecessary repetition or filler text."""
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +154,8 @@ class EnhancedReportResult:
         storyline: Optional[Dict[str, Any]] = None,
         news_coverage: Optional[Dict[str, Any]] = None,
         gkg_insights: Optional[Dict[str, Any]] = None,
+        actor_activity: Optional[List[Dict[str, Any]]] = None,
+        event_storyline: Optional[Dict[str, Any]] = None,
         generated_at: Optional[str] = None,
     ):
         self.summary = summary
@@ -73,6 +163,8 @@ class EnhancedReportResult:
         self.storyline = storyline
         self.news_coverage = news_coverage
         self.gkg_insights = gkg_insights
+        self.actor_activity = actor_activity
+        self.event_storyline = event_storyline
         self.generated_at = generated_at or __import__("datetime").datetime.now().isoformat()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -82,6 +174,8 @@ class EnhancedReportResult:
             "storyline": self.storyline,
             "news_coverage": self.news_coverage,
             "gkg_insights": self.gkg_insights,
+            "actor_activity": self.actor_activity,
+            "event_storyline": self.event_storyline,
             "generated_at": self.generated_at,
         }
 
@@ -189,8 +283,196 @@ class EnhancedReportGenerator(ReportGenerator):
 
         return await self._news_scraper.fetch_for_events(related_events)
 
-    async def _gather_gkg_data(self, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Fetch GKG data for the primary event's actors/entities."""
+    async def _gather_actor_activity(
+        self,
+        event_data: Dict[str, Any],
+        days_before: int = 7,
+        days_after: int = 7,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Fetch actor activity overview — daily aggregated stats (NOT storyline).
+        
+        This shows overall conflict/cooperation trends for the actor,
+        useful for context but not for reading individual event narratives.
+        
+        Args:
+            days_before: Days to look back
+            days_after: Days to look forward
+        """
+        from backend.database.pool import get_db_pool
+        
+        primary_event = self._find_primary_event(event_data)
+        if not primary_event:
+            return None
+        
+        ed = primary_event.get("event_data") or primary_event
+        date = ed.get("SQLDATE") or primary_event.get("SQLDATE")
+        actor1 = ed.get("Actor1Name") or primary_event.get("Actor1Name")
+        
+        if not date or not actor1:
+            return None
+        
+        try:
+            pool = await get_db_pool()
+            rows = await query_actor_activity_overview(
+                pool, actor1, date,
+                days_before=days_before, days_after=days_after,
+            )
+            for r in rows:
+                code = r.get("top_event_code")
+                r["top_cameo_name"] = get_cameo_description(code) if code else "Unknown event"
+            return rows
+        except Exception as e:
+            print(f"[EnhancedReporter] Actor activity query failed: {e}", flush=True)
+            return None
+
+    async def _gather_event_storyline(
+        self,
+        event_data: Dict[str, Any],
+        days_before: int = 7,
+        days_after: int = 7,
+        use_gkg_filter: bool = False,
+        use_mentions_filter: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch true event storyline: preceding → seed → following + reactions.
+        
+        Three-layer precision with unified relevance scoring:
+        1. SQL: location + QuadClass + causal CAMEO chain (always on, free)
+        2. GKG: theme overlap filtering (optional, ~$0.09)
+        3. Mentions: shared ARTICLE detection (optional, ~$0.005)
+        
+        Final output is RANKED by composite relevance score, not just date.
+        
+        Args:
+            days_before: Days to look back for preceding events
+            days_after: Days to look forward for following events
+            use_gkg_filter: Enable GKG theme overlap filtering
+            use_mentions_filter: Enable Mentions shared-article detection
+        """
+        from backend.database.pool import get_db_pool
+        
+        primary_event = self._find_primary_event(event_data)
+        if not primary_event:
+            return None
+        
+        ed = primary_event.get("event_data") or primary_event
+        seed_event_id = ed.get("GlobalEventID") or primary_event.get("GlobalEventID")
+        seed_actor = ed.get("Actor1Name") or primary_event.get("Actor1Name")
+        seed_date = ed.get("SQLDATE") or primary_event.get("SQLDATE")
+        seed_location = ed.get("ActionGeo_CountryCode") or ed.get("ActionGeo_FullName")
+        
+        if not seed_event_id:
+            return None
+        
+        try:
+            pool = await get_db_pool()
+            storyline = await query_event_storyline(
+                pool, int(seed_event_id),
+                days_before=days_before, days_after=days_after,
+            )
+            # Enrich CAMEO descriptions
+            for phase in ("seed", "preceding", "following", "reactions"):
+                items = storyline.get(phase)
+                if isinstance(items, dict):  # seed is a dict
+                    code = items.get("EventCode")
+                    items["cameo_name"] = get_cameo_description(code) if code else "Unknown event"
+                elif isinstance(items, list):
+                    for item in items:
+                        code = item.get("EventCode")
+                        item["cameo_name"] = get_cameo_description(code) if code else "Unknown event"
+            
+            # Collect all candidates for scoring
+            all_candidates = []
+            for phase in ("preceding", "following", "reactions"):
+                all_candidates.extend(storyline.get(phase, []))
+            
+            # --- Layer 2: GKG Theme Overlap (soft: attach score, don't filter) ---
+            if use_gkg_filter and self._gkg.available and seed_actor and seed_date:
+                try:
+                    for phase in ("preceding", "following"):
+                        candidates = storyline.get(phase, [])
+                        if candidates:
+                            scored = await self._gkg.score_events_by_theme_overlap(
+                                seed_actor, seed_date, candidates
+                            )
+                            storyline[phase] = scored
+                except Exception as e:
+                    print(f"[EnhancedReporter] GKG theme scoring failed: {e}", flush=True)
+            
+            # --- Layer 3: Mentions Shared-Article Detection ---
+            if use_mentions_filter and self._gkg.available and seed_date:
+                try:
+                    candidate_ids = [
+                        e.get("GlobalEventID") for e in all_candidates if e.get("GlobalEventID")
+                    ]
+                    if candidate_ids:
+                        from datetime import datetime, timedelta
+                        center = datetime.strptime(seed_date, "%Y-%m-%d")
+                        start = (center - timedelta(days=days_before)).strftime("%Y-%m-%d")
+                        end = (center + timedelta(days=days_after)).strftime("%Y-%m-%d")
+                        
+                        article_data = await self._gkg.get_shared_mention_articles(
+                            int(seed_event_id), candidate_ids, (start, end)
+                        )
+                        
+                        # Attach shared article data to each event
+                        for evt in all_candidates:
+                            gid = evt.get("GlobalEventID")
+                            if gid:
+                                data = article_data.get(int(gid), {})
+                                evt["shared_articles"] = data.get("shared_articles", 0)
+                                evt["shared_sources"] = data.get("shared_sources", 0)
+                                evt["sample_urls"] = data.get("sample_urls", [])
+                except Exception as e:
+                    print(f"[EnhancedReporter] Mentions filter failed: {e}", flush=True)
+            
+            # --- Unified Relevance Scoring & Ranking ---
+            seed_dt = datetime.strptime(seed_date, "%Y-%m-%d")
+            for phase in ("preceding", "following", "reactions"):
+                events = storyline.get(phase, [])
+                if not events:
+                    continue
+                
+                for evt in events:
+                    score = _compute_storyline_relevance(
+                        evt, seed_dt, seed_location,
+                        has_gkg=use_gkg_filter,
+                        has_mentions=use_mentions_filter,
+                    )
+                    evt["relevance_score"] = round(score, 3)
+                
+                # Sort: primary by relevance_score DESC, secondary by date proximity
+                if phase == "preceding":
+                    # Preceding: closer to seed date = more relevant
+                    events.sort(key=lambda e: (-e.get("relevance_score", 0), e.get("SQLDATE", "")), reverse=False)
+                    events.reverse()  # Highest score first, then closest date
+                elif phase == "following":
+                    # Following: closer to seed date = more relevant
+                    events.sort(key=lambda e: (-e.get("relevance_score", 0), e.get("SQLDATE", "")), reverse=False)
+                else:
+                    # Reactions: by relevance
+                    events.sort(key=lambda e: -e.get("relevance_score", 0))
+                
+                storyline[phase] = events
+            
+            return storyline
+        except Exception as e:
+            print(f"[EnhancedReporter] Event storyline query failed: {e}", flush=True)
+            return None
+
+    async def _gather_gkg_data(
+        self,
+        event_data: Dict[str, Any],
+        tone_days: int = 14,
+        themes_days: int = 1,
+        cooccurring_limit: int = 30,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch GKG data for the primary event's actors/entities.
+        
+        Args:
+            tone_days: Days of tone timeline (3-14, centered on event date)
+            themes_days: Days of themes query (1-7)
+            cooccurring_limit: Max co-occurring entities to fetch
+        """
         if not self._gkg.available:
             return None
 
@@ -207,20 +489,34 @@ class EnhancedReportGenerator(ReportGenerator):
             return None
 
         gkg_results = {}
+        dt = __import__("datetime").datetime
+        td = __import__("datetime").timedelta
 
         try:
-            cooccur = await self._gkg.get_cooccurring_entities(actor1, date, limit=30)
+            cooccur = await self._gkg.get_cooccurring_entities(actor1, date, limit=cooccurring_limit)
             if not cooccur.get("error"):
                 gkg_results["cooccurring"] = cooccur.get("cooccurring_entities", {})
 
-            end_dt = __import__("datetime").datetime.strptime(date, "%Y-%m-%d") + __import__("datetime").timedelta(days=2)
-            end_date = end_dt.strftime("%Y-%m-%d")
-
-            themes = await self._gkg.get_entity_themes(actor1, (date, end_date), limit=50)
+            # Themes: configurable days (1-7)
+            themes_end = dt.strptime(date, "%Y-%m-%d") + td(days=max(themes_days - 1, 0))
+            themes = await self._gkg.get_entity_themes(
+                actor1,
+                (date, themes_end.strftime("%Y-%m-%d")),
+                limit=50,
+            )
             if not themes.get("error"):
                 gkg_results["themes"] = themes.get("parsed_themes", {})
+            else:
+                print(f"[EnhancedReporter] GKG themes: {themes.get('message')}", flush=True)
 
-            tone = await self._gkg.get_tone_timeline(actor1, (date, end_date))
+            # Tone timeline: configurable days (3-14), centered on event date
+            half_window = tone_days // 2
+            tone_start = dt.strptime(date, "%Y-%m-%d") - td(days=half_window)
+            tone_end = dt.strptime(date, "%Y-%m-%d") + td(days=tone_days - half_window - 1)
+            tone = await self._gkg.get_tone_timeline(
+                actor1,
+                (tone_start.strftime("%Y-%m-%d"), tone_end.strftime("%Y-%m-%d"))
+            )
             if not tone.get("error"):
                 gkg_results["tone_timeline"] = tone.get("data", [])
 
@@ -297,11 +593,29 @@ class EnhancedReportGenerator(ReportGenerator):
         data: Dict[str, Any],
         prompt: Optional[str] = None,
         include_storyline: bool = True,
-        include_news: bool = True,
+        include_news: bool = False,
         include_gkg: bool = True,
+        config: Optional[Dict[str, Any]] = None,
     ) -> EnhancedReportResult:
-        """Generate comprehensive event report with all enrichments."""
+        """Generate comprehensive event report with all enrichments.
+        
+        Args:
+            config: Optional dict with keys:
+                - gkg_tone_days (3-14): Days of tone timeline
+                - gkg_themes_days (1-7): Days of themes query
+                - gkg_cooccurring_limit (10-100): Co-occurring entities limit
+                - max_report_length (4000-16000): Max report chars
+        """
         t0 = __import__("time").time()
+        cfg = config or {}
+        tone_days = min(max(cfg.get("gkg_tone_days", 14), 3), 14)
+        themes_days = min(max(cfg.get("gkg_themes_days", 1), 1), 7)
+        cooccur_limit = min(max(cfg.get("gkg_cooccurring_limit", 30), 10), 100)
+        max_length = min(max(cfg.get("max_report_length", 12000), 4000), 16000)
+        storyline_days_before = min(max(cfg.get("storyline_days_before", 7), 1), 30)
+        storyline_days_after = min(max(cfg.get("storyline_days_after", 7), 1), 30)
+        use_gkg_storyline_filter = cfg.get("use_gkg_storyline_filter", False)
+        use_mentions_storyline_filter = cfg.get("use_mentions_storyline_filter", False)
 
         gather_tasks = []
 
@@ -313,11 +627,28 @@ class EnhancedReportGenerator(ReportGenerator):
             gather_tasks.append(asyncio.sleep(0))
 
         if include_gkg:
-            gather_tasks.append(self._gather_gkg_data(data))
+            gather_tasks.append(self._gather_gkg_data(
+                data,
+                tone_days=tone_days,
+                themes_days=themes_days,
+                cooccurring_limit=cooccur_limit,
+            ))
         else:
             gather_tasks.append(asyncio.sleep(0))
 
-        news_coverage, related_news, gkg_data = await asyncio.gather(*gather_tasks)
+        # Actor activity overview: daily aggregated stats (always gather, fast MySQL)
+        gather_tasks.append(self._gather_actor_activity(data, days_before=7, days_after=7))
+
+        # Event storyline: true chronological event chain with optional precision layers
+        gather_tasks.append(self._gather_event_storyline(
+            data,
+            days_before=storyline_days_before,
+            days_after=storyline_days_after,
+            use_gkg_filter=use_gkg_storyline_filter,
+            use_mentions_filter=use_mentions_storyline_filter,
+        ))
+
+        news_coverage, related_news, gkg_data, actor_activity, event_storyline = await asyncio.gather(*gather_tasks)
 
         storyline = None
         if include_storyline:
@@ -326,13 +657,17 @@ class EnhancedReportGenerator(ReportGenerator):
             storyline = build_full_storyline(events, gkg_themes)
 
         narrative_input = self._format_enhanced_data(
-            data, news_coverage, related_news, storyline, gkg_data
+            data, news_coverage, related_news, storyline, gkg_data,
+            actor_activity, event_storyline,
+            max_length=max_length,
         )
 
         if not narrative_input.strip():
             return EnhancedReportResult(
                 summary="No event data available for report generation.",
                 key_findings=[],
+                actor_activity=actor_activity,
+                event_storyline=event_storyline,
             )
 
         user_prompt = prompt or (
@@ -340,9 +675,13 @@ class EnhancedReportGenerator(ReportGenerator):
             "who was involved, the timeline of events, media coverage, and broader implications."
         )
 
+        # Add length constraint to prompt so LLM controls output size
+        length_hint = f"\n\n[LENGTH CONSTRAINT] Please keep the total report under {max_length} characters. "
+        length_hint += "Be concise and focused — prioritize key facts and insights over verbose descriptions."
+
         messages = [
             SystemMessage(content=ENHANCED_REPORT_SYSTEM_PROMPT),
-            HumanMessage(content=f"{user_prompt}\n\n{narrative_input}\n\nWrite the report:"),
+            HumanMessage(content=f"{user_prompt}{length_hint}\n\n{narrative_input}\n\nWrite the report:"),
         ]
 
         try:
@@ -359,6 +698,8 @@ class EnhancedReportGenerator(ReportGenerator):
                     storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
                     news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                     gkg_insights=gkg_data,
+                    actor_activity=actor_activity,
+                    event_storyline=event_storyline,
                 )
 
             summary, findings = self._parse_report_text(text)
@@ -376,6 +717,8 @@ class EnhancedReportGenerator(ReportGenerator):
                 storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
                 news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                 gkg_insights=gkg_data,
+                actor_activity=actor_activity,
+                event_storyline=event_storyline,
             )
 
         except asyncio.TimeoutError:
@@ -385,6 +728,8 @@ class EnhancedReportGenerator(ReportGenerator):
                 storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
                 news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                 gkg_insights=gkg_data,
+                actor_activity=actor_activity,
+                event_storyline=event_storyline,
             )
         except Exception as e:
             print(f"[EnhancedReportGenerator] Failed: {e}", flush=True)
@@ -394,6 +739,8 @@ class EnhancedReportGenerator(ReportGenerator):
                 storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
                 news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                 gkg_insights=gkg_data,
+                actor_activity=actor_activity,
+                event_storyline=event_storyline,
             )
 
     def _format_enhanced_data(
@@ -403,6 +750,9 @@ class EnhancedReportGenerator(ReportGenerator):
         related_news: Any,
         storyline: Any,
         gkg_data: Optional[Dict[str, Any]],
+        actor_activity: Optional[List[Dict[str, Any]]] = None,
+        event_storyline: Optional[Dict[str, Any]] = None,
+        max_length: int = 12000,
     ) -> str:
         """Format all gathered data into a narrative input for the LLM."""
         sections = []
@@ -419,16 +769,16 @@ class EnhancedReportGenerator(ReportGenerator):
 
             content = news_coverage.get("primary_content", "")
             if content:
-                if len(content) > 2000:
-                    content = content[:2000] + "..."
+                if len(content) > 4000:
+                    content = content[:4000] + "\n...[content continues but truncated for brevity]"
                 sections.append(f"Primary Article Content:\n{content}")
 
             if isinstance(related_news, list) and related_news:
                 sections.append("\nRelated Event Coverage:")
                 for i, rn in enumerate(related_news[:3]):
                     if rn.get("has_content"):
-                        snippet = rn.get("primary_content", "")[:300]
-                        sections.append(f"  [{i+1}] {rn.get('headline', '')}: {snippet}...")
+                        snippet = rn.get("primary_content", "")[:500]
+                        sections.append(f"  [{i+1}] {rn.get('headline', '')}: {snippet}")
 
         if storyline:
             sections.append("\n=== STORYLINE ===")
@@ -469,12 +819,64 @@ class EnhancedReportGenerator(ReportGenerator):
             tone = gkg_data.get("tone_timeline")
             if tone and isinstance(tone, list):
                 sections.append("Media Tone Trend:")
-                for t in tone[:5]:
+                for t in tone[:14]:
                     sections.append(f"  - {t.get('date', '')}: tone={t.get('avg_tone', 'N/A'):.2f}, mentions={t.get('mention_count', 0)}")
 
+        if actor_activity and isinstance(actor_activity, list):
+            sections.append("\n=== ACTOR ACTIVITY OVERVIEW ===")
+            sections.append("Daily aggregated activity for the primary actor (NOT individual events):")
+            for r in actor_activity[:14]:
+                date = r.get("date", "")
+                count = r.get("total_events", 0)
+                articles = r.get("total_articles", 0)
+                goldstein = r.get("avg_goldstein")
+                tone = r.get("avg_tone")
+                cameo = r.get("top_cameo_name", "Unknown")
+                line = f"  - {date}: {count} events, {articles} articles"
+                if goldstein is not None:
+                    line += f", Goldstein={goldstein:.1f}"
+                if tone is not None:
+                    line += f", Tone={tone:.1f}"
+                line += f", Top: {cameo}"
+                sections.append(line)
+
+        if event_storyline and isinstance(event_storyline, dict):
+            sections.append("\n=== EVENT STORYLINE ===")
+            sections.append("Chronological event chain around the primary event (each with source link):")
+            
+            seed = event_storyline.get("seed")
+            if seed:
+                sections.append(f"\n[SEED EVENT] {seed.get('SQLDATE', '')}: {seed.get('headline') or seed.get('Actor1Name', 'Unknown') + ' vs ' + seed.get('Actor2Name', 'Unknown')}")
+                sections.append(f"  CAMEO: {seed.get('cameo_name', 'Unknown')} | Goldstein: {seed.get('GoldsteinScale', 'N/A')} | Tone: {seed.get('AvgTone', 'N/A')}")
+                if seed.get('SOURCEURL'):
+                    sections.append(f"  Source: {seed['SOURCEURL']}")
+            
+            preceding = event_storyline.get("preceding", [])
+            if preceding:
+                sections.append("\n[PRECEDING EVENTS]")
+                for evt in preceding[:10]:
+                    sections.append(f"  - {evt.get('SQLDATE', '')}: {evt.get('headline') or evt.get('Actor1Name', 'Unknown') + ' vs ' + evt.get('Actor2Name', 'Unknown')}")
+                    sections.append(f"    CAMEO: {evt.get('cameo_name', 'Unknown')} | Source: {evt.get('SOURCEURL', 'N/A')}")
+            
+            following = event_storyline.get("following", [])
+            if following:
+                sections.append("\n[FOLLOWING EVENTS]")
+                for evt in following[:10]:
+                    sections.append(f"  - {evt.get('SQLDATE', '')}: {evt.get('headline') or evt.get('Actor1Name', 'Unknown') + ' vs ' + evt.get('Actor2Name', 'Unknown')}")
+                    sections.append(f"    CAMEO: {evt.get('cameo_name', 'Unknown')} | Source: {evt.get('SOURCEURL', 'N/A')}")
+            
+            reactions = event_storyline.get("reactions", [])
+            if reactions:
+                sections.append("\n[INTERNATIONAL REACTIONS]")
+                for evt in reactions[:8]:
+                    sections.append(f"  - {evt.get('SQLDATE', '')}: {evt.get('Actor1Name', 'Unknown')} → {evt.get('Actor2Name', 'Unknown')}")
+                    sections.append(f"    CAMEO: {evt.get('cameo_name', 'Unknown')} | Source: {evt.get('SOURCEURL', 'N/A')}")
+
         result = "\n".join(sections)
-        if len(result) > 8000:
-            result = result[:7800] + "\n\n... [additional data truncated]"
+        # No hard truncation — let the LLM handle length via the prompt constraint
+        # Only trim if extremely oversized (> max_length + 3000 buffer)
+        if len(result) > max_length + 3000:
+            result = result[:max_length + 2500] + "\n\n...[additional context available but omitted for brevity]"
         return result
 
     def _parse_report_text(self, text: str) -> tuple[str, List[str]]:

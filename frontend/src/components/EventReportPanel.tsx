@@ -1,8 +1,9 @@
-import { FileText, Lightbulb, BookOpen, Newspaper, Network } from 'lucide-react';
+import { FileText, Lightbulb, BookOpen, Network, CalendarDays, GitBranch, Activity } from 'lucide-react';
 import type { EnhancedReportResult, EventItem } from '../types';
 import StorylineTimeline from './StorylineTimeline';
-import NewsCoveragePanel from './NewsCoveragePanel';
 import GKGInsightCards from './GKGInsightCards';
+import ActorActivityPanel from './ActorActivityPanel';
+import EventStorylinePanel from './EventStorylinePanel';
 
 interface Props {
   report: EnhancedReportResult;
@@ -13,8 +14,9 @@ export default function EventReportPanel({ report, event }: Props) {
   if (!report) return null;
 
   const hasStoryline = !!report.storyline;
-  const hasNews = !!report.news_coverage && report.news_coverage.has_content;
   const hasGKG = !!report.gkg_insights;
+  const hasActorActivity = !!report.actor_activity && report.actor_activity.length > 0;
+  const hasEventStoryline = !!report.event_storyline;
 
   return (
     <div style={{ animation: 'fadeIn 0.5s ease' }}>
@@ -60,16 +62,22 @@ export default function EventReportPanel({ report, event }: Props) {
 
         {/* Data Source Indicators */}
         <div style={{ display: 'flex', gap: 12, marginTop: 16, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+          {hasEventStoryline && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#dc2626', background: '#fef2f2', padding: '4px 10px', borderRadius: 10 }}>
+              <GitBranch size={12} />
+              Event Storyline
+            </span>
+          )}
           {hasStoryline && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#2563eb', background: '#eff6ff', padding: '4px 10px', borderRadius: 10 }}>
               <BookOpen size={12} />
-              Storyline
+              Related Events
             </span>
           )}
-          {hasNews && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#059669', background: '#f0fdf4', padding: '4px 10px', borderRadius: 10 }}>
-              <Newspaper size={12} />
-              News Coverage
+          {hasActorActivity && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#059669', background: '#ecfdf5', padding: '4px 10px', borderRadius: 10 }}>
+              <Activity size={12} />
+              Actor Activity
             </span>
           )}
           {hasGKG && (
@@ -81,17 +89,27 @@ export default function EventReportPanel({ report, event }: Props) {
         </div>
       </div>
 
-      {/* Storyline */}
+      {/* Event Storyline */}
+      {hasEventStoryline && report.event_storyline && (
+        <div style={{ marginTop: 16 }}>
+          <EventStorylinePanel storyline={report.event_storyline} />
+        </div>
+      )}
+
+      {/* Storyline (Related Events & Context) */}
       {hasStoryline && report.storyline && (
         <div style={{ marginTop: 16 }}>
           <StorylineTimeline storyline={report.storyline} />
         </div>
       )}
 
-      {/* News Coverage */}
-      {hasNews && report.news_coverage && (
+      {/* Actor Activity Overview */}
+      {hasActorActivity && report.actor_activity && (
         <div style={{ marginTop: 16 }}>
-          <NewsCoveragePanel coverage={report.news_coverage} />
+          <ActorActivityPanel
+            activity={report.actor_activity}
+            actorName={event?.Actor1Name || report.event_storyline?.seed?.Actor1Name}
+          />
         </div>
       )}
 

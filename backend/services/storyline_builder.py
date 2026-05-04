@@ -82,6 +82,7 @@ def build_timeline(
             "goldstein_scale": ed.get("GoldsteinScale") or evt.get("goldstein_scale"),
             "num_articles": ed.get("NumArticles") or evt.get("num_articles", 0),
             "avg_tone": ed.get("AvgTone") or evt.get("avg_tone"),
+            "source_url": ed.get("SOURCEURL") or evt.get("source_url"),
         })
 
     # Identify key milestones (top 3 by significance)

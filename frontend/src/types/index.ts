@@ -164,6 +164,7 @@ export interface TimelineEventItem {
   goldstein_scale?: number;
   num_articles?: number;
   avg_tone?: number;
+  source_url?: string;
 }
 
 export interface StorylineTimelineData {
@@ -210,12 +211,63 @@ export interface GKGInsightData {
   tone_timeline: Record<string, any>[];
 }
 
+export interface ActorActivityItem {
+  date: string;
+  total_events: number;
+  total_articles: number;
+  avg_goldstein?: number;
+  avg_tone?: number;
+  severe_conflict?: number;
+  severe_cooperation?: number;
+  top_event_code?: string;
+  top_cameo_name?: string;
+}
+
+export interface StorylineEventItem {
+  GlobalEventID: number;
+  SQLDATE: string;
+  Actor1Name?: string;
+  Actor2Name?: string;
+  EventCode?: string;
+  cameo_name?: string;
+  GoldsteinScale?: number;
+  AvgTone?: number;
+  NumArticles?: number;
+  ActionGeo_FullName?: string;
+  ActionGeo_CountryCode?: string;
+  SOURCEURL?: string;
+  headline?: string;
+  summary?: string;
+  event_type_label?: string;
+  /** GKG theme overlap score with seed event (0-1) */
+  theme_overlap?: number;
+  /** Shared themes with seed event */
+  shared_themes?: string[];
+  /** Number of shared news sources with seed event (Mentions layer) */
+  shared_sources?: number;
+  /** Number of exact shared articles with seed event (Mentions layer v2) */
+  shared_articles?: number;
+  /** Sample URLs of shared articles */
+  sample_urls?: string[];
+  /** Composite relevance score (0-100) for storyline ranking */
+  relevance_score?: number;
+}
+
+export interface EventStorylineData {
+  seed?: StorylineEventItem;
+  preceding: StorylineEventItem[];
+  following: StorylineEventItem[];
+  reactions: StorylineEventItem[];
+}
+
 export interface EnhancedReportResult {
   summary: string;
   key_findings: string[];
   storyline?: StorylineData;
   news_coverage?: NewsCoverageData;
   gkg_insights?: GKGInsightData;
+  actor_activity?: ActorActivityItem[];
+  event_storyline?: EventStorylineData;
   generated_at: string;
 }
 

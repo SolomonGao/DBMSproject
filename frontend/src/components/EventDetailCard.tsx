@@ -1,4 +1,5 @@
-import { Calendar, MapPin, Users, Scale, Newspaper, Link2, Fingerprint, Tag } from 'lucide-react';
+import { Calendar, MapPin, Users, Scale, Newspaper, Link2, Fingerprint, Tag, Copy, Check } from 'lucide-react';
+import { useState } from 'react';
 import type { EventItem } from '../types';
 
 interface Props {
@@ -43,6 +44,8 @@ function formatDate(dateStr?: string): string {
 }
 
 export default function EventDetailCard({ event }: Props) {
+  const [copied, setCopied] = useState(false);
+  
   // Handle both fingerprint-format (with event_data nested) and EVT-format (flat)
   const ed = event.event_data || event;
   
@@ -57,6 +60,7 @@ export default function EventDetailCard({ event }: Props) {
   const summary = event.summary;
   const eventType = event.event_type_label;
   const url = ed.SOURCEURL;
+  const globalEventId = ed.GlobalEventID;
 
   return (
     <div className="panel" style={{ padding: 24 }}>
@@ -178,7 +182,7 @@ export default function EventDetailCard({ event }: Props) {
         </div>
       )}
 
-      {/* Fingerprint & Source URL */}
+      {/* Fingerprint, Event ID & Source URL */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px', alignItems: 'center', marginTop: 8 }}>
         {fp && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -187,6 +191,32 @@ export default function EventDetailCard({ event }: Props) {
               {fp}
             </code>
           </div>
+        )}
+        {globalEventId && (
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(String(globalEventId));
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+            title="Copy Event ID to clipboard"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 11,
+              color: copied ? '#059669' : '#6b7280',
+              background: copied ? '#ecfdf5' : '#f3f4f6',
+              border: `1px solid ${copied ? '#a7f3d0' : '#e5e7eb'}`,
+              padding: '2px 8px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            {copied ? <Check size={11} /> : <Copy size={11} />}
+            ID: {globalEventId}
+          </button>
         )}
         {url && (
           <a

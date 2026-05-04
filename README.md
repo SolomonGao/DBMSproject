@@ -103,12 +103,22 @@ DBMSproject/
 │   │   │   ├── EventTimeline.tsx    # Chronological event list
 │   │   │   ├── FilterBar.tsx        # Date / location / actor / type filters
 │   │   │   ├── ExplorePanel.tsx     # AI natural language search UI
+│   │   │   ├── EventReportPanel.tsx  # Enhanced event report with storyline + GKG
+│   │   │   ├── EventStorylinePanel.tsx # Chronological event chain (BEFORE/SEED/AFTER/REACTION)
 │   │   │   ├── ForecastWorkspace.tsx # THP forecast controls
 │   │   │   └── ForecastChart.tsx    # Forecast visualization
 │   │   └── types/index.ts           # TypeScript type definitions
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── index.html
+│
+├── backend/services/
+│   ├── data_service.py              # DB wrapper for dashboard & planner
+│   ├── executor.py                  # Query plan executor
+│   ├── gkg_client.py                # Cost-controlled BigQuery client (GKG + Mentions)
+│   ├── news_scraper.py              # Web scraping for event source articles
+│   ├── storyline_builder.py         # Timeline + entity evolution builder
+│   └── thp_service.py               # Transformer-Hawkes forecast model
 │
 ├── mcp_server/                      # Optional MCP (Model Context Protocol) server
 │   └── app/
@@ -332,6 +342,7 @@ Frontend will be at `http://localhost:5173`.
 | **Distribution Charts** | Event type donut chart and top-location horizontal bar chart |
 | **Hot Headlines** | Top 5 most-reported events with severity badges and metadata |
 | **Event Timeline** | Chronological vertical timeline grouped by date (appears after search) |
+| **Event Storyline** | Chronological event chain: BEFORE → SEED → AFTER + REACTIONS, with relevance scoring |
 | **Event Detail** | Rich metadata: actors, location, Goldstein scale, tone, articles, AI-generated summary |
 | **Smart Filters** | Date range, location autocomplete, actor autocomplete, event type, keyword search |
 
@@ -361,6 +372,8 @@ Frontend will be at `http://localhost:5173`.
 |--------|----------|-------------|
 | POST | `/analyze` | Natural language → planner + executor → structured data |
 | POST | `/analyze/report` | Generate AI report from analysis results (delayed load) |
+| POST | `/analyze/event-report` | Enhanced report: storyline + actor activity + GKG insights |
+| POST | `/analyze/storyline` | Event storyline data (timeline + entities + themes) |
 
 ---
 
@@ -420,6 +433,28 @@ User Query
 | 2 | `POST /analyze/report` | Report Generator. Creates natural language summary. | ~2-5s |
 
 Stage 2 is called **lazily** by the frontend after Stage 1 data is already rendered, keeping the UI responsive.
+
+### Enhanced Event Report (`POST /analyze/event-report`)
+
+A comprehensive single-call report that includes:
+- **Executive summary** with key findings
+- **Event Storyline** — chronological chain (preceding → seed → following + reactions)
+- **Actor Activity Overview** — daily aggregated conflict/cooperation trends
+- **GKG Insights** — media themes, co-occurring entities, tone timeline (BigQuery)
+- **News Coverage** — scraped article content from SOURCEURL
+
+**Report Configuration** (user-configurable via frontend):
+
+| Option | Default | Description | Cost |
+|--------|---------|-------------|------|
+| `useGKG` | `true` | Enable GKG BigQuery queries | ~$0.005-0.01 |
+| `useStoryline` | `true` | Enable event storyline | Free |
+| `gkgToneDays` | `14` | Tone timeline window (3-14 days) | — |
+| `gkgThemesDays` | `1` | Themes query days (1-7) | — |
+| `storylineDaysBefore` | `7` | Storyline look-back (1-30 days) | — |
+| `storylineDaysAfter` | `7` | Storyline look-forward (1-30 days) | — |
+| `useGKGStorylineFilter` | `false` | GKG theme overlap for storyline precision | ~$0.09 |
+| `useMentionsStorylineFilter` | `false` | Shared-article detection for storyline | ~$0.005 |
 
 ### Supported LLM Providers
 
@@ -492,6 +527,103 @@ Heavy real-time GROUP BYs (QuadClass, ActorType) have been removed from the crit
 | `python db_scripts/check_db_status.py` | Check DB health, table sizes, index usage |
 | `python start_kb.py` | Knowledge base build daemon (watches for new data) |
 | `cd frontend && npm run build` | Build frontend for production |
+
+---
+
+## Event Storyline Precision
+
+The **Event Storyline** feature builds a chronological narrative chain around a seed event using a **three-layer precision system**:
+
+```
+SQL Layer (MySQL, Free) → GKG Layer (BigQuery, ~$0.09) → Mentions Layer (BigQuery, ~$0.005)
+```
+
+### Layer 1: SQL Precision (Always On)
+
+`query_event_storyline()` in `backend/queries/core_queries.py` filters candidates using:
+- **Same actor pair** (bidirectional: A→B or B→A)
+- **Same location** (`ActionGeo_CountryCode` or `ActionGeo_FullName`)
+- **Same QuadClass** (1-2=cooperation, 3-4=conflict)
+- **Causal CAMEO chain** — seed's `EventRootCode` maps to plausible preceding codes (e.g., `19 (Use force)` ← `01,03,04,06,07`)
+
+### Layer 2: GKG Theme Overlap (Optional)
+
+`gkg_client.score_events_by_theme_overlap()` attaches a **Jaccard similarity score** (0-1) based on shared media themes from the GKG table. Events with higher theme overlap are ranked higher.
+
+### Layer 3: Mentions Shared-Articles (Optional)
+
+`gkg_client.get_shared_mention_articles()` queries the `eventmentions_partitioned` BigQuery table to find **exact article matches** between seed and candidates:
+
+```sql
+WITH seed_articles AS (
+  SELECT MentionSourceName, MentionIdentifier
+  FROM `gdelt-bq.gdeltv2.eventmentions_partitioned`
+  WHERE GLOBALEVENTID = {seed_id}
+)
+SELECT c.GLOBALEVENTID, COUNT(*) as shared_articles
+FROM ... c
+JOIN seed_articles s ON c.MentionIdentifier = s.MentionIdentifier
+WHERE c.GLOBALEVENTID IN ({candidate_ids})
+GROUP BY c.GLOBALEVENTID
+```
+
+This is much more precise than shared-source (which only checks media outlet name).
+
+### Composite Relevance Scoring
+
+All candidates receive a **relevance_score** (0-100) computed as:
+
+| Component | Weight | Description |
+|-----------|--------|-------------|
+| Temporal proximity | 0-30 | Days from seed (exponential decay) |
+| Location match | 0-20 | Exact match = 20, partial = 12 |
+| SQL match quality | 15-25 | Base 15 + NumArticles boost |
+| GKG theme overlap | 0-15 | Jaccard × 15 |
+| Shared articles | 0-10 | Log scale: 1 article = 5pts, 5+ = 10pts |
+
+Events are **ranked by relevance_score** (not just date), so the most story-relevant events appear first.
+
+### Frontend Display
+
+Each event card shows:
+- **Relevance score badge** (red ≥70, orange ≥40, gray <40)
+- **Shared articles badge** (e.g., "3 articles")
+- **Theme overlap badge** (e.g., "theme 80%")
+- **Shared sources badge** (fallback if no exact article match)
+
+---
+
+## BigQuery GKG Integration
+
+The platform optionally integrates with **GDELT BigQuery** for media analysis:
+
+### Tables Used
+
+| Table | Purpose | Cost |
+|-------|---------|------|
+| `gdelt-bq.gdeltv2.gkg_partitioned` | Media themes, entities, tone | ~$0.003/day (566MB) |
+| `gdelt-bq.gdeltv2.eventmentions_partitioned` | Event-article mappings | ~$0.00008/query (16MB) |
+
+### Cost Controls
+
+`backend/services/gkg_client.py` enforces:
+- **Mandatory `_PARTITIONTIME` filters** — queries without partition filter are rejected
+- **Dry-run cost estimation** — every query is dry-run first; rejected if > limit
+- **Per-query byte limit** — default 1GB max per query
+- **Daily quota** — default 10GB/day per process
+- **Result caching** — 1-hour TTL to avoid duplicate costs
+
+### Environment Setup
+
+```bash
+# Service account JSON (recommended)
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+export BIGQUERY_PROJECT_ID=your-gcp-project-id
+
+# Optional limits
+export BIGQUERY_DAILY_GB_LIMIT=10
+export BIGQUERY_QUERY_TIMEOUT_SEC=30
+```
 
 ---
 

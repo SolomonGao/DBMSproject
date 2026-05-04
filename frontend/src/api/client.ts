@@ -97,7 +97,7 @@ export const api = {
     fetchJson<any>(`/api/v1/data/top-events?start=${start}&end=${end}&limit=${limit}`),
 
   // Enhanced Event Report (Reporter v2)
-  generateEventReport: (data: any, prompt?: string, includeStoryline = true, includeNews = true, includeGKG = true, llmConfig?: any) =>
+  generateEventReport: (data: any, prompt?: string, includeStoryline = true, includeNews = false, includeGKG = true, llmConfig?: any, config?: any) =>
     fetchJson<any>('/api/v1/analyze/event-report', {
       method: 'POST',
       body: JSON.stringify({
@@ -107,6 +107,7 @@ export const api = {
         include_news: includeNews,
         include_gkg: includeGKG,
         llm_config: llmConfig,
+        config,
       }),
     }),
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Calendar, MapPin, Users, ChevronDown, ChevronUp, Star } from 'lucide-react';
+import { Calendar, MapPin, Users, ChevronDown, ChevronUp, Star, ExternalLink, Hash } from 'lucide-react';
 import type { StorylineData, TimelineEventItem } from '../types';
 
 interface Props {
@@ -136,6 +136,24 @@ function TimelineNode({ event, isLast }: { event: TimelineEventItem; isLast: boo
                 {event.event_type}
               </span>
             )}
+            {event.event_id && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#9ca3af', background: '#f3f4f6', padding: '2px 8px', borderRadius: 10 }}>
+                <Hash size={10} />
+                ID: {event.event_id}
+              </span>
+            )}
+            {event.source_url && (
+              <a
+                href={event.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#2563eb', textDecoration: 'none' }}
+              >
+                <ExternalLink size={10} />
+                Source
+              </a>
+            )}
           </div>
 
           {/* Expanded details */}
@@ -179,28 +197,56 @@ function TimelineNode({ event, isLast }: { event: TimelineEventItem; isLast: boo
   );
 }
 
+function CopyableTag({ text, color = '#4b5563', bg = '#f3f4f6' }: { text: string; color?: string; bg?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+      style={{
+        fontSize: 12,
+        fontWeight: 500,
+        color: copied ? '#059669' : color,
+        background: copied ? '#ecfdf5' : bg,
+        padding: '4px 12px',
+        borderRadius: 20,
+        cursor: 'pointer',
+        userSelect: 'none',
+        transition: 'all 0.15s ease',
+        border: `1px solid ${copied ? '#a7f3d0' : 'transparent'}`,
+      }}
+      title="Click to copy"
+    >
+      {copied ? 'Copied!' : text}
+    </span>
+  );
+}
+
 export default function StorylineTimeline({ storyline }: Props) {
   const { timeline, entity_evolution, theme_evolution, narrative_arc } = storyline;
-  const [activeTab, setActiveTab] = useState<'timeline' | 'entities' | 'themes'>('timeline');
+  const [activeTab, setActiveTab] = useState<'entities' | 'themes'>('entities');
 
-  const events = timeline.events || [];
   const period = timeline.period || {};
 
   return (
     <div className="panel">
       <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1a1a1a', marginBottom: 4 }}>
-        Event Storyline
+        Context Analysis
       </h3>
-      {period.start && period.end && (
-        <p style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
-          {formatDate(period.start)} — {formatDate(period.end)}
-          {period.duration_days > 0 && ` (${period.duration_days} days)`}
-        </p>
-      )}
+      <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+        Entities, locations, and themes from similar events
+        {period.start && period.end && (
+          <span> · {formatDate(period.start)} — {formatDate(period.end)}</span>
+        )}
+      </p>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid #e2e8f0' }}>
-        {(['timeline', 'entities', 'themes'] as const).map((tab) => (
+        {(['entities', 'themes'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -221,23 +267,10 @@ export default function StorylineTimeline({ storyline }: Props) {
         ))}
       </div>
 
-      {/* Timeline Tab */}
-      {activeTab === 'timeline' && (
-        <div>
-          {events.length === 0 ? (
-            <p style={{ color: '#888', fontSize: 14 }}>No timeline events available.</p>
-          ) : (
-            events.map((event, i) => (
-              <TimelineNode key={event.event_id || i} event={event} isLast={i === events.length - 1} />
-            ))
-          )}
-        </div>
-      )}
-
       {/* Entities Tab */}
       {activeTab === 'entities' && (
         <div>
-          <h4 style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Key Actors</h4>
+          <h4 style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Key Actors <span style={{ fontWeight: 400, color: '#9ca3af' }}>(click to copy)</span></h4>
           {entity_evolution.actors.length === 0 ? (
             <p style={{ color: '#888', fontSize: 14 }}>No actor data available.</p>
           ) : (
@@ -255,8 +288,8 @@ export default function StorylineTimeline({ storyline }: Props) {
                   }}
                 >
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>{actor.name}</div>
-                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                    <CopyableTag text={actor.name} color="#1a1a1a" bg="#f8fafc" />
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
                       {actor.event_count} events · {actor.role}
                       {actor.avg_goldstein !== undefined && ` · Goldstein: ${actor.avg_goldstein}`}
                     </div>
@@ -270,7 +303,7 @@ export default function StorylineTimeline({ storyline }: Props) {
             </div>
           )}
 
-          <h4 style={{ fontSize: 13, color: '#555', marginTop: 20, marginBottom: 12 }}>Key Locations</h4>
+          <h4 style={{ fontSize: 13, color: '#555', marginTop: 20, marginBottom: 12 }}>Key Locations <span style={{ fontWeight: 400, color: '#9ca3af' }}>(click to copy)</span></h4>
           {entity_evolution.locations.length === 0 ? (
             <p style={{ color: '#888', fontSize: 14 }}>No location data available.</p>
           ) : (
@@ -288,8 +321,8 @@ export default function StorylineTimeline({ storyline }: Props) {
                   }}
                 >
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a' }}>{loc.name}</div>
-                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                    <CopyableTag text={loc.name} color="#1a1a1a" bg="#f8fafc" />
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
                       {loc.event_count} events
                     </div>
                   </div>
@@ -310,32 +343,20 @@ export default function StorylineTimeline({ storyline }: Props) {
             <p style={{ color: '#888', fontSize: 14 }}>No theme data available. GKG data may not be configured.</p>
           ) : (
             <>
-              <h4 style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Dominant Themes</h4>
+              <h4 style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Dominant Themes <span style={{ fontWeight: 400, color: '#9ca3af' }}>(click to copy)</span></h4>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
                 {theme_evolution.dominant_themes.map((t, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 500,
-                      color: '#2563eb',
-                      background: '#eff6ff',
-                      padding: '4px 12px',
-                      borderRadius: 20,
-                    }}
-                  >
-                    {t.theme} ({t.count})
-                  </span>
+                  <CopyableTag key={i} text={t.theme} color="#2563eb" bg="#eff6ff" />
                 ))}
               </div>
 
               {theme_evolution.emerging_themes.length > 0 && (
                 <>
-                  <h4 style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Emerging Themes</h4>
+                  <h4 style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Emerging Themes <span style={{ fontWeight: 400, color: '#9ca3af' }}>(click to copy)</span></h4>
                   <div style={{ display: 'grid', gap: 8, marginBottom: 20 }}>
                     {theme_evolution.emerging_themes.slice(0, 5).map((t, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: '#f0fdf4', borderRadius: 8 }}>
-                        <span style={{ fontSize: 13, color: '#166534' }}>{t.theme}</span>
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f0fdf4', borderRadius: 8 }}>
+                        <CopyableTag text={t.theme} color="#166534" bg="#f0fdf4" />
                         <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>+{t.growth_ratio}x</span>
                       </div>
                     ))}
@@ -345,11 +366,11 @@ export default function StorylineTimeline({ storyline }: Props) {
 
               {theme_evolution.declining_themes.length > 0 && (
                 <>
-                  <h4 style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Declining Themes</h4>
+                  <h4 style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Declining Themes <span style={{ fontWeight: 400, color: '#9ca3af' }}>(click to copy)</span></h4>
                   <div style={{ display: 'grid', gap: 8 }}>
                     {theme_evolution.declining_themes.slice(0, 5).map((t, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: '#fef2f2', borderRadius: 8 }}>
-                        <span style={{ fontSize: 13, color: '#991b1b' }}>{t.theme}</span>
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#fef2f2', borderRadius: 8 }}>
+                        <CopyableTag text={t.theme} color="#991b1b" bg="#fef2f2" />
                         <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>-{t.decline_ratio}x</span>
                       </div>
                     ))}

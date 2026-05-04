@@ -23,10 +23,18 @@ Environment variables:
 import os
 import time
 import hashlib
+import json
 import asyncio
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+# Optional: aiohttp for Ollama entity mapping
+aiohttp = None
+try:
+    import aiohttp
+except ImportError:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -518,6 +526,7 @@ class GKGClient:
                 "message": f"Date range {days} days exceeds 7-day limit for theme queries. Please narrow.",
             }
 
+        search_condition = await _build_entity_search_condition(entity_name)
         sql = f"""
         SELECT
           DATE(_PARTITIONTIME) as date,
@@ -526,7 +535,7 @@ class GKGClient:
         FROM `{GKG_PARTITIONED_TABLE}`
         WHERE _PARTITIONTIME >= TIMESTAMP('{start}')
           AND _PARTITIONTIME < TIMESTAMP('{end_exclusive}')
-          AND (V2Persons LIKE '%{entity_name}%' OR V2Orgs LIKE '%{entity_name}%')
+          AND ({search_condition})
         LIMIT {limit}
         """
 
@@ -549,15 +558,16 @@ class GKGClient:
         """
         next_day = (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
 
+        search_condition = await _build_entity_search_condition(entity_name)
         sql = f"""
         SELECT
           V2Persons,
-          V2Orgs,
+          V2Organizations,
           V2Themes
         FROM `{GKG_PARTITIONED_TABLE}`
         WHERE _PARTITIONTIME >= TIMESTAMP('{date}')
           AND _PARTITIONTIME < TIMESTAMP('{next_day}')
-          AND (V2Persons LIKE '%{entity_name}%' OR V2Orgs LIKE '%{entity_name}%')
+          AND ({search_condition})
         LIMIT {limit}
         """
 
@@ -567,7 +577,8 @@ class GKGClient:
 
         # Parse co-occurring entities
         rows = result.get("data", [])
-        cooccurring = _parse_cooccurring_entities(rows, entity_name)
+        entity_variants = await _normalize_actor_name(entity_name)
+        cooccurring = _parse_cooccurring_entities(rows, entity_name, entity_variants)
         result["cooccurring_entities"] = cooccurring
         return result
 
@@ -590,6 +601,7 @@ class GKGClient:
                 "message": f"Date range {days} days exceeds 14-day limit for tone queries.",
             }
 
+        search_condition = await _build_entity_search_condition(entity_name)
         sql = f"""
         SELECT
           DATE(_PARTITIONTIME) as date,
@@ -598,12 +610,175 @@ class GKGClient:
         FROM `{GKG_PARTITIONED_TABLE}`
         WHERE _PARTITIONTIME >= TIMESTAMP('{start}')
           AND _PARTITIONTIME < TIMESTAMP('{end_exclusive}')
-          AND (V2Persons LIKE '%{entity_name}%' OR V2Orgs LIKE '%{entity_name}%')
+          AND ({search_condition})
         GROUP BY date
         ORDER BY date
         """
 
         return await self.query(sql, max_bytes=1_000_000_000)
+
+    # -- Storyline Precision: GKG Theme Overlap --
+
+    async def score_events_by_theme_overlap(
+        self,
+        seed_actor: str,
+        seed_date: str,
+        candidate_events: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Attach theme_overlap score to each candidate event (soft scoring, no filtering).
+        
+        Unlike filter_events_by_theme_overlap, this keeps ALL events and just
+        attaches a score for downstream ranking.
+        """
+        if not self.available or not candidate_events:
+            return candidate_events
+        
+        # 1. Get seed themes
+        seed_themes_result = await self.get_entity_themes(
+            seed_actor, (seed_date, seed_date), limit=100
+        )
+        if seed_themes_result.get("error"):
+            print(f"[GKG] Seed theme query failed: {seed_themes_result.get('message')}", flush=True)
+            return candidate_events
+        
+        seed_themes = set()
+        for t in seed_themes_result.get("parsed_themes", {}).get("top_themes", []):
+            seed_themes.add(t["theme"])
+        
+        if not seed_themes:
+            return candidate_events
+        
+        # 2. Batch candidates by date to minimize queries
+        from collections import defaultdict
+        date_to_events = defaultdict(list)
+        for evt in candidate_events:
+            date_to_events[evt.get("SQLDATE")].append(evt)
+        
+        # 3. Query themes for each unique date
+        date_themes = {}
+        for date_str in date_to_events:
+            result = await self.get_entity_themes(
+                seed_actor, (date_str, date_str), limit=100
+            )
+            if not result.get("error"):
+                themes = set()
+                for t in result.get("parsed_themes", {}).get("top_themes", []):
+                    themes.add(t["theme"])
+                date_themes[date_str] = themes
+        
+        # 4. Attach overlap score to ALL events (no filtering)
+        for evt in candidate_events:
+            evt_themes = date_themes.get(evt.get("SQLDATE"), set())
+            if evt_themes:
+                intersection = seed_themes & evt_themes
+                union = seed_themes | evt_themes
+                overlap = len(intersection) / len(union) if union else 0
+                evt["theme_overlap"] = round(overlap, 3)
+                evt["shared_themes"] = list(intersection)[:5]
+            else:
+                evt["theme_overlap"] = 0.0
+                evt["shared_themes"] = []
+        
+        return candidate_events
+
+    # -- Legacy filter (kept for backward compat) --
+
+    async def filter_events_by_theme_overlap(
+        self,
+        seed_actor: str,
+        seed_date: str,
+        candidate_events: List[Dict[str, Any]],
+        min_overlap_ratio: float = 0.15,
+    ) -> List[Dict[str, Any]]:
+        """Legacy: hard-filter by theme overlap. Use score_events_by_theme_overlap for ranking."""
+        scored = await self.score_events_by_theme_overlap(seed_actor, seed_date, candidate_events)
+        return [e for e in scored if e.get("theme_overlap", 0) >= min_overlap_ratio]
+
+    # -- Storyline Precision: Mentions Shared-Articles (same article) --
+
+    async def get_shared_mention_articles(
+        self,
+        seed_event_id: int,
+        candidate_event_ids: List[int],
+        date_range: Tuple[str, str],
+    ) -> Dict[int, Dict[str, Any]]:
+        """Find shared ARTICLES (not just sources) between seed and each candidate.
+        
+        This is much more precise than shared-source: two events appearing in the
+        exact same article are almost certainly part of the same story.
+        
+        Returns per-candidate:
+            - shared_articles: count of exact article matches
+            - shared_article_urls: list of shared MentionIdentifiers (URLs)
+            - shared_sources: count of distinct source names
+        """
+        if not self.available or not candidate_event_ids:
+            return {}
+        
+        start, end = date_range
+        end_dt = datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)
+        end_exclusive = end_dt.strftime("%Y-%m-%d")
+        
+        id_list = ','.join(str(gid) for gid in candidate_event_ids)
+        
+        sql = f"""
+        WITH seed_articles AS (
+          SELECT MentionSourceName, MentionIdentifier
+          FROM `gdelt-bq.gdeltv2.eventmentions_partitioned`
+          WHERE _PARTITIONTIME >= TIMESTAMP('{start}')
+            AND _PARTITIONTIME < TIMESTAMP('{end_exclusive}')
+            AND GLOBALEVENTID = {seed_event_id}
+        )
+        SELECT
+          c.GLOBALEVENTID as event_id,
+          COUNT(*) as shared_articles,
+          COUNT(DISTINCT c.MentionSourceName) as shared_sources,
+          ARRAY_AGG(DISTINCT c.MentionIdentifier LIMIT 5) as sample_urls
+        FROM `gdelt-bq.gdeltv2.eventmentions_partitioned` c
+        JOIN seed_articles s
+          ON c.MentionSourceName = s.MentionSourceName
+          AND c.MentionIdentifier = s.MentionIdentifier
+        WHERE c._PARTITIONTIME >= TIMESTAMP('{start}')
+          AND c._PARTITIONTIME < TIMESTAMP('{end_exclusive}')
+          AND c.GLOBALEVENTID IN ({id_list})
+          AND c.GLOBALEVENTID != {seed_event_id}
+        GROUP BY c.GLOBALEVENTID
+        """
+        
+        result = await self.query(sql, max_bytes=500_000_000)
+        if result.get("error"):
+            print(f"[GKG] Shared-articles query failed: {result.get('message')}", flush=True)
+            return {}
+        
+        shared = {}
+        for row in result.get("data", []):
+            evt_id = int(row["event_id"])
+            shared[evt_id] = {
+                "shared_articles": int(row["shared_articles"]),
+                "shared_sources": int(row["shared_sources"]),
+                "sample_urls": row.get("sample_urls", []),
+            }
+        
+        print(
+            f"[GKG] Shared articles: seed={seed_event_id}, "
+            f"found matches for {len(shared)}/{len(candidate_event_ids)} candidates",
+            flush=True,
+        )
+        return shared
+
+    # -- Legacy: shared sources only (kept for backward compat) --
+
+    async def get_shared_mention_sources(
+        self,
+        seed_event_id: int,
+        candidate_event_ids: List[int],
+        date_range: Tuple[str, str],
+    ) -> Dict[int, int]:
+        """Legacy: returns only shared source counts."""
+        result = await self.get_shared_mention_articles(
+            seed_event_id, candidate_event_ids, date_range
+        )
+        return {k: v["shared_sources"] for k, v in result.items()}
 
     # -- Stats --
 
@@ -678,8 +853,116 @@ def _parse_gkg_themes(rows: List[Dict]) -> Dict[str, Any]:
     }
 
 
-def _parse_cooccurring_entities(rows: List[Dict], target_entity: str) -> Dict[str, Any]:
-    """Parse V2Persons and V2Orgs to find co-occurring entities."""
+async def _normalize_actor_name(actor_name: str) -> List[str]:
+    """Normalize GDELT Events actor name to GKG entity search terms via Ollama LLM.
+    
+    Uses qwen2.5:3b to dynamically map any actor code to natural language
+    entity names. Falls back to basic heuristics if Ollama is unavailable.
+    
+    Examples:
+        ISRAELI -> ["Israel", "Israeli", "Army Israeli", "Israel Defense Forces"]
+        BIDEN -> ["Biden", "Joe Biden", "Joseph Biden"]
+        REGIME -> ["Regime", "Government", "Administration"]
+        GOV -> ["Government", "Administration", "State"]
+    """
+    if not actor_name:
+        return []
+    
+    name = actor_name.strip()
+    upper = name.upper()
+    
+    # Check cache first
+    cache_key = f"entity_map:{upper}"
+    cached = _gkg_cache.get(cache_key, ())
+    if cached is not None:
+        return cached
+    
+    # Build Ollama prompt
+    prompt = (
+        "You are a GDELT entity translator. Convert actor codes to natural language names.\n"
+        "Output ONLY a JSON array of strings. No explanation.\n\n"
+        'ISRAELI -> ["Israel","Israeli","Army Israeli","Israel Defense Forces"]\n'
+        'BIDEN -> ["Biden","Joe Biden","Joseph Biden"]\n'
+        'GOV -> ["Government","Administration","State"]\n'
+        'REGIME -> ["Regime","Government","Administration"]\n'
+        'TALIBAN -> ["Taliban","Afghan Taliban","Islamic Emirate"]\n'
+        'POLICE -> ["Police","Law Enforcement","Security Forces"]\n'
+        'USA -> ["United States","America","American","US"]\n'
+        'CHINESE -> ["China","Chinese","People Republic Of China"]\n'
+        f"{name} ->"
+    )
+    
+    # Call Ollama
+    ollama_url = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434")
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": "qwen2.5:3b",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.05, "num_predict": 80, "top_p": 0.9},
+                },
+                timeout=aiohttp.ClientTimeout(total=3.0),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    text = data.get("response", "").strip()
+                    start = text.find("[")
+                    end = text.rfind("]")
+                    if start >= 0 and end > start:
+                        try:
+                            variants = json.loads(text[start:end+1])
+                            if isinstance(variants, list):
+                                result = [str(v).strip() for v in variants if v]
+                                result = list(dict.fromkeys(result + [name, name.title()]))
+                                _gkg_cache.set(cache_key, (), result)
+                                return result
+                        except json.JSONDecodeError:
+                            pass
+    except Exception:
+        pass
+    
+    # Fallback: basic heuristics
+    variants = {name, name.title()}
+    if upper.endswith("AN") and len(upper) > 4:
+        root = name[:-2]
+        variants.add(root + "a")
+    if upper.endswith("ISH") and len(upper) > 5:
+        root = name[:-3]
+        variants.add(root + "ain")
+    if upper.endswith("ESE") and len(upper) > 5:
+        variants.add(name[:-3])
+    if upper.endswith("IAN") and len(upper) > 5:
+        variants.add(name[:-3] + "a")
+    if upper.endswith("I") and len(upper) > 3:
+        variants.add(name[:-1])
+    
+    result = list(variants)
+    _gkg_cache.set(cache_key, (), result)
+    return result
+
+
+async def _build_entity_search_condition(entity_name: str) -> str:
+    """Build SQL LIKE conditions for entity search with multiple variants."""
+    variants = await _normalize_actor_name(entity_name)
+    if not variants:
+        return "1=0"  # Always false
+    
+    conditions = []
+    for v in variants:
+        # Escape single quotes
+        safe = v.replace("'", "\\'")
+        conditions.append(f"V2Persons LIKE '%{safe}%'")
+        conditions.append(f"V2Organizations LIKE '%{safe}%'")
+    
+    return " OR ".join(conditions)
+
+
+def _parse_cooccurring_entities(rows: List[Dict], target_entity: str, entity_variants: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Parse V2Persons and V2Organizations to find co-occurring entities."""
     from collections import Counter
 
     persons = Counter()
@@ -687,6 +970,9 @@ def _parse_cooccurring_entities(rows: List[Dict], target_entity: str) -> Dict[st
     themes = Counter()
 
     target_lower = target_entity.lower()
+    # Use provided variants or just the entity name itself
+    target_variants = {v.lower() for v in (entity_variants or [target_entity])}
+    target_variants.add(target_lower)
 
     for row in rows:
         # Parse persons
@@ -696,18 +982,23 @@ def _parse_cooccurring_entities(rows: List[Dict], target_entity: str) -> Dict[st
                 if not entry:
                     continue
                 name = entry.split(",")[0].strip()
-                if name and target_lower not in name.lower():
-                    persons[name] += 1
+                if name:
+                    name_lower = name.lower()
+                    # Skip if name contains any target variant
+                    if not any(tv in name_lower for tv in target_variants):
+                        persons[name] += 1
 
-        # Parse orgs
-        orgs_str = row.get("V2Orgs", "")
+        # Parse organizations
+        orgs_str = row.get("V2Organizations", "")
         if orgs_str:
             for entry in orgs_str.split(";"):
                 if not entry:
                     continue
                 name = entry.split(",")[0].strip()
-                if name and target_lower not in name.lower():
-                    orgs[name] += 1
+                if name:
+                    name_lower = name.lower()
+                    if not any(tv in name_lower for tv in target_variants):
+                        orgs[name] += 1
 
         # Parse themes
         themes_str = row.get("V2Themes", "")

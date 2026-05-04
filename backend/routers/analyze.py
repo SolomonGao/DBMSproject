@@ -154,12 +154,14 @@ async def generate_event_report(request: EventReportRequest):
 
     try:
         reporter = get_enhanced_reporter(llm_config)
+        config = request.config.model_dump() if request.config else None
         result = await reporter.generate_event_report(
             data=request.data,
             prompt=request.prompt,
             include_storyline=request.include_storyline,
             include_news=request.include_news,
             include_gkg=request.include_gkg,
+            config=config,
         )
 
         t_report = round((time.time() - t0) * 1000, 1)
@@ -172,6 +174,8 @@ async def generate_event_report(request: EventReportRequest):
                 storyline=result.storyline,
                 news_coverage=result.news_coverage,
                 gkg_insights=result.gkg_insights,
+                actor_activity=result.actor_activity or [],
+                event_storyline=result.event_storyline,
                 generated_at=result.generated_at,
             ),
             elapsed_ms=t_report,
@@ -222,12 +226,13 @@ async def get_storyline(request: StorylineRequest):
             actor = ed.get("Actor1Name")
             if date and actor:
                 try:
-                    from datetime import datetime, timedelta
-                    end_dt = datetime.strptime(date, "%Y-%m-%d") + timedelta(days=2)
-                    end_date = end_dt.strftime("%Y-%m-%d")
-                    gkg_result = await gkg_client.get_entity_themes(actor, (date, end_date), limit=50)
+                    # Use single-day query to stay under 1GB cost limit
+                    # GKG scans ~470MB/day, so 1 day is safe
+                    gkg_result = await gkg_client.get_entity_themes(actor, (date, date), limit=50)
                     if not gkg_result.get("error"):
                         gkg_themes = gkg_result.get("parsed_themes")
+                    else:
+                        print(f"[Storyline] GKG themes: {gkg_result.get('message')}", flush=True)
                 except Exception as e:
                     print(f"[Storyline] GKG fetch failed: {e}", flush=True)
 
