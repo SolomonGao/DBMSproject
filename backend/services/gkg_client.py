@@ -619,32 +619,19 @@ class GKGClient:
 
     # -- Storyline Precision: GKG Theme Overlap --
 
-    async def filter_events_by_theme_overlap(
+    async def score_events_by_theme_overlap(
         self,
         seed_actor: str,
         seed_date: str,
         candidate_events: List[Dict[str, Any]],
-        min_overlap_ratio: float = 0.15,
     ) -> List[Dict[str, Any]]:
-        """Filter candidate events by GKG theme overlap with seed event.
+        """Attach theme_overlap score to each candidate event (soft scoring, no filtering).
         
-        Events that share media themes with the seed are more likely to be
-        part of the same narrative. Uses Jaccard similarity on GKG themes.
-        
-        Args:
-            seed_actor: Primary actor of seed event
-            seed_date: Date of seed event (YYYY-MM-DD)
-            candidate_events: List of event dicts with Actor1Name, SQLDATE
-            min_overlap_ratio: Minimum Jaccard overlap to keep event
-            
-        Returns:
-            Filtered list of candidate events (may be empty)
+        Unlike filter_events_by_theme_overlap, this keeps ALL events and just
+        attaches a score for downstream ranking.
         """
-        if not self.available:
+        if not self.available or not candidate_events:
             return candidate_events
-        
-        if not candidate_events:
-            return []
         
         # 1. Get seed themes
         seed_themes_result = await self.get_entity_themes(
@@ -667,7 +654,7 @@ class GKGClient:
         for evt in candidate_events:
             date_to_events[evt.get("SQLDATE")].append(evt)
         
-        # 3. Query themes for each unique date (using seed actor for consistency)
+        # 3. Query themes for each unique date
         date_themes = {}
         for date_str in date_to_events:
             result = await self.get_entity_themes(
@@ -679,52 +666,51 @@ class GKGClient:
                     themes.add(t["theme"])
                 date_themes[date_str] = themes
         
-        # 4. Filter by overlap
-        filtered = []
+        # 4. Attach overlap score to ALL events (no filtering)
         for evt in candidate_events:
             evt_themes = date_themes.get(evt.get("SQLDATE"), set())
-            if not evt_themes:
-                # No theme data → keep event (soft filter)
-                filtered.append(evt)
-                continue
-            
-            intersection = seed_themes & evt_themes
-            union = seed_themes | evt_themes
-            overlap = len(intersection) / len(union) if union else 0
-            
-            evt["theme_overlap"] = round(overlap, 3)
-            evt["shared_themes"] = list(intersection)[:5]
-            
-            if overlap >= min_overlap_ratio:
-                filtered.append(evt)
+            if evt_themes:
+                intersection = seed_themes & evt_themes
+                union = seed_themes | evt_themes
+                overlap = len(intersection) / len(union) if union else 0
+                evt["theme_overlap"] = round(overlap, 3)
+                evt["shared_themes"] = list(intersection)[:5]
+            else:
+                evt["theme_overlap"] = 0.0
+                evt["shared_themes"] = []
         
-        print(
-            f"[GKG] Theme filter: {len(candidate_events)} → {len(filtered)} "
-            f"(min_overlap={min_overlap_ratio})",
-            flush=True,
-        )
-        return filtered
+        return candidate_events
 
-    # -- Storyline Precision: Mentions Shared-Source --
+    # -- Legacy filter (kept for backward compat) --
 
-    async def get_shared_mention_sources(
+    async def filter_events_by_theme_overlap(
+        self,
+        seed_actor: str,
+        seed_date: str,
+        candidate_events: List[Dict[str, Any]],
+        min_overlap_ratio: float = 0.15,
+    ) -> List[Dict[str, Any]]:
+        """Legacy: hard-filter by theme overlap. Use score_events_by_theme_overlap for ranking."""
+        scored = await self.score_events_by_theme_overlap(seed_actor, seed_date, candidate_events)
+        return [e for e in scored if e.get("theme_overlap", 0) >= min_overlap_ratio]
+
+    # -- Storyline Precision: Mentions Shared-Articles (same article) --
+
+    async def get_shared_mention_articles(
         self,
         seed_event_id: int,
         candidate_event_ids: List[int],
         date_range: Tuple[str, str],
-    ) -> Dict[int, int]:
-        """Find how many news sources are shared between seed and each candidate.
+    ) -> Dict[int, Dict[str, Any]]:
+        """Find shared ARTICLES (not just sources) between seed and each candidate.
         
-        Events that appear in the same news articles as the seed are highly
-        likely to be part of the same story.
+        This is much more precise than shared-source: two events appearing in the
+        exact same article are almost certainly part of the same story.
         
-        Args:
-            seed_event_id: GlobalEventID of seed event
-            candidate_event_ids: List of candidate GlobalEventIDs
-            date_range: (start_date, end_date) to search mentions
-            
-        Returns:
-            Dict mapping event_id → shared_source_count
+        Returns per-candidate:
+            - shared_articles: count of exact article matches
+            - shared_article_urls: list of shared MentionIdentifiers (URLs)
+            - shared_sources: count of distinct source names
         """
         if not self.available or not candidate_event_ids:
             return {}
@@ -733,11 +719,10 @@ class GKGClient:
         end_dt = datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)
         end_exclusive = end_dt.strftime("%Y-%m-%d")
         
-        # Build IN clause for candidate IDs
         id_list = ','.join(str(gid) for gid in candidate_event_ids)
         
         sql = f"""
-        WITH seed_sources AS (
+        WITH seed_articles AS (
           SELECT MentionSourceName, MentionIdentifier
           FROM `gdelt-bq.gdeltv2.eventmentions_partitioned`
           WHERE _PARTITIONTIME >= TIMESTAMP('{start}')
@@ -746,9 +731,11 @@ class GKGClient:
         )
         SELECT
           c.GLOBALEVENTID as event_id,
-          COUNT(*) as shared_sources
+          COUNT(*) as shared_articles,
+          COUNT(DISTINCT c.MentionSourceName) as shared_sources,
+          ARRAY_AGG(DISTINCT c.MentionIdentifier LIMIT 5) as sample_urls
         FROM `gdelt-bq.gdeltv2.eventmentions_partitioned` c
-        JOIN seed_sources s
+        JOIN seed_articles s
           ON c.MentionSourceName = s.MentionSourceName
           AND c.MentionIdentifier = s.MentionIdentifier
         WHERE c._PARTITIONTIME >= TIMESTAMP('{start}')
@@ -760,19 +747,38 @@ class GKGClient:
         
         result = await self.query(sql, max_bytes=500_000_000)
         if result.get("error"):
-            print(f"[GKG] Mentions query failed: {result.get('message')}", flush=True)
+            print(f"[GKG] Shared-articles query failed: {result.get('message')}", flush=True)
             return {}
         
         shared = {}
         for row in result.get("data", []):
-            shared[int(row["event_id"])] = int(row["shared_sources"])
+            evt_id = int(row["event_id"])
+            shared[evt_id] = {
+                "shared_articles": int(row["shared_articles"]),
+                "shared_sources": int(row["shared_sources"]),
+                "sample_urls": row.get("sample_urls", []),
+            }
         
         print(
-            f"[GKG] Shared sources: seed={seed_event_id}, "
+            f"[GKG] Shared articles: seed={seed_event_id}, "
             f"found matches for {len(shared)}/{len(candidate_event_ids)} candidates",
             flush=True,
         )
         return shared
+
+    # -- Legacy: shared sources only (kept for backward compat) --
+
+    async def get_shared_mention_sources(
+        self,
+        seed_event_id: int,
+        candidate_event_ids: List[int],
+        date_range: Tuple[str, str],
+    ) -> Dict[int, int]:
+        """Legacy: returns only shared source counts."""
+        result = await self.get_shared_mention_articles(
+            seed_event_id, candidate_event_ids, date_range
+        )
+        return {k: v["shared_sources"] for k, v in result.items()}
 
     # -- Stats --
 

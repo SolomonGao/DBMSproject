@@ -156,6 +156,36 @@ function EventCard({ event, type }: { event: StorylineEventItem; type: 'seed' | 
             {event.GlobalEventID && (
               <CopyableText text={String(event.GlobalEventID)} icon={Hash} />
             )}
+            {event.relevance_score !== undefined && (
+              <span
+                title={`Relevance score: ${event.relevance_score.toFixed(1)}/100`}
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: event.relevance_score >= 70 ? '#dc2626' : event.relevance_score >= 40 ? '#d97706' : '#6b7280',
+                  background: event.relevance_score >= 70 ? '#fef2f2' : event.relevance_score >= 40 ? '#fffbeb' : '#f9fafb',
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                }}
+              >
+                {event.relevance_score.toFixed(0)} pts
+              </span>
+            )}
+            {event.shared_articles !== undefined && event.shared_articles > 0 && (
+              <span
+                title={`${event.shared_articles} shared article${event.shared_articles > 1 ? 's' : ''}`}
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: '#dc2626',
+                  background: '#fef2f2',
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                }}
+              >
+                {event.shared_articles} article{event.shared_articles > 1 ? 's' : ''}
+              </span>
+            )}
             {event.theme_overlap !== undefined && event.theme_overlap > 0 && (
               <span
                 title={`Theme overlap: ${(event.theme_overlap * 100).toFixed(0)}%`}
@@ -171,7 +201,7 @@ function EventCard({ event, type }: { event: StorylineEventItem; type: 'seed' | 
                 theme {(event.theme_overlap * 100).toFixed(0)}%
               </span>
             )}
-            {event.shared_sources !== undefined && event.shared_sources > 0 && (
+            {event.shared_sources !== undefined && event.shared_sources > 0 && event.shared_articles === 0 && (
               <span
                 title={`${event.shared_sources} shared news source${event.shared_sources > 1 ? 's' : ''}`}
                 style={{
@@ -183,7 +213,7 @@ function EventCard({ event, type }: { event: StorylineEventItem; type: 'seed' | 
                   borderRadius: 4,
                 }}
               >
-                {event.shared_sources} shared source{event.shared_sources > 1 ? 's' : ''}
+                {event.shared_sources} source{event.shared_sources > 1 ? 's' : ''}
               </span>
             )}
           </div>

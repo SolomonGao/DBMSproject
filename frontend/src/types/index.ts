@@ -245,6 +245,12 @@ export interface StorylineEventItem {
   shared_themes?: string[];
   /** Number of shared news sources with seed event (Mentions layer) */
   shared_sources?: number;
+  /** Number of exact shared articles with seed event (Mentions layer v2) */
+  shared_articles?: number;
+  /** Sample URLs of shared articles */
+  sample_urls?: string[];
+  /** Composite relevance score (0-100) for storyline ranking */
+  relevance_score?: number;
 }
 
 export interface EventStorylineData {

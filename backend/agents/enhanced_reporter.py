@@ -27,6 +27,88 @@ from backend.queries.core_queries import (
 
 
 # ---------------------------------------------------------------------------
+# Storyline Relevance Scoring
+# ---------------------------------------------------------------------------
+
+def _compute_storyline_relevance(
+    evt: Dict[str, Any],
+    seed_dt,
+    seed_location: Optional[str],
+    has_gkg: bool,
+    has_mentions: bool,
+) -> float:
+    """Compute composite relevance score for a candidate event.
+    
+    Score components (0-100 scale):
+    - Temporal proximity: closer to seed date = higher (max 30)
+    - Location match: same country/region = higher (max 20)
+    - SQL match quality: actor pair match, QuadClass match (max 25)
+    - GKG theme overlap: Jaccard similarity (max 15)
+    - Mentions shared articles: same-article count (max 10)
+    """
+    score = 0.0
+    
+    # 1. Temporal proximity (0-30)
+    evt_date_str = evt.get("SQLDATE", "")
+    if evt_date_str:
+        try:
+            from datetime import datetime
+            evt_dt = datetime.strptime(evt_date_str, "%Y-%m-%d")
+            days_diff = abs((evt_dt - seed_dt).days)
+            # Exponential decay: same day = 30, 7 days = 15, 30 days = 5
+            temporal = 30 * (0.85 ** days_diff)
+            score += min(temporal, 30)
+        except Exception:
+            score += 15  # Default if date parse fails
+    else:
+        score += 10
+    
+    # 2. Location match (0-20)
+    evt_loc = evt.get("ActionGeo_CountryCode") or evt.get("ActionGeo_FullName")
+    if seed_location and evt_loc:
+        if seed_location == evt_loc:
+            score += 20
+        elif seed_location in str(evt_loc) or str(evt_loc) in seed_location:
+            score += 12
+        else:
+            score += 5
+    else:
+        score += 5
+    
+    # 3. SQL match quality (0-25)
+    # Already filtered by SQL layer, but we can boost for stronger matches
+    score += 15  # Base: passed all SQL filters
+    
+    # Boost for high NumArticles (more significant events)
+    num_articles = evt.get("NumArticles", 0)
+    if num_articles and num_articles > 10:
+        score += min(num_articles / 10, 10)
+    
+    # 4. GKG theme overlap (0-15)
+    if has_gkg:
+        overlap = evt.get("theme_overlap", 0)
+        if overlap > 0:
+            score += 15 * overlap  # 0.15 overlap = 2.25 pts, 1.0 = 15 pts
+        else:
+            score += 3  # Small penalty for no theme data
+    
+    # 5. Mentions shared articles (0-10)
+    if has_mentions:
+        shared_articles = evt.get("shared_articles", 0)
+        shared_sources = evt.get("shared_sources", 0)
+        if shared_articles > 0:
+            # Log scale: 1 article = 5 pts, 5+ = 10 pts
+            import math
+            score += min(5 + 5 * math.log1p(shared_articles) / math.log1p(5), 10)
+        elif shared_sources > 0:
+            score += min(2 * shared_sources, 5)  # Shared source only = partial credit
+        else:
+            score += 1  # Small penalty for no mention data
+    
+    return score
+
+
+# ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
 
@@ -253,16 +335,18 @@ class EnhancedReportGenerator(ReportGenerator):
     ) -> Optional[Dict[str, Any]]:
         """Fetch true event storyline: preceding → seed → following + reactions.
         
-        Three-layer precision:
+        Three-layer precision with unified relevance scoring:
         1. SQL: location + QuadClass + causal CAMEO chain (always on, free)
         2. GKG: theme overlap filtering (optional, ~$0.09)
-        3. Mentions: shared news source detection (optional, ~$0.005)
+        3. Mentions: shared ARTICLE detection (optional, ~$0.005)
+        
+        Final output is RANKED by composite relevance score, not just date.
         
         Args:
             days_before: Days to look back for preceding events
             days_after: Days to look forward for following events
             use_gkg_filter: Enable GKG theme overlap filtering
-            use_mentions_filter: Enable Mentions shared-source detection
+            use_mentions_filter: Enable Mentions shared-article detection
         """
         from backend.database.pool import get_db_pool
         
@@ -274,6 +358,7 @@ class EnhancedReportGenerator(ReportGenerator):
         seed_event_id = ed.get("GlobalEventID") or primary_event.get("GlobalEventID")
         seed_actor = ed.get("Actor1Name") or primary_event.get("Actor1Name")
         seed_date = ed.get("SQLDATE") or primary_event.get("SQLDATE")
+        seed_location = ed.get("ActionGeo_CountryCode") or ed.get("ActionGeo_FullName")
         
         if not seed_event_id:
             return None
@@ -295,51 +380,79 @@ class EnhancedReportGenerator(ReportGenerator):
                         code = item.get("EventCode")
                         item["cameo_name"] = get_cameo_description(code) if code else "Unknown event"
             
-            # --- Layer 2: GKG Theme Overlap Filter ---
+            # Collect all candidates for scoring
+            all_candidates = []
+            for phase in ("preceding", "following", "reactions"):
+                all_candidates.extend(storyline.get(phase, []))
+            
+            # --- Layer 2: GKG Theme Overlap (soft: attach score, don't filter) ---
             if use_gkg_filter and self._gkg.available and seed_actor and seed_date:
                 try:
                     for phase in ("preceding", "following"):
                         candidates = storyline.get(phase, [])
                         if candidates:
-                            filtered = await self._gkg.filter_events_by_theme_overlap(
-                                seed_actor, seed_date, candidates, min_overlap_ratio=0.15
+                            scored = await self._gkg.score_events_by_theme_overlap(
+                                seed_actor, seed_date, candidates
                             )
-                            storyline[phase] = filtered
+                            storyline[phase] = scored
                 except Exception as e:
-                    print(f"[EnhancedReporter] GKG theme filter failed: {e}", flush=True)
+                    print(f"[EnhancedReporter] GKG theme scoring failed: {e}", flush=True)
             
-            # --- Layer 3: Mentions Shared-Source Detection ---
+            # --- Layer 3: Mentions Shared-Article Detection ---
             if use_mentions_filter and self._gkg.available and seed_date:
                 try:
-                    all_candidates = storyline.get("preceding", []) + storyline.get("following", [])
-                    if all_candidates:
-                        candidate_ids = [e.get("GlobalEventID") for e in all_candidates if e.get("GlobalEventID")]
-                        if candidate_ids:
-                            from datetime import datetime, timedelta
-                            center = datetime.strptime(seed_date, "%Y-%m-%d")
-                            start = (center - timedelta(days=days_before)).strftime("%Y-%m-%d")
-                            end = (center + timedelta(days=days_after)).strftime("%Y-%m-%d")
-                            
-                            shared_counts = await self._gkg.get_shared_mention_sources(
-                                int(seed_event_id), candidate_ids, (start, end)
-                            )
-                            
-                            # Attach shared source count to each event
-                            for evt in all_candidates:
-                                gid = evt.get("GlobalEventID")
-                                evt["shared_sources"] = shared_counts.get(int(gid), 0) if gid else 0
-                            
-                            # Re-sort preceding/following: primary by date, secondary by shared_sources
-                            storyline["preceding"].sort(
-                                key=lambda e: (e.get("SQLDATE", ""), e.get("shared_sources", 0)),
-                                reverse=False,
-                            )
-                            storyline["following"].sort(
-                                key=lambda e: (e.get("SQLDATE", ""), e.get("shared_sources", 0)),
-                                reverse=False,
-                            )
+                    candidate_ids = [
+                        e.get("GlobalEventID") for e in all_candidates if e.get("GlobalEventID")
+                    ]
+                    if candidate_ids:
+                        from datetime import datetime, timedelta
+                        center = datetime.strptime(seed_date, "%Y-%m-%d")
+                        start = (center - timedelta(days=days_before)).strftime("%Y-%m-%d")
+                        end = (center + timedelta(days=days_after)).strftime("%Y-%m-%d")
+                        
+                        article_data = await self._gkg.get_shared_mention_articles(
+                            int(seed_event_id), candidate_ids, (start, end)
+                        )
+                        
+                        # Attach shared article data to each event
+                        for evt in all_candidates:
+                            gid = evt.get("GlobalEventID")
+                            if gid:
+                                data = article_data.get(int(gid), {})
+                                evt["shared_articles"] = data.get("shared_articles", 0)
+                                evt["shared_sources"] = data.get("shared_sources", 0)
+                                evt["sample_urls"] = data.get("sample_urls", [])
                 except Exception as e:
                     print(f"[EnhancedReporter] Mentions filter failed: {e}", flush=True)
+            
+            # --- Unified Relevance Scoring & Ranking ---
+            seed_dt = datetime.strptime(seed_date, "%Y-%m-%d")
+            for phase in ("preceding", "following", "reactions"):
+                events = storyline.get(phase, [])
+                if not events:
+                    continue
+                
+                for evt in events:
+                    score = _compute_storyline_relevance(
+                        evt, seed_dt, seed_location,
+                        has_gkg=use_gkg_filter,
+                        has_mentions=use_mentions_filter,
+                    )
+                    evt["relevance_score"] = round(score, 3)
+                
+                # Sort: primary by relevance_score DESC, secondary by date proximity
+                if phase == "preceding":
+                    # Preceding: closer to seed date = more relevant
+                    events.sort(key=lambda e: (-e.get("relevance_score", 0), e.get("SQLDATE", "")), reverse=False)
+                    events.reverse()  # Highest score first, then closest date
+                elif phase == "following":
+                    # Following: closer to seed date = more relevant
+                    events.sort(key=lambda e: (-e.get("relevance_score", 0), e.get("SQLDATE", "")), reverse=False)
+                else:
+                    # Reactions: by relevance
+                    events.sort(key=lambda e: -e.get("relevance_score", 0))
+                
+                storyline[phase] = events
             
             return storyline
         except Exception as e:
