@@ -374,9 +374,9 @@ class QueryPlanOutput(BaseModel):
     notice: Optional[str] = None
 
 
-class ReportOutput(BaseModel):
-    summary: str
-    key_findings: List[str]
+class ReportOutput(BaseResponse):
+    summary: str = ""
+    key_findings: List[str] = Field(default_factory=list)
 
 
 class PhaseOutput(BaseModel):
