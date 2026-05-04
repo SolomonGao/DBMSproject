@@ -19,6 +19,7 @@ from backend.agents.enhanced_reporter import get_enhanced_reporter
 from backend.services.executor import run_plan
 from backend.services.storyline_builder import build_full_storyline
 from backend.services.gkg_client import gkg_client
+from backend.agents.enhanced_reporter import _compute_storyline_relevance
 from backend.schemas.responses import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -217,18 +218,39 @@ async def get_storyline(request: StorylineRequest):
                 elapsed_ms=round((time.time() - t0) * 1000, 1),
             )
 
+        # --- Soft scoring: re-rank events by relevance to seed ---
+        primary = events[0]
+        ed = primary.get("event_data") or primary
+        seed_date = ed.get("SQLDATE")
+        seed_location = ed.get("ActionGeo_CountryCode") or ed.get("ActionGeo_FullName")
+        seed_actor1 = ed.get("Actor1Name")
+        seed_actor2 = ed.get("Actor2Name")
+        seed_articles = ed.get("NumArticles", 0) or 0
+        seed_goldstein = abs(ed.get("GoldsteinScale", 0) or 0)
+
+        from datetime import datetime
+        seed_dt = datetime.strptime(seed_date, "%Y-%m-%d") if seed_date else datetime.now()
+
+        for evt in events:
+            evt['_seed_articles'] = seed_articles
+            evt['_seed_goldstein'] = seed_goldstein
+            score = _compute_storyline_relevance(
+                evt, seed_dt, seed_location,
+                seed_actor1, seed_actor2,
+                has_gkg=False, has_mentions=False,
+            )
+            evt['_relevance_score'] = round(score, 3)
+
+        # Sort by relevance score DESC, then by date ASC
+        events.sort(key=lambda e: (-e.get('_relevance_score', 0), e.get("SQLDATE", "")))
+
         # Optionally fetch GKG data
         gkg_themes = None
         if gkg_client.available and events:
-            primary = events[0]
-            ed = primary.get("event_data") or primary
-            date = ed.get("SQLDATE")
             actor = ed.get("Actor1Name")
-            if date and actor:
+            if seed_date and actor:
                 try:
-                    # Use single-day query to stay under 1GB cost limit
-                    # GKG scans ~470MB/day, so 1 day is safe
-                    gkg_result = await gkg_client.get_entity_themes(actor, (date, date), limit=50)
+                    gkg_result = await gkg_client.get_entity_themes(actor, (seed_date, seed_date), limit=50)
                     if not gkg_result.get("error"):
                         gkg_themes = gkg_result.get("parsed_themes")
                     else:

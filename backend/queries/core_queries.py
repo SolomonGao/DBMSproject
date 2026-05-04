@@ -1096,94 +1096,67 @@ async def query_stream_events(
 # ============================================================================
 
 async def query_similar_events(pool, seed_event_id: int, limit: int = 10) -> List[Dict[str, Any]]:
-    """Find events similar to a seed event based on actor and event type.
-    
-    Uses indexed queries merged in Python for performance on large tables.
-    Searches within ±30 days of the seed event.
+    """Find events similar to a seed event.
+
+    Uses a soft-preference approach: time window + actor/location preference
+    in ORDER BY, not hard WHERE filters.  Returns a larger candidate pool
+    for downstream soft scoring (_compute_storyline_relevance).
     """
     seed = await pool.fetchone(f"""
         SELECT GlobalEventID, Actor1Name, Actor2Name, ActionGeo_CountryCode,
-               ActionGeo_FullName, EventRootCode, CAST(SQLDATE AS CHAR) as SQLDATE
+               ActionGeo_FullName, EventRootCode, CAST(SQLDATE AS CHAR) as SQLDATE,
+               NumArticles, GoldsteinScale
         FROM {DEFAULT_TABLE}
         WHERE GlobalEventID = %s
     """, (seed_event_id,))
-    
+
     if not seed:
         return []
-    
+
     a1, a2 = seed['Actor1Name'], seed['Actor2Name']
-    rc, sd = seed['EventRootCode'], seed['SQLDATE']
-    
+    loc = seed['ActionGeo_CountryCode'] or seed['ActionGeo_FullName']
+    sd = seed['SQLDATE']
+    seed_articles = seed.get('NumArticles', 0) or 0
+    seed_goldstein = abs(seed.get('GoldsteinScale', 0) or 0)
+
     from datetime import datetime, timedelta
     sd_dt = datetime.strptime(sd, '%Y-%m-%d')
     window_start = (sd_dt - timedelta(days=30)).strftime('%Y-%m-%d')
     window_end = (sd_dt + timedelta(days=30)).strftime('%Y-%m-%d')
-    
-    candidate_ids = {}  # id -> match_reasons
-    
-    # --- Actor match (most relevant, uses index_merge on actor1+actor2) ---
-    actor_names = []
-    if a1:
-        actor_names.append(a1)
-    if a2 and a2 != a1:
-        actor_names.append(a2)
-    
-    for an in actor_names:
-        # Actor1 match — avoids index_merge, lets MySQL use idx_numarticles for ORDER BY
-        rows = await pool.fetchall(f"""
-            SELECT GlobalEventID FROM {DEFAULT_TABLE}
-            WHERE SQLDATE BETWEEN %s AND %s
-              AND GlobalEventID != %s
-              AND SQLDATE != %s
-              AND Actor1Name = %s
-            ORDER BY NumArticles DESC
-            LIMIT %s
-        """, (window_start, window_end, seed_event_id, sd, an, limit * 2))
-        for r in rows:
-            gid = r['GlobalEventID']
-            if gid not in candidate_ids:
-                candidate_ids[gid] = set()
-            candidate_ids[gid].add('Same actor')
-        
-        # Actor2 match — separate query avoids OR-caused index_merge
-        rows = await pool.fetchall(f"""
-            SELECT GlobalEventID FROM {DEFAULT_TABLE}
-            WHERE SQLDATE BETWEEN %s AND %s
-              AND GlobalEventID != %s
-              AND SQLDATE != %s
-              AND Actor2Name = %s
-            ORDER BY NumArticles DESC
-            LIMIT %s
-        """, (window_start, window_end, seed_event_id, sd, an, limit * 2))
-        for r in rows:
-            gid = r['GlobalEventID']
-            if gid not in candidate_ids:
-                candidate_ids[gid] = set()
-            candidate_ids[gid].add('Same actor')
-    
-    # --- Type match (fallback when actor results are sparse, uses idx_event_root) ---
-    if len(candidate_ids) < limit:
-        rows = await pool.fetchall(f"""
-            SELECT GlobalEventID FROM {DEFAULT_TABLE}
-            WHERE SQLDATE BETWEEN %s AND %s
-              AND GlobalEventID != %s
-              AND SQLDATE != %s
-              AND EventRootCode = %s
-            ORDER BY NumArticles DESC
-            LIMIT %s
-        """, (window_start, window_end, seed_event_id, sd, rc, limit))
-        for r in rows:
-            gid = r['GlobalEventID']
-            if gid not in candidate_ids:
-                candidate_ids[gid] = set()
-            candidate_ids[gid].add('Same event type')
-    
-    if not candidate_ids:
-        return []
-    
-    # Fetch full details for candidates
-    id_list = ','.join(str(gid) for gid in candidate_ids.keys())
-    detail_rows = await pool.fetchall(f"""
+
+    # Build actor preference for ORDER BY
+    actor_order = "0"
+    params = [window_start, window_end, seed_event_id, sd]
+    if a1 and a2:
+        actor_order = (
+            "CASE WHEN (e.Actor1Name = %s AND e.Actor2Name = %s) "
+            "     OR (e.Actor1Name = %s AND e.Actor2Name = %s) THEN 2 "
+            "     WHEN e.Actor1Name IN (%s, %s) OR e.Actor2Name IN (%s, %s) THEN 1 "
+            "     ELSE 0 END"
+        )
+        params.extend([a1, a2, a2, a1, a1, a2, a1, a2])
+    elif a1:
+        actor_order = (
+            "CASE WHEN e.Actor1Name = %s OR e.Actor2Name = %s THEN 1 ELSE 0 END"
+        )
+        params.extend([a1, a1])
+    elif a2:
+        actor_order = (
+            "CASE WHEN e.Actor1Name = %s OR e.Actor2Name = %s THEN 1 ELSE 0 END"
+        )
+        params.extend([a2, a2])
+
+    # Location preference
+    loc_order = "0"
+    if loc:
+        loc_order = (
+            "CASE WHEN e.ActionGeo_CountryCode = %s OR e.ActionGeo_FullName = %s THEN 1 ELSE 0 END"
+        )
+        params.extend([loc, loc])
+
+    params.append(limit * 5)  # Larger pool for soft scoring
+
+    rows = await pool.fetchall(f"""
         SELECT
             e.GlobalEventID,
             CAST(e.SQLDATE AS CHAR) as SQLDATE,
@@ -1194,20 +1167,20 @@ async def query_similar_events(pool, seed_event_id: int, limit: int = 10) -> Lis
             f.fingerprint, f.headline, f.summary, f.event_type_label
         FROM {DEFAULT_TABLE} e
         LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-        WHERE e.GlobalEventID IN ({id_list})
-        ORDER BY e.NumArticles DESC
+        WHERE e.SQLDATE BETWEEN %s AND %s
+          AND e.GlobalEventID != %s
+          AND e.SQLDATE != %s
+        ORDER BY {actor_order} DESC, {loc_order} DESC, e.NumArticles DESC
         LIMIT %s
-    """, (limit,))
-    
+    """, tuple(params))
+
     result = []
-    for r in detail_rows:
+    for r in rows:
         d = dict(r)
-        gid = d['GlobalEventID']
-        reasons = list(candidate_ids.get(gid, ['Related']))
-        d['match_reason'] = reasons[0]
-        d['match_reasons'] = reasons
+        d['_seed_articles'] = seed_articles
+        d['_seed_goldstein'] = seed_goldstein
         result.append(d)
-    
+
     return result
 
 
@@ -1612,134 +1585,170 @@ async def query_event_storyline(
     pre_start = (center_dt - timedelta(days=days_before)).strftime('%Y-%m-%d')
     fol_end = (center_dt + timedelta(days=days_after)).strftime('%Y-%m-%d')
     
-    # --- Step 2: Preceding events (same actor pair + location + QuadClass + causal CAMEO) ---
+    # --- Step 2: Preceding events (time window + soft actor/location preference) ---
+    # Hard filter: only time window.  Actor/location/QuadClass/CAMEO are
+    # evaluated by _compute_storyline_relevance in Python layer.
     preceding = []
-    if a1 or a2:
-        actor_conditions = []
-        params = [pre_start, seed_date, seed_event_id, seed_date]
-        
-        if a1 and a2:
-            actor_conditions.append("(e.Actor1Name = %s AND e.Actor2Name = %s)")
-            actor_conditions.append("(e.Actor1Name = %s AND e.Actor2Name = %s)")
-            params.extend([a1, a2, a2, a1])
-        elif a1:
-            actor_conditions.append("(e.Actor1Name = %s OR e.Actor2Name = %s)")
-            params.extend([a1, a1])
-        elif a2:
-            actor_conditions.append("(e.Actor1Name = %s OR e.Actor2Name = %s)")
-            params.extend([a2, a2])
-        
-        actor_sql = " OR ".join(actor_conditions)
-        params.extend(location_params)
-        params.extend(preceding_cameo_params)
-        params.append(max_events_per_phase)
-        
-        pre_rows = await pool.fetchall(f"""
-            SELECT
-                e.GlobalEventID,
-                CAST(e.SQLDATE AS CHAR) as SQLDATE,
-                e.Actor1Name, e.Actor2Name,
-                e.EventCode, e.EventRootCode,
-                e.GoldsteinScale, e.AvgTone, e.NumArticles,
-                e.ActionGeo_FullName, e.ActionGeo_CountryCode,
-                e.SOURCEURL,
-                f.headline, f.summary, f.event_type_label
-            FROM {DEFAULT_TABLE} e
-            LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-            WHERE e.SQLDATE BETWEEN %s AND %s
-              AND e.GlobalEventID != %s
-              AND e.SQLDATE != %s
-              AND ({actor_sql})
-              {location_filter}
-              {quad_filter}
-              {preceding_cameo_filter}
-            ORDER BY e.SQLDATE DESC, e.NumArticles DESC
-            LIMIT %s
-        """, tuple(params))
-        
-        preceding = [dict(r) for r in pre_rows]
-        preceding.reverse()  # Oldest first
+    params = [pre_start, seed_date, seed_event_id, seed_date]
     
-    # --- Step 3: Following events (same actor pair + location + QuadClass) ---
+    # Build actor preference for ORDER BY (not WHERE)
+    actor_order = "0"
+    if a1 and a2:
+        actor_order = (
+            "CASE WHEN (e.Actor1Name = %s AND e.Actor2Name = %s) "
+            "     OR (e.Actor1Name = %s AND e.Actor2Name = %s) THEN 2 "
+            "     WHEN e.Actor1Name IN (%s, %s) OR e.Actor2Name IN (%s, %s) THEN 1 "
+            "     ELSE 0 END"
+        )
+        params.extend([a1, a2, a2, a1, a1, a2, a1, a2])
+    elif a1:
+        actor_order = (
+            "CASE WHEN e.Actor1Name = %s OR e.Actor2Name = %s THEN 1 ELSE 0 END"
+        )
+        params.extend([a1, a1])
+    elif a2:
+        actor_order = (
+            "CASE WHEN e.Actor1Name = %s OR e.Actor2Name = %s THEN 1 ELSE 0 END"
+        )
+        params.extend([a2, a2])
+    
+    # Location preference for ORDER BY
+    loc_order = "0"
+    if location:
+        loc_order = (
+            "CASE WHEN e.ActionGeo_CountryCode = %s OR e.ActionGeo_FullName = %s THEN 1 ELSE 0 END"
+        )
+        params.extend([location, location])
+    
+    params.append(max_events_per_phase * 3)  # Larger pool for soft scoring
+    
+    pre_rows = await pool.fetchall(f"""
+        SELECT
+            e.GlobalEventID,
+            CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
+            e.EventCode, e.EventRootCode,
+            e.GoldsteinScale, e.AvgTone, e.NumArticles,
+            e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            e.SOURCEURL,
+            f.headline, f.summary, f.event_type_label
+        FROM {DEFAULT_TABLE} e
+        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+        WHERE e.SQLDATE BETWEEN %s AND %s
+          AND e.GlobalEventID != %s
+          AND e.SQLDATE != %s
+        ORDER BY {actor_order} DESC, {loc_order} DESC, e.NumArticles DESC
+        LIMIT %s
+    """, tuple(params))
+    
+    preceding = [dict(r) for r in pre_rows]
+    preceding.reverse()  # Oldest first
+    
+    # --- Step 3: Following events (time window + soft actor/location preference) ---
     following = []
-    if a1 or a2:
-        actor_conditions = []
-        params = [seed_date, fol_end, seed_event_id, seed_date]
-        
-        if a1 and a2:
-            actor_conditions.append("(e.Actor1Name = %s AND e.Actor2Name = %s)")
-            actor_conditions.append("(e.Actor1Name = %s AND e.Actor2Name = %s)")
-            params.extend([a1, a2, a2, a1])
-        elif a1:
-            actor_conditions.append("(e.Actor1Name = %s OR e.Actor2Name = %s)")
-            params.extend([a1, a1])
-        elif a2:
-            actor_conditions.append("(e.Actor1Name = %s OR e.Actor2Name = %s)")
-            params.extend([a2, a2])
-        
-        actor_sql = " OR ".join(actor_conditions)
-        params.extend(location_params)
-        params.append(max_events_per_phase)
-        
-        fol_rows = await pool.fetchall(f"""
-            SELECT
-                e.GlobalEventID,
-                CAST(e.SQLDATE AS CHAR) as SQLDATE,
-                e.Actor1Name, e.Actor2Name,
-                e.EventCode, e.EventRootCode,
-                e.GoldsteinScale, e.AvgTone, e.NumArticles,
-                e.ActionGeo_FullName, e.ActionGeo_CountryCode,
-                e.SOURCEURL,
-                f.headline, f.summary, f.event_type_label
-            FROM {DEFAULT_TABLE} e
-            LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-            WHERE e.SQLDATE BETWEEN %s AND %s
-              AND e.GlobalEventID != %s
-              AND e.SQLDATE != %s
-              AND ({actor_sql})
-              {location_filter}
-              {quad_filter}
-            ORDER BY e.SQLDATE ASC, e.NumArticles DESC
-            LIMIT %s
-        """, tuple(params))
-        
-        following = [dict(r) for r in fol_rows]
+    params = [seed_date, fol_end, seed_event_id, seed_date]
     
-    # --- Step 4: Reactions (other actors responding to the seed event) ---
-    # Look for events where other actors act toward a1 or a2
-    # Event types: statements (01), express intent (02), consult (04), 
-    #              threaten (07), protest (06), coerce (07x), etc.
+    actor_order = "0"
+    if a1 and a2:
+        actor_order = (
+            "CASE WHEN (e.Actor1Name = %s AND e.Actor2Name = %s) "
+            "     OR (e.Actor1Name = %s AND e.Actor2Name = %s) THEN 2 "
+            "     WHEN e.Actor1Name IN (%s, %s) OR e.Actor2Name IN (%s, %s) THEN 1 "
+            "     ELSE 0 END"
+        )
+        params.extend([a1, a2, a2, a1, a1, a2, a1, a2])
+    elif a1:
+        actor_order = (
+            "CASE WHEN e.Actor1Name = %s OR e.Actor2Name = %s THEN 1 ELSE 0 END"
+        )
+        params.extend([a1, a1])
+    elif a2:
+        actor_order = (
+            "CASE WHEN e.Actor1Name = %s OR e.Actor2Name = %s THEN 1 ELSE 0 END"
+        )
+        params.extend([a2, a2])
+    
+    loc_order = "0"
+    if location:
+        loc_order = (
+            "CASE WHEN e.ActionGeo_CountryCode = %s OR e.ActionGeo_FullName = %s THEN 1 ELSE 0 END"
+        )
+        params.extend([location, location])
+    
+    params.append(max_events_per_phase * 3)
+    
+    fol_rows = await pool.fetchall(f"""
+        SELECT
+            e.GlobalEventID,
+            CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
+            e.EventCode, e.EventRootCode,
+            e.GoldsteinScale, e.AvgTone, e.NumArticles,
+            e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            e.SOURCEURL,
+            f.headline, f.summary, f.event_type_label
+        FROM {DEFAULT_TABLE} e
+        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+        WHERE e.SQLDATE BETWEEN %s AND %s
+          AND e.GlobalEventID != %s
+          AND e.SQLDATE != %s
+        ORDER BY {actor_order} DESC, {loc_order} DESC, e.NumArticles DESC
+        LIMIT %s
+    """, tuple(params))
+    
+    following = [dict(r) for r in fol_rows]
+    
+    # --- Step 4: Reactions (soft actor preference, not hard filter) ---
+    # Look for events where other actors act toward a1 or a2,
+    # but also include events that mention a1/a2 in any position.
     reactions = []
-    reaction_actor = a1 if a1 else a2  # The main actor others react to
-    if reaction_actor:
-        reac_rows = await pool.fetchall(f"""
-            SELECT
-                e.GlobalEventID,
-                CAST(e.SQLDATE AS CHAR) as SQLDATE,
-                e.Actor1Name, e.Actor2Name,
-                e.EventCode, e.EventRootCode,
-                e.GoldsteinScale, e.AvgTone, e.NumArticles,
-                e.ActionGeo_FullName, e.ActionGeo_CountryCode,
-                e.SOURCEURL,
-                f.headline, f.summary, f.event_type_label
-            FROM {DEFAULT_TABLE} e
-            LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
-            WHERE e.SQLDATE BETWEEN %s AND %s
-              AND e.GlobalEventID != %s
-              AND e.Actor2Name = %s
-              AND e.Actor1Name != %s
-              AND e.Actor1Name != %s
-              AND e.EventRootCode IN ('01', '02', '03', '04', '05', '06', '07')
-            ORDER BY e.NumArticles DESC
-            LIMIT %s
-        """, (
-            seed_date, fol_end,
-            seed_event_id,
-            reaction_actor,
-            a1 or '', a2 or '',  # Exclude the original actors reacting to themselves
-            max_events_per_phase,
-        ))
-        reactions = [dict(r) for r in reac_rows]
+    params = [seed_date, fol_end, seed_event_id, seed_date]
+    
+    actor_order = "0"
+    if a1 and a2:
+        actor_order = (
+            "CASE WHEN e.Actor2Name = %s AND e.Actor1Name NOT IN (%s, %s) THEN 2 "
+            "     WHEN e.Actor2Name = %s AND e.Actor1Name NOT IN (%s, %s) THEN 1 "
+            "     WHEN e.Actor1Name IN (%s, %s) OR e.Actor2Name IN (%s, %s) THEN 0.5 "
+            "     ELSE 0 END"
+        )
+        params.extend([a1, a1, a2, a2, a1, a2, a1, a2, a1, a2])
+    elif a1:
+        actor_order = (
+            "CASE WHEN e.Actor2Name = %s AND e.Actor1Name != %s THEN 1 "
+            "     WHEN e.Actor1Name = %s OR e.Actor2Name = %s THEN 0.5 "
+            "     ELSE 0 END"
+        )
+        params.extend([a1, a1, a1, a1])
+    elif a2:
+        actor_order = (
+            "CASE WHEN e.Actor2Name = %s AND e.Actor1Name != %s THEN 1 "
+            "     WHEN e.Actor1Name = %s OR e.Actor2Name = %s THEN 0.5 "
+            "     ELSE 0 END"
+        )
+        params.extend([a2, a2, a2, a2])
+    
+    params.append(max_events_per_phase * 3)
+    
+    reac_rows = await pool.fetchall(f"""
+        SELECT
+            e.GlobalEventID,
+            CAST(e.SQLDATE AS CHAR) as SQLDATE,
+            e.Actor1Name, e.Actor2Name,
+            e.EventCode, e.EventRootCode,
+            e.GoldsteinScale, e.AvgTone, e.NumArticles,
+            e.ActionGeo_FullName, e.ActionGeo_CountryCode,
+            e.SOURCEURL,
+            f.headline, f.summary, f.event_type_label
+        FROM {DEFAULT_TABLE} e
+        LEFT JOIN event_fingerprints f ON e.GlobalEventID = f.global_event_id
+        WHERE e.SQLDATE BETWEEN %s AND %s
+          AND e.GlobalEventID != %s
+          AND e.SQLDATE != %s
+        ORDER BY {actor_order} DESC, e.NumArticles DESC
+        LIMIT %s
+    """, tuple(params))
+    reactions = [dict(r) for r in reac_rows]
     
     return {
         "seed": seed,
