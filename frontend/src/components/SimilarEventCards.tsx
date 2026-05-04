@@ -1,4 +1,4 @@
-import { Calendar, MapPin, Users, ArrowRight } from 'lucide-react';
+import { Calendar, MapPin, Users, ArrowRight, ExternalLink, Hash } from 'lucide-react';
 import type { EventItem } from '../types';
 
 interface SimilarEvent extends EventItem {
@@ -121,6 +121,26 @@ export default function SimilarEventCards({ events, onEventClick }: Props) {
                         {evt.Actor1Name || '?'}
                         {evt.Actor2Name ? ` vs ${evt.Actor2Name}` : ''}
                       </span>
+                    )}
+
+                    {evt.GlobalEventID && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#9ca3af', background: '#f3f4f6', padding: '1px 6px', borderRadius: 8 }}>
+                        <Hash size={10} />
+                        {evt.GlobalEventID}
+                      </span>
+                    )}
+
+                    {evt.SOURCEURL && (
+                      <a
+                        href={evt.SOURCEURL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#2563eb', textDecoration: 'none' }}
+                      >
+                        <ExternalLink size={10} />
+                        Source
+                      </a>
                     )}
                   </div>
                 </div>

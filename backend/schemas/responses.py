@@ -471,12 +471,51 @@ class GKGInsightData(BaseModel):
     tone_timeline: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class ActorActivityItem(BaseModel):
+    date: str
+    total_events: int
+    total_articles: int
+    avg_goldstein: Optional[float] = None
+    avg_tone: Optional[float] = None
+    severe_conflict: int = 0
+    severe_cooperation: int = 0
+    top_event_code: Optional[str] = None
+    top_cameo_name: Optional[str] = None
+
+
+class StorylineEventItem(BaseModel):
+    GlobalEventID: int
+    SQLDATE: str
+    Actor1Name: Optional[str] = None
+    Actor2Name: Optional[str] = None
+    EventCode: Optional[str] = None
+    cameo_name: Optional[str] = None
+    GoldsteinScale: Optional[float] = None
+    AvgTone: Optional[float] = None
+    NumArticles: Optional[int] = None
+    ActionGeo_FullName: Optional[str] = None
+    ActionGeo_CountryCode: Optional[str] = None
+    SOURCEURL: Optional[str] = None
+    headline: Optional[str] = None
+    summary: Optional[str] = None
+    event_type_label: Optional[str] = None
+
+
+class EventStorylineData(BaseModel):
+    seed: Optional[StorylineEventItem] = None
+    preceding: List[StorylineEventItem] = Field(default_factory=list)
+    following: List[StorylineEventItem] = Field(default_factory=list)
+    reactions: List[StorylineEventItem] = Field(default_factory=list)
+
+
 class EnhancedReportOutput(BaseModel):
     summary: str
     key_findings: List[str] = Field(default_factory=list)
     storyline: Optional[StorylineData] = None
     news_coverage: Optional[NewsCoverageData] = None
     gkg_insights: Optional[GKGInsightData] = None
+    actor_activity: List[ActorActivityItem] = Field(default_factory=list)
+    event_storyline: Optional[EventStorylineData] = None
     generated_at: str = ""
 
 
@@ -488,7 +527,11 @@ class ReportConfig(BaseModel):
     gkg_tone_days: int = Field(14, ge=3, le=14, description="Days of GKG tone timeline (3-14)")
     gkg_themes_days: int = Field(1, ge=1, le=7, description="Days of GKG themes query (1-7)")
     gkg_cooccurring_limit: int = Field(30, ge=10, le=100, description="GKG co-occurring entities limit")
+    storyline_days_before: int = Field(7, ge=1, le=30, description="Storyline: days to look back (1-30)")
+    storyline_days_after: int = Field(7, ge=1, le=30, description="Storyline: days to look forward (1-30)")
     max_report_length: int = Field(12000, ge=4000, le=16000, description="Max report chars (4000-16000)")
+    use_gkg_storyline_filter: bool = Field(False, description="Enable GKG theme overlap filtering for storyline precision (~$0.09)")
+    use_mentions_storyline_filter: bool = Field(False, description="Enable Mentions shared-source detection for storyline precision (~$0.005)")
 
 
 class EventReportRequest(BaseModel):

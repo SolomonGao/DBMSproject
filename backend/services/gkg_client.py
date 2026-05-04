@@ -617,6 +617,163 @@ class GKGClient:
 
         return await self.query(sql, max_bytes=1_000_000_000)
 
+    # -- Storyline Precision: GKG Theme Overlap --
+
+    async def filter_events_by_theme_overlap(
+        self,
+        seed_actor: str,
+        seed_date: str,
+        candidate_events: List[Dict[str, Any]],
+        min_overlap_ratio: float = 0.15,
+    ) -> List[Dict[str, Any]]:
+        """Filter candidate events by GKG theme overlap with seed event.
+        
+        Events that share media themes with the seed are more likely to be
+        part of the same narrative. Uses Jaccard similarity on GKG themes.
+        
+        Args:
+            seed_actor: Primary actor of seed event
+            seed_date: Date of seed event (YYYY-MM-DD)
+            candidate_events: List of event dicts with Actor1Name, SQLDATE
+            min_overlap_ratio: Minimum Jaccard overlap to keep event
+            
+        Returns:
+            Filtered list of candidate events (may be empty)
+        """
+        if not self.available:
+            return candidate_events
+        
+        if not candidate_events:
+            return []
+        
+        # 1. Get seed themes
+        seed_themes_result = await self.get_entity_themes(
+            seed_actor, (seed_date, seed_date), limit=100
+        )
+        if seed_themes_result.get("error"):
+            print(f"[GKG] Seed theme query failed: {seed_themes_result.get('message')}", flush=True)
+            return candidate_events
+        
+        seed_themes = set()
+        for t in seed_themes_result.get("parsed_themes", {}).get("top_themes", []):
+            seed_themes.add(t["theme"])
+        
+        if not seed_themes:
+            return candidate_events
+        
+        # 2. Batch candidates by date to minimize queries
+        from collections import defaultdict
+        date_to_events = defaultdict(list)
+        for evt in candidate_events:
+            date_to_events[evt.get("SQLDATE")].append(evt)
+        
+        # 3. Query themes for each unique date (using seed actor for consistency)
+        date_themes = {}
+        for date_str in date_to_events:
+            result = await self.get_entity_themes(
+                seed_actor, (date_str, date_str), limit=100
+            )
+            if not result.get("error"):
+                themes = set()
+                for t in result.get("parsed_themes", {}).get("top_themes", []):
+                    themes.add(t["theme"])
+                date_themes[date_str] = themes
+        
+        # 4. Filter by overlap
+        filtered = []
+        for evt in candidate_events:
+            evt_themes = date_themes.get(evt.get("SQLDATE"), set())
+            if not evt_themes:
+                # No theme data → keep event (soft filter)
+                filtered.append(evt)
+                continue
+            
+            intersection = seed_themes & evt_themes
+            union = seed_themes | evt_themes
+            overlap = len(intersection) / len(union) if union else 0
+            
+            evt["theme_overlap"] = round(overlap, 3)
+            evt["shared_themes"] = list(intersection)[:5]
+            
+            if overlap >= min_overlap_ratio:
+                filtered.append(evt)
+        
+        print(
+            f"[GKG] Theme filter: {len(candidate_events)} → {len(filtered)} "
+            f"(min_overlap={min_overlap_ratio})",
+            flush=True,
+        )
+        return filtered
+
+    # -- Storyline Precision: Mentions Shared-Source --
+
+    async def get_shared_mention_sources(
+        self,
+        seed_event_id: int,
+        candidate_event_ids: List[int],
+        date_range: Tuple[str, str],
+    ) -> Dict[int, int]:
+        """Find how many news sources are shared between seed and each candidate.
+        
+        Events that appear in the same news articles as the seed are highly
+        likely to be part of the same story.
+        
+        Args:
+            seed_event_id: GlobalEventID of seed event
+            candidate_event_ids: List of candidate GlobalEventIDs
+            date_range: (start_date, end_date) to search mentions
+            
+        Returns:
+            Dict mapping event_id → shared_source_count
+        """
+        if not self.available or not candidate_event_ids:
+            return {}
+        
+        start, end = date_range
+        end_dt = datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)
+        end_exclusive = end_dt.strftime("%Y-%m-%d")
+        
+        # Build IN clause for candidate IDs
+        id_list = ','.join(str(gid) for gid in candidate_event_ids)
+        
+        sql = f"""
+        WITH seed_sources AS (
+          SELECT MentionSourceName, MentionIdentifier
+          FROM `gdelt-bq.gdeltv2.eventmentions_partitioned`
+          WHERE _PARTITIONTIME >= TIMESTAMP('{start}')
+            AND _PARTITIONTIME < TIMESTAMP('{end_exclusive}')
+            AND GLOBALEVENTID = {seed_event_id}
+        )
+        SELECT
+          c.GLOBALEVENTID as event_id,
+          COUNT(*) as shared_sources
+        FROM `gdelt-bq.gdeltv2.eventmentions_partitioned` c
+        JOIN seed_sources s
+          ON c.MentionSourceName = s.MentionSourceName
+          AND c.MentionIdentifier = s.MentionIdentifier
+        WHERE c._PARTITIONTIME >= TIMESTAMP('{start}')
+          AND c._PARTITIONTIME < TIMESTAMP('{end_exclusive}')
+          AND c.GLOBALEVENTID IN ({id_list})
+          AND c.GLOBALEVENTID != {seed_event_id}
+        GROUP BY c.GLOBALEVENTID
+        """
+        
+        result = await self.query(sql, max_bytes=500_000_000)
+        if result.get("error"):
+            print(f"[GKG] Mentions query failed: {result.get('message')}", flush=True)
+            return {}
+        
+        shared = {}
+        for row in result.get("data", []):
+            shared[int(row["event_id"])] = int(row["shared_sources"])
+        
+        print(
+            f"[GKG] Shared sources: seed={seed_event_id}, "
+            f"found matches for {len(shared)}/{len(candidate_event_ids)} candidates",
+            flush=True,
+        )
+        return shared
+
     # -- Stats --
 
     def get_cost_stats(self) -> Dict[str, Any]:

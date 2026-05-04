@@ -113,7 +113,11 @@ export default function ExplorePanel() {
     useStoryline: true,
     gkgToneDays: 14,
     gkgThemesDays: 1,
+    storylineDaysBefore: 7,
+    storylineDaysAfter: 7,
     maxReportLength: 12000,
+    useGKGStorylineFilter: false,
+    useMentionsStorylineFilter: false,
   });
 
   // Loading phase cycling
@@ -193,7 +197,11 @@ export default function ExplorePanel() {
       const config = {
         gkg_tone_days: reportConfig.gkgToneDays,
         gkg_themes_days: reportConfig.gkgThemesDays,
+        storyline_days_before: reportConfig.storylineDaysBefore,
+        storyline_days_after: reportConfig.storylineDaysAfter,
         max_report_length: reportConfig.maxReportLength,
+        use_gkg_storyline_filter: reportConfig.useGKGStorylineFilter,
+        use_mentions_storyline_filter: reportConfig.useMentionsStorylineFilter,
       };
       const res = await api.generateEventReport(
         data, prompt,
@@ -518,6 +526,43 @@ export default function ExplorePanel() {
                           </span>
                         </label>
                       </div>
+
+                      {/* Storyline Precision Layers */}
+                      {reportConfig.useStoryline && (
+                        <div style={{ marginBottom: 16, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#4b5563', marginBottom: 8 }}>
+                            Storyline Precision (BigQuery)
+                          </div>
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={reportConfig.useGKGStorylineFilter}
+                                onChange={(e) => setReportConfig({ ...reportConfig, useGKGStorylineFilter: e.target.checked })}
+                              />
+                              <span>
+                                <span style={{ fontWeight: 500, fontSize: 13 }}>GKG Theme Overlap</span>
+                                <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 12 }}>
+                                  {reportConfig.useGKGStorylineFilter ? '~$0.09 per report' : 'off'}
+                                </span>
+                              </span>
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={reportConfig.useMentionsStorylineFilter}
+                                onChange={(e) => setReportConfig({ ...reportConfig, useMentionsStorylineFilter: e.target.checked })}
+                              />
+                              <span>
+                                <span style={{ fontWeight: 500, fontSize: 13 }}>Shared News Sources</span>
+                                <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 12 }}>
+                                  {reportConfig.useMentionsStorylineFilter ? '~$0.005 per report' : 'off'}
+                                </span>
+                              </span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
                       
                       {/* Sliders */}
                       {reportConfig.useGKG && (
@@ -560,6 +605,44 @@ export default function ExplorePanel() {
                             </div>
                           </div>
                           
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ color: '#4b5563' }}>Storyline Look Back</span>
+                              <span style={{ fontWeight: 600, color: '#dc2626' }}>{reportConfig.storylineDaysBefore} days</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={1}
+                              max={30}
+                              value={reportConfig.storylineDaysBefore}
+                              onChange={(e) => setReportConfig({ ...reportConfig, storylineDaysBefore: parseInt(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                              <span>1 day</span>
+                              <span>30 days</span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ color: '#4b5563' }}>Storyline Look Forward</span>
+                              <span style={{ fontWeight: 600, color: '#dc2626' }}>{reportConfig.storylineDaysAfter} days</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={1}
+                              max={30}
+                              value={reportConfig.storylineDaysAfter}
+                              onChange={(e) => setReportConfig({ ...reportConfig, storylineDaysAfter: parseInt(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                              <span>1 day</span>
+                              <span>30 days</span>
+                            </div>
+                          </div>
+
                           <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                               <span style={{ color: '#4b5563' }}>Report Length</span>

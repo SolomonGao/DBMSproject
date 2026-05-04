@@ -1,5 +1,40 @@
+import { useState } from 'react';
 import { Network, Tag, TrendingUp, AlertCircle, BarChart3 } from 'lucide-react';
 import type { GKGInsightData } from '../types';
+
+function CopyableTag({ text, color, bg, count }: { text: string; color: string; bg: string; count?: number }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span
+      onClick={() => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+      style={{
+        fontSize: 12,
+        fontWeight: 500,
+        color: copied ? '#059669' : color,
+        background: copied ? '#ecfdf5' : bg,
+        padding: '4px 12px',
+        borderRadius: 20,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        cursor: 'pointer',
+        userSelect: 'none',
+        transition: 'all 0.15s ease',
+        border: `1px solid ${copied ? '#a7f3d0' : 'transparent'}`,
+      }}
+      title="Click to copy"
+    >
+      {copied ? 'Copied!' : text}
+      {count !== undefined && !copied && (
+        <span style={{ fontSize: 10, opacity: 0.6 }}>({count})</span>
+      )}
+    </span>
+  );
+}
 
 interface Props {
   insights: GKGInsightData;
@@ -43,27 +78,11 @@ export default function GKGInsightCards({ insights }: Props) {
         <div style={{ marginBottom: 20 }}>
           <h4 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#555', marginBottom: 10 }}>
             <TrendingUp size={14} color="#7c3aed" />
-            Related People in Media
+            Related People in Media <span style={{ fontWeight: 400, color: '#9ca3af', fontSize: 11 }}>(click to copy)</span>
           </h4>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {cooccur.top_persons.slice(0, 10).map((p: any, i: number) => (
-              <span
-                key={i}
-                style={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: '#7c3aed',
-                  background: '#f5f3ff',
-                  padding: '4px 12px',
-                  borderRadius: 20,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-              >
-                {p.name}
-                <span style={{ fontSize: 10, color: '#a78bfa' }}>({p.count})</span>
-              </span>
+              <CopyableTag key={i} text={p.name} color="#7c3aed" bg="#f5f3ff" count={p.count} />
             ))}
           </div>
         </div>
@@ -72,21 +91,12 @@ export default function GKGInsightCards({ insights }: Props) {
       {/* Related Organizations */}
       {cooccur && cooccur.top_organizations && cooccur.top_organizations.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <h4 style={{ fontSize: 13, color: '#555', marginBottom: 10 }}>Related Organizations</h4>
+          <h4 style={{ fontSize: 13, color: '#555', marginBottom: 10 }}>
+            Related Organizations <span style={{ fontWeight: 400, color: '#9ca3af', fontSize: 11 }}>(click to copy)</span>
+          </h4>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {cooccur.top_organizations.slice(0, 6).map((o: any, i: number) => (
-              <span
-                key={i}
-                style={{
-                  fontSize: 12,
-                  color: '#555',
-                  background: '#f3f4f6',
-                  padding: '4px 12px',
-                  borderRadius: 20,
-                }}
-              >
-                {o.name}
-              </span>
+              <CopyableTag key={i} text={o.name} color="#555" bg="#f3f4f6" />
             ))}
           </div>
         </div>
@@ -97,24 +107,11 @@ export default function GKGInsightCards({ insights }: Props) {
         <div style={{ marginBottom: 20 }}>
           <h4 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#555', marginBottom: 10 }}>
             <Tag size={14} color="#059669" />
-            Media Themes
+            Media Themes <span style={{ fontWeight: 400, color: '#9ca3af', fontSize: 11 }}>(click to copy)</span>
           </h4>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {themes.top_themes.slice(0, 12).map((t: any, i: number) => (
-              <span
-                key={i}
-                style={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: '#059669',
-                  background: '#f0fdf4',
-                  padding: '4px 12px',
-                  borderRadius: 20,
-                }}
-              >
-                {t.theme}
-                <span style={{ fontSize: 10, color: '#86efac', marginLeft: 4 }}>{t.count}</span>
-              </span>
+              <CopyableTag key={i} text={t.theme} color="#059669" bg="#f0fdf4" count={t.count} />
             ))}
           </div>
         </div>

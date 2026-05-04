@@ -174,6 +174,8 @@ async def generate_event_report(request: EventReportRequest):
                 storyline=result.storyline,
                 news_coverage=result.news_coverage,
                 gkg_insights=result.gkg_insights,
+                actor_activity=result.actor_activity or [],
+                event_storyline=result.event_storyline,
                 generated_at=result.generated_at,
             ),
             elapsed_ms=t_report,
