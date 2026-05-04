@@ -34,77 +34,117 @@ def _compute_storyline_relevance(
     evt: Dict[str, Any],
     seed_dt,
     seed_location: Optional[str],
+    seed_actor1: Optional[str],
+    seed_actor2: Optional[str],
     has_gkg: bool,
     has_mentions: bool,
 ) -> float:
     """Compute composite relevance score for a candidate event.
-    
+
     Score components (0-100 scale):
-    - Temporal proximity: closer to seed date = higher (max 30)
-    - Location match: same country/region = higher (max 20)
-    - SQL match quality: actor pair match, QuadClass match (max 25)
-    - GKG theme overlap: Jaccard similarity (max 15)
-    - Mentions shared articles: same-article count (max 10)
+    - Temporal proximity: Gaussian bell curve, peak at ~4 days (max 20)
+    - Location match: same country/region (max 10)
+    - Actor match: same actor pair or single actor (max 20)
+    - Event significance: NumArticles + Goldstein intensity (max 15)
+    - GKG theme overlap: Jaccard similarity of media themes (max 20)
+    - Mentions shared articles: same-source detection (max 15)
     """
     score = 0.0
-    
-    # 1. Temporal proximity (0-30)
+
+    # 1. Temporal proximity (0-20) — Gaussian: peak at ~4 days, same-day lower
     evt_date_str = evt.get("SQLDATE", "")
     if evt_date_str:
         try:
             from datetime import datetime
+            import math
             evt_dt = datetime.strptime(evt_date_str, "%Y-%m-%d")
             days_diff = abs((evt_dt - seed_dt).days)
-            # Exponential decay: same day = 30, 7 days = 15, 30 days = 5
-            temporal = 30 * (0.85 ** days_diff)
-            score += min(temporal, 30)
+            # Gaussian bell curve centered at 4 days:
+            #   same day (0)  ~ 17 pts
+            #   3-6 days      ~ 19-20 pts (peak)
+            #   14 days       ~ 10 pts
+            #   30 days       ~ 1 pt
+            peak_day = 4.0
+            sigma = 7.0
+            temporal = 20 * math.exp(-((days_diff - peak_day) ** 2) / (2 * sigma ** 2))
+            score += min(temporal, 20)
         except Exception:
-            score += 15  # Default if date parse fails
+            score += 10  # Default if date parse fails
     else:
-        score += 10
-    
-    # 2. Location match (0-20)
+        score += 5
+
+    # 2. Location match (0-10)
     evt_loc = evt.get("ActionGeo_CountryCode") or evt.get("ActionGeo_FullName")
     if seed_location and evt_loc:
         if seed_location == evt_loc:
-            score += 20
+            score += 10
         elif seed_location in str(evt_loc) or str(evt_loc) in seed_location:
-            score += 12
+            score += 6
         else:
-            score += 5
+            score += 2
     else:
-        score += 5
-    
-    # 3. SQL match quality (0-25)
-    # Already filtered by SQL layer, but we can boost for stronger matches
-    score += 15  # Base: passed all SQL filters
-    
-    # Boost for high NumArticles (more significant events)
-    num_articles = evt.get("NumArticles", 0)
-    if num_articles and num_articles > 10:
-        score += min(num_articles / 10, 10)
-    
-    # 4. GKG theme overlap (0-15)
+        score += 2
+
+    # 3. Actor match (0-20)
+    evt_a1 = evt.get("Actor1Name")
+    evt_a2 = evt.get("Actor2Name")
+    seed_actors = {a for a in (seed_actor1, seed_actor2) if a}
+    evt_actors = {a for a in (evt_a1, evt_a2) if a}
+    if seed_actors and evt_actors:
+        overlap = seed_actors & evt_actors
+        if len(overlap) >= 2:
+            score += 20  # Both actors match
+        elif len(overlap) == 1:
+            score += 12  # One actor matches
+        else:
+            score += 3   # No actor match
+    else:
+        score += 3
+
+    # 4. Event significance (0-15) — similarity to seed event's media intensity
+    # Events with similar NumArticles / |Goldstein| to the seed are more likely
+    # to be part of the same narrative.  Much hotter (or much colder) events
+    # score lower because they probably belong to a different story.
+    seed_articles = evt.get("_seed_articles", 50)
+    seed_goldstein = evt.get("_seed_goldstein", 5.0)
+    evt_articles = evt.get("NumArticles", 0) or 0
+    evt_goldstein = abs(evt.get("GoldsteinScale", 0) or 0)
+
+    # Articles similarity: 1.0 = identical, 0.0 = very different
+    if max(evt_articles, seed_articles) > 0:
+        article_sim = 1.0 - abs(evt_articles - seed_articles) / max(evt_articles, seed_articles)
+    else:
+        article_sim = 1.0
+
+    # Goldstein similarity
+    if max(evt_goldstein, seed_goldstein) > 0:
+        goldstein_sim = 1.0 - abs(evt_goldstein - seed_goldstein) / max(evt_goldstein, seed_goldstein)
+    else:
+        goldstein_sim = 1.0
+
+    sig_score = 8 * max(article_sim, 0) + 7 * max(goldstein_sim, 0)
+    score += min(sig_score, 15)
+
+    # 5. GKG theme overlap (0-20)
     if has_gkg:
         overlap = evt.get("theme_overlap", 0)
         if overlap > 0:
-            score += 15 * overlap  # 0.15 overlap = 2.25 pts, 1.0 = 15 pts
+            score += 20 * overlap  # 0.5 overlap = 10 pts, 1.0 = 20 pts
         else:
-            score += 3  # Small penalty for no theme data
-    
-    # 5. Mentions shared articles (0-10)
+            score += 2  # Small penalty for no theme data
+
+    # 6. Mentions shared articles (0-15)
     if has_mentions:
         shared_articles = evt.get("shared_articles", 0)
         shared_sources = evt.get("shared_sources", 0)
         if shared_articles > 0:
-            # Log scale: 1 article = 5 pts, 5+ = 10 pts
-            import math
-            score += min(5 + 5 * math.log1p(shared_articles) / math.log1p(5), 10)
+            # Log scale: 1 article = 7 pts, 5+ = 15 pts
+            score += min(7 + 8 * math.log1p(shared_articles) / math.log1p(5), 15)
         elif shared_sources > 0:
-            score += min(2 * shared_sources, 5)  # Shared source only = partial credit
+            score += min(3 * shared_sources, 7)  # Shared source only = partial credit
         else:
             score += 1  # Small penalty for no mention data
-    
+
     return score
 
 
@@ -356,7 +396,8 @@ class EnhancedReportGenerator(ReportGenerator):
         
         ed = primary_event.get("event_data") or primary_event
         seed_event_id = ed.get("GlobalEventID") or primary_event.get("GlobalEventID")
-        seed_actor = ed.get("Actor1Name") or primary_event.get("Actor1Name")
+        seed_actor1 = ed.get("Actor1Name") or primary_event.get("Actor1Name")
+        seed_actor2 = ed.get("Actor2Name") or primary_event.get("Actor2Name")
         seed_date = ed.get("SQLDATE") or primary_event.get("SQLDATE")
         seed_location = ed.get("ActionGeo_CountryCode") or ed.get("ActionGeo_FullName")
         
@@ -386,7 +427,7 @@ class EnhancedReportGenerator(ReportGenerator):
                 all_candidates.extend(storyline.get(phase, []))
             
             # --- Layer 2: GKG Theme Overlap (soft: attach score, don't filter) ---
-            if use_gkg_filter and self._gkg.available and seed_actor and seed_date:
+            if use_gkg_filter and self._gkg.available and seed_actor1 and seed_date:
                 try:
                     for phase in ("preceding", "following"):
                         candidates = storyline.get(phase, [])
@@ -425,6 +466,15 @@ class EnhancedReportGenerator(ReportGenerator):
                 except Exception as e:
                     print(f"[EnhancedReporter] Mentions filter failed: {e}", flush=True)
             
+            # --- Attach seed event's significance for similarity comparison ---
+            seed = storyline.get("seed", {})
+            seed_articles = seed.get("NumArticles", 0) or 0
+            seed_goldstein = abs(seed.get("GoldsteinScale", 0) or 0)
+            for phase in ("preceding", "following", "reactions"):
+                for evt in storyline.get(phase, []):
+                    evt["_seed_articles"] = seed_articles
+                    evt["_seed_goldstein"] = seed_goldstein
+            
             # --- Unified Relevance Scoring & Ranking ---
             seed_dt = datetime.strptime(seed_date, "%Y-%m-%d")
             for phase in ("preceding", "following", "reactions"):
@@ -435,6 +485,7 @@ class EnhancedReportGenerator(ReportGenerator):
                 for evt in events:
                     score = _compute_storyline_relevance(
                         evt, seed_dt, seed_location,
+                        seed_actor1, seed_actor2,
                         has_gkg=use_gkg_filter,
                         has_mentions=use_mentions_filter,
                     )
