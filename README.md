@@ -6,8 +6,8 @@
 
 This platform provides a **dual-mode interface** for analyzing GDELT (Global Database of Events, Language, and Tone) data:
 
+- **AI Explore** — Natural language querying powered by a hybrid planner (local Ollama router + rule-based fast path + remote LLM report generation).
 - **Dashboard** — Fast, interactive data visualization with auto-generated insights, time-series charts, geographic heatmaps, and event timelines.
-- **AI Explore** — Natural language querying powered by an LLM-based planner and executor.
 - **Forecast** — Transformer-Hawkes neural model for 7-day event risk prediction.
 
 The system is built for **sub-200ms dashboard response times** using a precomputed `daily_summary` table, shared SQL layer, and optimized subquery patterns.
@@ -24,12 +24,13 @@ The system is built for **sub-200ms dashboard response times** using a precomput
 | Uvicorn | ≥0.32 | ASGI server |
 | aiomysql | — | Async MySQL connection pool |
 | Pydantic | ≥2.9 | Data validation |
-| LangChain / LangGraph | ≥0.3 / ≥0.2 | LLM agent framework |
+| LangChain | ≥0.3 | LLM integration (OpenAI-compatible APIs) |
 | OpenAI SDK | ≥1.55 | LLM API client (Kimi/OpenAI/Anthropic compatible) |
 | ChromaDB | — | Vector database for semantic news search |
 | Sentence-Transformers | — | Text embeddings (all-MiniLM-L6-v2) |
 | NumPy / Pandas | — | Data processing |
 | BeautifulSoup4 | — | Web scraping |
+| Google Cloud BigQuery | ≥3.0 | GKG media analysis (optional) |
 
 ### Frontend
 | Technology | Version | Purpose |
@@ -71,7 +72,8 @@ DBMSproject/
 │   ├── main.py                      # App factory, lifespan, CORS, static files
 │   ├── dependencies.py              # Dependency injection (DB pool)
 │   ├── agents/
-│   │   └── planner.py               # LLM query planner + report generator
+│   │   ├── planner.py               # Hybrid planner: Ollama router + rule engine + LLM report
+│   │   └── enhanced_reporter.py     # Enhanced event report with storyline + news + GKG
 │   ├── database/
 │   │   ├── pool.py                  # Async MySQL connection pool
 │   │   └── streaming.py             # Streaming query helpers
@@ -86,6 +88,9 @@ DBMSproject/
 │   └── services/
 │       ├── data_service.py          # DB wrapper for dashboard & planner
 │       ├── executor.py              # Query plan executor
+│       ├── gkg_client.py            # Cost-controlled BigQuery client (GKG + Mentions)
+│       ├── news_scraper.py          # Web scraping for event source articles
+│       ├── storyline_builder.py     # Timeline + entity evolution builder
 │       └── thp_service.py           # Transformer-Hawkes forecast model
 │
 ├── frontend/                        # React + TypeScript + Vite
@@ -112,18 +117,8 @@ DBMSproject/
 │   ├── vite.config.ts
 │   └── index.html
 │
-├── backend/services/
-│   ├── data_service.py              # DB wrapper for dashboard & planner
-│   ├── executor.py                  # Query plan executor
-│   ├── gkg_client.py                # Cost-controlled BigQuery client (GKG + Mentions)
-│   ├── news_scraper.py              # Web scraping for event source articles
-│   ├── storyline_builder.py         # Timeline + entity evolution builder
-│   └── thp_service.py               # Transformer-Hawkes forecast model
-│
-├── mcp_server/                      # Optional MCP (Model Context Protocol) server
-│   └── app/
-│       ├── tools/core_tools_v2.py   # MCP tool definitions
-│       └── queries/core_queries.py  # Shared query layer
+├── mcp_server/                      # MCP server directory (legacy, currently unused)
+│   └── app/                         # Empty placeholder for future MCP integration
 │
 ├── db_scripts/                      # Database scripts
 │   ├── gdelt_db_v1.sql              # Main events_table schema
@@ -199,6 +194,10 @@ KIMI_CODE_API_KEY=sk-your-key-here
 
 # Optional: Ollama local router (for AI Explore intent routing)
 # OLLAMA_URL=http://host.docker.internal:11434/api/generate
+
+# Optional: GKG BigQuery (for enhanced reports)
+# GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+# BIGQUERY_PROJECT_ID=your-gcp-project-id
 ```
 
 ### 3. Start All Services
@@ -697,6 +696,6 @@ Research project by Virginia Tech team: Xing Gao, Xiangxin Tang, Yuxin Miao, Zil
 
 - [GDELT Project](https://www.gdeltproject.org/)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [LangGraph](https://langchain-ai.github.io/langgraph/)
+- [LangChain](https://python.langchain.com/)
 - [ECharts](https://echarts.apache.org/)
 - [Leaflet](https://leafletjs.com/)
