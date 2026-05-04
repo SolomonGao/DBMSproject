@@ -1530,57 +1530,6 @@ async def query_event_storyline(
     root_code = seed['EventRootCode']
     seed_quad = seed.get('QuadClass')
     
-    # --- Build precision filters ---
-    # Location filter: same country/region
-    location_filter = ""
-    location_params = []
-    if location:
-        location_filter = "AND (e.ActionGeo_CountryCode = %s OR e.ActionGeo_FullName = %s)"
-        location_params = [location, location]
-    
-    # QuadClass filter: same conflict/cooperation category
-    # 1=Verbal coop, 2=Material coop, 3=Verbal conflict, 4=Material conflict
-    quad_filter = ""
-    quad_params = []
-    if seed_quad is not None:
-        if seed_quad in (1, 2):
-            quad_filter = "AND e.QuadClass IN (1, 2)"
-        elif seed_quad in (3, 4):
-            quad_filter = "AND e.QuadClass IN (3, 4)"
-    
-    # CAMEO causal chain filter for preceding events
-    # Maps seed EventRootCode → plausible preceding EventRootCodes
-    CAUSAL_PRECEDING = {
-        '01': ['01', '02', '03', '04', '05'],           # Statement ← statement/yield/disapprove/consult/cooperate
-        '02': ['01', '03', '04', '05', '07'],           # Yield ← statement/disapprove/consult/cooperate/threaten
-        '03': ['01', '03', '04', '06', '07'],           # Disapprove ← statement/disapprove/consult/protest/threaten
-        '04': ['01', '03', '04', '05', '07'],           # Consult ← statement/disapprove/consult/cooperate/threaten
-        '05': ['01', '02', '04', '05'],                 # Cooperate ← statement/yield/consult/cooperate
-        '06': ['01', '03', '04', '06', '07'],           # Protest ← statement/disapprove/consult/protest/threaten
-        '07': ['01', '03', '04', '06', '07'],           # Threaten ← statement/disapprove/consult/protest/threaten
-        '08': ['01', '03', '04', '06', '07'],           # Coerce ← statement/disapprove/consult/protest/threaten
-        '09': ['01', '03', '04', '06', '07'],           # Assault ← statement/disapprove/consult/protest/threaten
-        '10': ['01', '03', '04', '06', '07'],           # Fight ← statement/disapprove/consult/protest/threaten
-        '11': ['01', '03', '04', '06', '07'],           # Use force ← statement/disapprove/consult/protest/threaten
-        '12': ['01', '03', '04', '06', '07'],           # Use unconventional mass violence ← statement/disapprove/consult/protest/threaten
-        '13': ['01', '03', '04', '06', '07'],           # Use biological weapons ← statement/disapprove/consult/protest/threaten
-        '14': ['01', '03', '04', '06', '07'],           # Use chemical weapons ← statement/disapprove/consult/protest/threaten
-        '15': ['01', '03', '04', '06', '07'],           # Use radiological weapons ← statement/disapprove/consult/protest/threaten
-        '16': ['01', '03', '04', '06', '07'],           # Use nuclear weapons ← statement/disapprove/consult/protest/threaten
-        '17': ['01', '03', '04', '06', '07'],           # Use weapons of mass destruction ← statement/disapprove/consult/protest/threaten
-        '18': ['01', '03', '04', '06', '07'],           # Engage in diplomatic conflict ← statement/disapprove/consult/protest/threaten
-        '19': ['01', '03', '04', '06', '07'],           # Use unconventional mass violence ← statement/disapprove/consult/protest/threaten
-        '20': ['01', '03', '04', '06', '07'],           # Use biological weapons ← statement/disapprove/consult/protest/threaten
-    }
-    
-    preceding_cameo_filter = ""
-    preceding_cameo_params = []
-    if root_code and root_code in CAUSAL_PRECEDING:
-        codes = CAUSAL_PRECEDING[root_code]
-        placeholders = ','.join(['%s'] * len(codes))
-        preceding_cameo_filter = f"AND e.EventRootCode IN ({placeholders})"
-        preceding_cameo_params = codes
-    
     center_dt = datetime.strptime(seed_date, '%Y-%m-%d')
     pre_start = (center_dt - timedelta(days=days_before)).strftime('%Y-%m-%d')
     fol_end = (center_dt + timedelta(days=days_after)).strftime('%Y-%m-%d')

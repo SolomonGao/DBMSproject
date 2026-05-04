@@ -433,7 +433,7 @@ class EnhancedReportGenerator(ReportGenerator):
                         candidates = storyline.get(phase, [])
                         if candidates:
                             scored = await self._gkg.score_events_by_theme_overlap(
-                                seed_actor, seed_date, candidates
+                                seed_actor1, seed_date, candidates
                             )
                             storyline[phase] = scored
                 except Exception as e:
