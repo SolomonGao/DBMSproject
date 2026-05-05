@@ -189,11 +189,9 @@ export interface ThemeEvolutionData {
   total_unique_themes: number;
 }
 
-export interface StorylineData {
-  timeline: StorylineTimelineData;
+export interface EventContextData {
   entity_evolution: EntityEvolutionData;
   theme_evolution: ThemeEvolutionData;
-  narrative_arc: string;
 }
 
 export interface NewsCoverageData {
@@ -263,7 +261,7 @@ export interface EventStorylineData {
 export interface EnhancedReportResult {
   summary: string;
   key_findings: string[];
-  storyline?: StorylineData;
+  event_context?: EventContextData;
   news_coverage?: NewsCoverageData;
   gkg_insights?: GKGInsightData;
   actor_activity?: ActorActivityItem[];

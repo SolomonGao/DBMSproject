@@ -1586,12 +1586,12 @@ async def query_event_storyline(
         WHERE e.SQLDATE BETWEEN %s AND %s
           AND e.GlobalEventID != %s
           AND e.SQLDATE != %s
-        ORDER BY {actor_order} DESC, {loc_order} DESC, e.NumArticles DESC
+        ORDER BY {actor_order} DESC, {loc_order} DESC, e.SQLDATE DESC, e.NumArticles DESC
         LIMIT %s
     """, tuple(params))
     
     preceding = [dict(r) for r in pre_rows]
-    preceding.reverse()  # Oldest first
+    # Already ordered by SQLDATE DESC, so reverse to get oldest first
     
     # --- Step 3: Following events (time window + soft actor/location preference) ---
     following = []
@@ -1641,11 +1641,12 @@ async def query_event_storyline(
         WHERE e.SQLDATE BETWEEN %s AND %s
           AND e.GlobalEventID != %s
           AND e.SQLDATE != %s
-        ORDER BY {actor_order} DESC, {loc_order} DESC, e.NumArticles DESC
+        ORDER BY {actor_order} DESC, {loc_order} DESC, e.SQLDATE ASC, e.NumArticles DESC
         LIMIT %s
     """, tuple(params))
     
     following = [dict(r) for r in fol_rows]
+    # Already ordered by SQLDATE ASC (earliest first)
     
     # --- Step 4: Reactions (soft actor preference, not hard filter) ---
     # Look for events where other actors act toward a1 or a2,
@@ -1694,7 +1695,7 @@ async def query_event_storyline(
         WHERE e.SQLDATE BETWEEN %s AND %s
           AND e.GlobalEventID != %s
           AND e.SQLDATE != %s
-        ORDER BY {actor_order} DESC, e.NumArticles DESC
+        ORDER BY {actor_order} DESC, e.SQLDATE ASC, e.NumArticles DESC
         LIMIT %s
     """, tuple(params))
     reactions = [dict(r) for r in reac_rows]

@@ -17,7 +17,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from backend.agents.planner import ReportGenerator, ReportResult, build_llm
 from backend.services.news_scraper import news_scraper
-from backend.services.storyline_builder import build_full_storyline
+from backend.services.storyline_builder import build_event_context
 from backend.services.gkg_client import gkg_client
 from backend.queries.core_queries import (
     query_actor_activity_overview,
@@ -191,7 +191,7 @@ class EnhancedReportResult:
         self,
         summary: str,
         key_findings: List[str],
-        storyline: Optional[Dict[str, Any]] = None,
+        event_context: Optional[Dict[str, Any]] = None,
         news_coverage: Optional[Dict[str, Any]] = None,
         gkg_insights: Optional[Dict[str, Any]] = None,
         actor_activity: Optional[List[Dict[str, Any]]] = None,
@@ -200,7 +200,7 @@ class EnhancedReportResult:
     ):
         self.summary = summary
         self.key_findings = key_findings
-        self.storyline = storyline
+        self.event_context = event_context
         self.news_coverage = news_coverage
         self.gkg_insights = gkg_insights
         self.actor_activity = actor_activity
@@ -211,7 +211,7 @@ class EnhancedReportResult:
         return {
             "summary": self.summary,
             "key_findings": self.key_findings,
-            "storyline": self.storyline,
+            "event_context": self.event_context,
             "news_coverage": self.news_coverage,
             "gkg_insights": self.gkg_insights,
             "actor_activity": self.actor_activity,
@@ -493,14 +493,13 @@ class EnhancedReportGenerator(ReportGenerator):
                 
                 # Sort: primary by relevance_score DESC, secondary by date proximity
                 if phase == "preceding":
-                    # Preceding: closer to seed date = more relevant
-                    events.sort(key=lambda e: (-e.get("relevance_score", 0), e.get("SQLDATE", "")), reverse=False)
-                    events.reverse()  # Highest score first, then closest date
+                    # Preceding: highest score first, then closest to seed date (latest date first)
+                    events.sort(key=lambda e: (e.get("relevance_score", 0), e.get("SQLDATE", "")), reverse=True)
                 elif phase == "following":
-                    # Following: closer to seed date = more relevant
-                    events.sort(key=lambda e: (-e.get("relevance_score", 0), e.get("SQLDATE", "")), reverse=False)
+                    # Following: highest score first, then closest to seed date (earliest date first)
+                    events.sort(key=lambda e: (-e.get("relevance_score", 0), e.get("SQLDATE", "")))
                 else:
-                    # Reactions: by relevance
+                    # Reactions: by relevance only
                     events.sort(key=lambda e: -e.get("relevance_score", 0))
                 
                 storyline[phase] = events
@@ -701,14 +700,14 @@ class EnhancedReportGenerator(ReportGenerator):
 
         news_coverage, related_news, gkg_data, actor_activity, event_storyline = await asyncio.gather(*gather_tasks)
 
-        storyline = None
+        event_context = None
         if include_storyline:
             events = self._extract_events_for_storyline(data)
             gkg_themes = gkg_data.get("themes") if gkg_data else None
-            storyline = build_full_storyline(events, gkg_themes)
+            event_context = build_event_context(events, gkg_themes)
 
         narrative_input = self._format_enhanced_data(
-            data, news_coverage, related_news, storyline, gkg_data,
+            data, news_coverage, related_news, event_context, gkg_data,
             actor_activity, event_storyline,
             max_length=max_length,
         )
@@ -746,7 +745,7 @@ class EnhancedReportGenerator(ReportGenerator):
                 return EnhancedReportResult(
                     summary="No report content was generated.",
                     key_findings=[],
-                    storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
+                    event_context=event_context if isinstance(event_context, dict) else (event_context.to_dict() if event_context else None),
                     news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                     gkg_insights=gkg_data,
                     actor_activity=actor_activity,
@@ -765,7 +764,7 @@ class EnhancedReportGenerator(ReportGenerator):
             return EnhancedReportResult(
                 summary=summary,
                 key_findings=findings,
-                storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
+                event_context=event_context if isinstance(event_context, dict) else (event_context.to_dict() if event_context else None),
                 news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                 gkg_insights=gkg_data,
                 actor_activity=actor_activity,
@@ -776,7 +775,7 @@ class EnhancedReportGenerator(ReportGenerator):
             return EnhancedReportResult(
                 summary="AI report generation timed out. The event data is still available.",
                 key_findings=[],
-                storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
+                event_context=event_context if isinstance(event_context, dict) else (event_context.to_dict() if event_context else None),
                 news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                 gkg_insights=gkg_data,
                 actor_activity=actor_activity,
@@ -787,7 +786,7 @@ class EnhancedReportGenerator(ReportGenerator):
             return EnhancedReportResult(
                 summary="Unable to generate AI report at this time.",
                 key_findings=[],
-                storyline=storyline if isinstance(storyline, dict) else (storyline.to_dict() if storyline else None),
+                event_context=event_context if isinstance(event_context, dict) else (event_context.to_dict() if event_context else None),
                 news_coverage=news_coverage if isinstance(news_coverage, dict) else None,
                 gkg_insights=gkg_data,
                 actor_activity=actor_activity,
@@ -799,7 +798,7 @@ class EnhancedReportGenerator(ReportGenerator):
         data: Dict[str, Any],
         news_coverage: Any,
         related_news: Any,
-        storyline: Any,
+        event_context: Any,
         gkg_data: Optional[Dict[str, Any]],
         actor_activity: Optional[List[Dict[str, Any]]] = None,
         event_storyline: Optional[Dict[str, Any]] = None,
@@ -831,16 +830,23 @@ class EnhancedReportGenerator(ReportGenerator):
                         snippet = rn.get("primary_content", "")[:500]
                         sections.append(f"  [{i+1}] {rn.get('headline', '')}: {snippet}")
 
-        if storyline:
-            sections.append("\n=== STORYLINE ===")
-            narrative_arc = storyline.get("narrative_arc") if isinstance(storyline, dict) else storyline.narrative_arc
-            sections.append(narrative_arc)
+        if event_context:
+            sections.append("\n=== EVENT CONTEXT ===")
+            entity_evolution = event_context.get("entity_evolution") if isinstance(event_context, dict) else event_context.entity_evolution
+            if entity_evolution:
+                actors = entity_evolution.get("actors", [])
+                if actors:
+                    sections.append("Key Actors:")
+                    for a in actors[:5]:
+                        sections.append(f"  - {a['name']}: {a['event_count']} events, role: {a['role']}")
 
-            timeline = storyline.get("timeline") if isinstance(storyline, dict) else storyline.timeline
-            if timeline.get("key_milestones"):
-                sections.append("\nKey Milestones:")
-                for m in timeline["key_milestones"]:
-                    sections.append(f"  - {m['date']}: {m['title']}")
+            theme_evolution = event_context.get("theme_evolution") if isinstance(event_context, dict) else event_context.theme_evolution
+            if theme_evolution:
+                dominant = theme_evolution.get("dominant_themes", [])
+                if dominant:
+                    sections.append("Dominant Themes:")
+                    for t in dominant[:5]:
+                        sections.append(f"  - {t['theme']}: {t['count']} mentions")
 
         if gkg_data:
             sections.append("\n=== MEDIA KNOWLEDGE GRAPH INSIGHTS ===")

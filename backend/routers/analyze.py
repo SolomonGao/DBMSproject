@@ -17,7 +17,7 @@ from backend.services.data_service import data_service
 from backend.agents.planner import Planner, ReportGenerator, QueryPlan
 from backend.agents.enhanced_reporter import get_enhanced_reporter
 from backend.services.executor import run_plan
-from backend.services.storyline_builder import build_full_storyline
+from backend.services.storyline_builder import build_event_context
 from backend.services.gkg_client import gkg_client
 from backend.agents.enhanced_reporter import _compute_storyline_relevance
 from backend.schemas.responses import (
@@ -172,7 +172,7 @@ async def generate_event_report(request: EventReportRequest):
             report=EnhancedReportOutput(
                 summary=result.summary,
                 key_findings=result.key_findings,
-                storyline=result.storyline,
+                event_context=result.event_context,
                 news_coverage=result.news_coverage,
                 gkg_insights=result.gkg_insights,
                 actor_activity=result.actor_activity or [],
@@ -258,17 +258,17 @@ async def get_storyline(request: StorylineRequest):
                 except Exception as e:
                     print(f"[Storyline] GKG fetch failed: {e}", flush=True)
 
-        storyline = build_full_storyline(events, gkg_themes)
+        event_context = build_event_context(events, gkg_themes)
 
         t_total = round((time.time() - t0) * 1000, 1)
         print(f"[Analyze/Storyline] Built in {t_total}ms, {len(events)} events", flush=True)
 
         return StorylineResponse(
             storyline=StorylineData(
-                timeline=storyline["timeline"],
-                entity_evolution=storyline["entity_evolution"],
-                theme_evolution=storyline["theme_evolution"],
-                narrative_arc=storyline["narrative_arc"],
+                timeline={"events": [], "period": {"start": None, "end": None, "duration_days": 0}, "key_milestones": []},
+                entity_evolution=event_context["entity_evolution"],
+                theme_evolution=event_context["theme_evolution"],
+                narrative_arc="",
             ),
             elapsed_ms=t_total,
         )

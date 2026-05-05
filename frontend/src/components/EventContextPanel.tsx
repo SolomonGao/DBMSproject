@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Calendar, MapPin, Users, ChevronDown, ChevronUp, Star, ExternalLink, Hash } from 'lucide-react';
-import type { StorylineData, TimelineEventItem } from '../types';
+import type { EventContextData } from '../types';
 
 interface Props {
-  storyline: StorylineData;
+  context: EventContextData;
 }
 
 function getEventTypeColor(label?: string): string {
@@ -24,178 +24,7 @@ function formatDate(dateStr: string): string {
   }
 }
 
-function TimelineNode({ event, isLast }: { event: TimelineEventItem; isLast: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const color = getEventTypeColor(event.event_type);
 
-  return (
-    <div style={{ display: 'flex', gap: 16, position: 'relative' }}>
-      {/* Timeline line */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div
-          style={{
-            width: 14,
-            height: 14,
-            borderRadius: '50%',
-            background: color,
-            border: '3px solid #fff',
-            boxShadow: `0 0 0 2px ${color}40`,
-            flexShrink: 0,
-            marginTop: 4,
-          }}
-        />
-        {!isLast && (
-          <div
-            style={{
-              width: 2,
-              flex: 1,
-              background: 'linear-gradient(to bottom, #e2e8f0, #f1f5f9)',
-              marginTop: 4,
-              marginBottom: 4,
-            }}
-          />
-        )}
-      </div>
-
-      {/* Content */}
-      <div style={{ flex: 1, paddingBottom: 20 }}>
-        <div
-          className="panel"
-          style={{
-            padding: 16,
-            borderLeft: `3px solid ${color}`,
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-          }}
-          onClick={() => setExpanded(!expanded)}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <Calendar size={13} color="#888" />
-                <span style={{ fontSize: 12, color: '#888', fontWeight: 500 }}>
-                  {formatDate(event.date)}
-                </span>
-                {event.significance_score >= 7 && (
-                  <span
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 2,
-                      fontSize: 11,
-                      color: '#f59e0b',
-                      background: '#fffbeb',
-                      padding: '2px 6px',
-                      borderRadius: 10,
-                    }}
-                  >
-                    <Star size={10} />
-                    Major
-                  </span>
-                )}
-              </div>
-              <h4 style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a', margin: '0 0 6px 0', lineHeight: 1.4 }}>
-                {event.title}
-              </h4>
-              <p style={{ fontSize: 13, color: '#666', margin: 0, lineHeight: 1.5 }}>
-                {event.description}
-              </p>
-            </div>
-            <div style={{ color: '#aaa', marginLeft: 8 }}>
-              {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            </div>
-          </div>
-
-          {/* Meta row */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px', marginTop: 10 }}>
-            {event.location && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#888' }}>
-                <MapPin size={12} />
-                {event.location}
-              </span>
-            )}
-            {event.actors.length > 0 && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#888' }}>
-                <Users size={12} />
-                {event.actors.join(', ')}
-              </span>
-            )}
-            {event.event_type && (
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: 0.5,
-                  color,
-                  background: `${color}12`,
-                  padding: '2px 8px',
-                  borderRadius: 10,
-                }}
-              >
-                {event.event_type}
-              </span>
-            )}
-            {event.event_id && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#9ca3af', background: '#f3f4f6', padding: '2px 8px', borderRadius: 10 }}>
-                <Hash size={10} />
-                ID: {event.event_id}
-              </span>
-            )}
-            {event.source_url && (
-              <a
-                href={event.source_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#2563eb', textDecoration: 'none' }}
-              >
-                <ExternalLink size={10} />
-                Source
-              </a>
-            )}
-          </div>
-
-          {/* Expanded details */}
-          {expanded && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 12 }}>
-                {event.goldstein_scale !== undefined && event.goldstein_scale !== null && (
-                  <div style={{ textAlign: 'center', padding: '8px 12px', background: '#f8fafc', borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Goldstein</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: event.goldstein_scale < -5 ? '#dc2626' : event.goldstein_scale > 5 ? '#059669' : '#6b7280' }}>
-                      {event.goldstein_scale.toFixed(1)}
-                    </div>
-                  </div>
-                )}
-                {event.num_articles !== undefined && event.num_articles !== null && (
-                  <div style={{ textAlign: 'center', padding: '8px 12px', background: '#f8fafc', borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Articles</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#2563eb' }}>{event.num_articles}</div>
-                  </div>
-                )}
-                {event.avg_tone !== undefined && event.avg_tone !== null && (
-                  <div style={{ textAlign: 'center', padding: '8px 12px', background: '#f8fafc', borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Tone</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: event.avg_tone < 0 ? '#dc2626' : '#059669' }}>
-                      {event.avg_tone > 0 ? '+' : ''}{event.avg_tone.toFixed(2)}
-                    </div>
-                  </div>
-                )}
-                <div style={{ textAlign: 'center', padding: '8px 12px', background: '#f8fafc', borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>Significance</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: event.significance_score >= 7 ? '#f59e0b' : '#6b7280' }}>
-                    {event.significance_score}/10
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function CopyableTag({ text, color = '#4b5563', bg = '#f3f4f6' }: { text: string; color?: string; bg?: string }) {
   const [copied, setCopied] = useState(false);
@@ -226,11 +55,9 @@ function CopyableTag({ text, color = '#4b5563', bg = '#f3f4f6' }: { text: string
   );
 }
 
-export default function StorylineTimeline({ storyline }: Props) {
-  const { timeline, entity_evolution, theme_evolution, narrative_arc } = storyline;
+export default function EventContextPanel({ context }: Props) {
+  const { entity_evolution, theme_evolution } = context;
   const [activeTab, setActiveTab] = useState<'entities' | 'themes'>('entities');
-
-  const period = timeline.period || {};
 
   return (
     <div className="panel">
@@ -239,9 +66,6 @@ export default function StorylineTimeline({ storyline }: Props) {
       </h3>
       <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
         Entities, locations, and themes from similar events
-        {period.start && period.end && (
-          <span> · {formatDate(period.start)} — {formatDate(period.end)}</span>
-        )}
       </p>
 
       {/* Tabs */}
