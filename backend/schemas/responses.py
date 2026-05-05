@@ -511,7 +511,7 @@ class EventStorylineData(BaseModel):
 class EnhancedReportOutput(BaseModel):
     summary: str
     key_findings: List[str] = Field(default_factory=list)
-    storyline: Optional[StorylineData] = None
+    event_context: Optional[StorylineData] = None
     news_coverage: Optional[NewsCoverageData] = None
     gkg_insights: Optional[GKGInsightData] = None
     actor_activity: List[ActorActivityItem] = Field(default_factory=list)

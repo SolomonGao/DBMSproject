@@ -1,6 +1,6 @@
 import { FileText, Lightbulb, BookOpen, Network, CalendarDays, GitBranch, Activity } from 'lucide-react';
 import type { EnhancedReportResult, EventItem } from '../types';
-import StorylineTimeline from './StorylineTimeline';
+import EventContextPanel from './EventContextPanel';
 import GKGInsightCards from './GKGInsightCards';
 import ActorActivityPanel from './ActorActivityPanel';
 import EventStorylinePanel from './EventStorylinePanel';
@@ -13,7 +13,7 @@ interface Props {
 export default function EventReportPanel({ report, event }: Props) {
   if (!report) return null;
 
-  const hasStoryline = !!report.storyline;
+  const hasEventContext = !!report.event_context;
   const hasGKG = !!report.gkg_insights;
   const hasActorActivity = !!report.actor_activity && report.actor_activity.length > 0;
   const hasEventStoryline = !!report.event_storyline;
@@ -68,10 +68,10 @@ export default function EventReportPanel({ report, event }: Props) {
               Event Storyline
             </span>
           )}
-          {hasStoryline && (
+          {hasEventContext && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#2563eb', background: '#eff6ff', padding: '4px 10px', borderRadius: 10 }}>
               <BookOpen size={12} />
-              Related Events
+              Context Analysis
             </span>
           )}
           {hasActorActivity && (
@@ -96,10 +96,10 @@ export default function EventReportPanel({ report, event }: Props) {
         </div>
       )}
 
-      {/* Storyline (Related Events & Context) */}
-      {hasStoryline && report.storyline && (
+      {/* Event Context (Entities & Themes) */}
+      {hasEventContext && report.event_context && (
         <div style={{ marginTop: 16 }}>
-          <StorylineTimeline storyline={report.storyline} />
+          <EventContextPanel context={report.event_context} />
         </div>
       )}
 

@@ -415,22 +415,19 @@ def build_narrative_arc(
 # Convenience: Full Storyline Build
 # ---------------------------------------------------------------------------
 
-def build_full_storyline(
+def build_event_context(
     events: List[Dict[str, Any]],
     gkg_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Build complete storyline from events and optional GKG data.
+    """Build event context analysis from events and optional GKG data.
 
-    This is the main entry point for storyline generation.
+    Returns entity evolution and theme evolution for the Context Analysis panel.
+    Timeline and narrative arc are handled separately by the event storyline chain.
     """
-    timeline = build_timeline(events, gkg_data)
     entity_evolution = build_entity_evolution(events)
     theme_evolution = build_theme_evolution(gkg_data)
-    narrative_arc = build_narrative_arc(timeline, entity_evolution, theme_evolution)
 
     return {
-        "timeline": timeline,
         "entity_evolution": entity_evolution,
         "theme_evolution": theme_evolution,
-        "narrative_arc": narrative_arc,
     }
