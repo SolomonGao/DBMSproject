@@ -1586,7 +1586,7 @@ async def query_event_storyline(
         WHERE e.SQLDATE BETWEEN %s AND %s
           AND e.GlobalEventID != %s
           AND e.SQLDATE != %s
-        ORDER BY {actor_order} DESC, {loc_order} DESC, e.SQLDATE DESC, e.NumArticles DESC
+        ORDER BY e.NumArticles DESC, e.SQLDATE DESC
         LIMIT %s
     """, tuple(params))
     
@@ -1641,7 +1641,7 @@ async def query_event_storyline(
         WHERE e.SQLDATE BETWEEN %s AND %s
           AND e.GlobalEventID != %s
           AND e.SQLDATE != %s
-        ORDER BY {actor_order} DESC, {loc_order} DESC, e.SQLDATE ASC, e.NumArticles DESC
+        ORDER BY e.NumArticles DESC, e.SQLDATE ASC
         LIMIT %s
     """, tuple(params))
     
@@ -1695,7 +1695,7 @@ async def query_event_storyline(
         WHERE e.SQLDATE BETWEEN %s AND %s
           AND e.GlobalEventID != %s
           AND e.SQLDATE != %s
-        ORDER BY {actor_order} DESC, e.SQLDATE ASC, e.NumArticles DESC
+        ORDER BY e.NumArticles DESC, e.SQLDATE ASC
         LIMIT %s
     """, tuple(params))
     reactions = [dict(r) for r in reac_rows]

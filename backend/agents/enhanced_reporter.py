@@ -51,22 +51,22 @@ def _compute_storyline_relevance(
     """
     score = 0.0
 
-    # 1. Temporal proximity (0-20) — Gaussian: peak at ~4 days, same-day lower
+    # 1. Temporal proximity (0-20) — Gaussian: peak at 3-6 days for after, before 3-6 days for before
     evt_date_str = evt.get("SQLDATE", "")
     if evt_date_str:
         try:
             from datetime import datetime
             import math
             evt_dt = datetime.strptime(evt_date_str, "%Y-%m-%d")
-            days_diff = abs((evt_dt - seed_dt).days)
-            # Gaussian bell curve centered at 4 days:
-            #   same day (0)  ~ 17 pts
-            #   3-6 days      ~ 19-20 pts (peak)
-            #   14 days       ~ 10 pts
-            #   30 days       ~ 1 pt
-            peak_day = 4.0
-            sigma = 7.0
-            temporal = 20 * math.exp(-((days_diff - peak_day) ** 2) / (2 * sigma ** 2))
+            signed_days_diff = (evt_dt - seed_dt).days
+            # For after events (positive): peak at +4.5 days (3-6 days)
+            # For before events (negative): peak at -4.5 days (before 3-6 days)
+            if signed_days_diff >= 0:
+                peak_day = 4.5
+            else:
+                peak_day = -4.5
+            sigma = 3.0  # Narrower sigma for sharper peak
+            temporal = 20 * math.exp(-((signed_days_diff - peak_day) ** 2) / (2 * sigma ** 2))
             score += min(temporal, 20)
         except Exception:
             score += 10  # Default if date parse fails
